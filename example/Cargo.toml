@@ -1,0 +1,12 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engine = { version = "0.1.0", path = "../engine" }
+pal = { version = "0.1.0", path = "../pal" }
+platform-sdl2 = { version = "0.1.0", path = "../platform-sdl2", optional = true }
+
+[features]
+default = ["platform-sdl2"]
