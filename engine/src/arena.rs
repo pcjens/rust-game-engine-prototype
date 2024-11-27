@@ -46,9 +46,41 @@ impl Arena {
         })
     }
 
-    /// Allocates one `T`. The arena can only be reset after all of these
-    /// borrows have been dropped.
-    pub fn alloc_zeroed<'a, T: Zeroable>(&'a self) -> Option<&'a mut T> {
+    /// Allocates one `T` zeroed out. Panics if there's not enough free memory
+    /// left.
+    pub fn alloc_zeroed<T: Zeroable>(&self) -> &mut T {
+        self.alloc_with_initializer(initialize_memory_to_zero::<T>)
+            .expect("arena should not run out of backing memory")
+    }
+
+    /// Allocates one `T` with its default value. Panics if there's not enough
+    /// free memory left.
+    pub fn alloc_default<T: Default>(&self) -> &mut T {
+        self.alloc_with_initializer(initialize_memory_to_default::<T>)
+            .expect("arena should not run out of backing memory")
+    }
+
+    /// Allocates one `T` and moves `value` there. Panics if there's not enough
+    /// free memory left.
+    pub fn alloc<T>(&self, value: T) -> &mut T {
+        self.alloc_with_initializer(initialize_memory_by_move(value))
+            .expect("arena should not run out of backing memory")
+    }
+
+    /// Allocates memory for a `T` and initializes the memory with
+    /// `initialize_memory`. **Internal use only** because `initialize_memory`
+    /// *must* initialize the memory given to it to contain a valid `T`,
+    /// otherwise we've got UB.
+    ///
+    /// ## Safety
+    ///
+    /// - `initialize_memory` must initialize the memory where the given pointer
+    ///   points to, to be a valid value of `T`.
+    #[inline(always)]
+    fn alloc_with_initializer<'a, T, F: FnOnce(*mut T)>(
+        &'a self,
+        initialize_memory: F,
+    ) -> Option<&'a mut T> {
         // Figure out the properly aligned offset of the new allocation.
         let offset = self.allocated.get().next_multiple_of(align_of::<T>());
         if offset + size_of::<T>() > self.backing_mem_size {
@@ -80,20 +112,7 @@ impl Arena {
         let allocated_void_ptr = unsafe { self.backing_mem_ptr.byte_add(offset) };
 
         let t_ptr = allocated_void_ptr as *mut T;
-
-        // Safety:
-        // - `t_ptr` is valid for writes up the size of T, since it's offset
-        //   from a valid pointer allocated by `malloc`, and we check above the
-        //   `offset + size_of::<T>()` fits within the allocation.
-        // - The pointer is properly aligned for the writes, since
-        //   `self.backing_mem_ptr` is properly aligned for anything (due to
-        //   being produced by `malloc`, which is apparently guaranteed to be
-        //   aligned for any type Foo in a usage like `(Foo*)malloc(..)`), and
-        //   the offset is aligned to `T`'s alignment.
-        unsafe { t_ptr.write_bytes(0, 1) };
-        // Note: though it is a Safety hazard only in the next step, writing
-        // these zeroes is only useful because T: Zeroable, so we know it's a
-        // valid value.
+        initialize_memory(t_ptr);
 
         // Safety:
         // - The pointer is properly aligned for T, as the base pointer is from
@@ -106,9 +125,8 @@ impl Arena {
         //   and `t_ptr + size_of::<T>()` falls within the memory allocated with
         //   one `malloc` call and pointed to by `self.backing_mem_ptr` (a
         //   single allocated object).
-        // - Since T: Zeroable, and the memory from `t_ptr` to `t_ptr +
-        //   size_of::<T>()` is zeroed by the `write_bytes` call above, the
-        //   pointer *does* point to a valid value of type T.
+        // - The `initialize_memory` function call above initializes the memory
+        //   at `t_ptr` to a valid value of T.
         // - Rust's aliasing rules are enforced:
         //   - While this reference `&'a mut T` exists, this Arena is immutably
         //     borrowed (`&'a self`). The only way the memory pointed to by this
@@ -131,5 +149,40 @@ impl Arena {
     /// allocation.
     pub fn reset(&mut self) {
         self.allocated.set(0);
+    }
+}
+
+#[inline(always)]
+fn initialize_memory_to_zero<T: Zeroable>(ptr: *mut T) {
+    // Safety:
+    // - `t_ptr` is valid for writes up the size of T, since it's offset from a
+    //   valid pointer allocated by `malloc`, and we check above the `offset +
+    //   size_of::<T>()` fits within the allocation.
+    // - The pointer is properly aligned for the writes, since
+    //   `self.backing_mem_ptr` is properly aligned for anything (due to being
+    //   produced by `malloc`, which is apparently guaranteed to be aligned for
+    //   any type Foo in a usage like `(Foo*)malloc(..)`), and the offset is
+    //   aligned to `T`'s alignment.
+    //
+    // Not really related to write_bytes safety, but the pointer will point to a
+    // valid value of T after this, since T: Zeroable and we write zeroes.
+    unsafe { ptr.write_bytes(0, 1) };
+}
+
+#[inline(always)]
+fn initialize_memory_to_default<T: Default>(ptr: *mut T) {
+    // Safety: the logic is exactly the same as in initialize_memory_to_zero.
+    // `write_bytes` has the same safety rules as `write`, it just writes zeroes
+    // instead of some existing value of T.
+    unsafe { ptr.write(T::default()) };
+}
+
+#[inline(always)]
+fn initialize_memory_by_move<T>(value: T) -> impl FnOnce(*mut T) {
+    move |ptr| {
+        // Safety: the logic is exactly the same as in
+        // initialize_memory_to_zero. `write_bytes` has the same safety rules as
+        // `write`, it just writes zeroes instead of some existing value of T.
+        unsafe { ptr.write(value) };
     }
 }

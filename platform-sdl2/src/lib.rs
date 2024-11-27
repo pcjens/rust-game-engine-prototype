@@ -44,6 +44,7 @@ pub fn main_impl() {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => {
+                    drop(engine);
                     exit(0);
                 }
                 _ => {}

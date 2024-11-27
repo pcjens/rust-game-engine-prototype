@@ -7,7 +7,9 @@ use core::time::Duration;
 use arena::Arena;
 use pal::Pal;
 
-/// How much memory is allocated for the frame allocator.
+/// How much memory is allocated for the frame allocator. Note that the unused
+/// tail will not necessarily hog up physical memory, thanks to virtual memory,
+/// so this is more of a sane maximum where we should start bailing.
 ///
 /// Logic: pick a target refresh rate like 60Hz, and relatively decent RAM like
 /// DDR4 at 3200MHz. That kind of RAM can transfer 25.6GB/s at best, so we get
@@ -36,6 +38,7 @@ impl<P: Pal> Engine<P> {
     /// Runs one iteration of the game loop.
     pub fn iterate(&mut self, _time_since_start: Duration) {
         self.frame_arena.reset();
-        let farena = &self.frame_arena;
+        let _foo = self.frame_arena.alloc([1, 2, 3]);
+        let _bar: &mut [u8; 1024] = self.frame_arena.alloc_zeroed();
     }
 }
