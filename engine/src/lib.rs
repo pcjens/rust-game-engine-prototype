@@ -1,5 +1,7 @@
 #![no_std]
 
+mod arena;
+
 use core::time::Duration;
 
 use pal::Pal;

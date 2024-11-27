@@ -83,6 +83,7 @@ dependencies = [
  "engine",
  "pal",
  "sdl2",
+ "sdl2-sys",
 ]
 
 [[package]]

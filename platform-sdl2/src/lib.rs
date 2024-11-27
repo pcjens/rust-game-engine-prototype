@@ -2,6 +2,7 @@ use std::{process::exit, time::Duration};
 
 use pal::Pal;
 use sdl2::{event::Event, pixels::Color};
+use sdl2_sys::{SDL_free, SDL_malloc};
 
 /// Entrypoint for the SDL2 based platform.
 pub fn main_impl() {
@@ -66,5 +67,14 @@ pub struct Sdl2Pal {
 impl Pal for Sdl2Pal {
     fn exit(&mut self, clean: bool) -> ! {
         exit(if clean { 0 } else { 1 });
+    }
+
+    fn malloc(size: usize) -> *mut std::ffi::c_void {
+        // Safety: ffi is unsafe by default, but there's nothing to ensure here.
+        unsafe { SDL_malloc(size) }
+    }
+
+    unsafe fn free(ptr: *mut std::ffi::c_void) {
+        SDL_free(ptr);
     }
 }
