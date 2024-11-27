@@ -1,5 +1,7 @@
 #[cfg(feature = "platform-sdl2")]
-platform_sdl2::generate_main!();
+fn main() {
+    platform_sdl2::main_impl();
+}
 
 #[cfg(not(any(feature = "platform-sdl2")))]
 fn main() {

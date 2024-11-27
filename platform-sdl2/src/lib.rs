@@ -1,24 +1,19 @@
-use std::process::exit;
+use std::{process::exit, time::Duration};
 
 use pal::Pal;
 use sdl2::{event::Event, pixels::Color};
 
-#[macro_export]
-macro_rules! generate_main {
-    () => {
-        // Nothing odd in this main implentation, but e.g. a wasm entrypoint
-        // would be more interesting, hence this generate_main! business.
-        fn main() {
-            platform_sdl2::main_impl();
-        }
-    };
-}
-
-#[doc(hidden)]
+/// Entrypoint for the SDL2 based platform.
 pub fn main_impl() {
     let sdl_context = sdl2::init().expect("SDL 2 library should be able to init");
 
     let mut engine = engine::Engine::new(Sdl2Pal { sdl_context });
+
+    let time = engine
+        .platform
+        .sdl_context
+        .timer()
+        .expect("SDL timer subsystem should be able to init");
 
     let video = engine
         .platform
@@ -57,12 +52,13 @@ pub fn main_impl() {
         canvas.set_draw_color(Color::BLACK);
         canvas.clear();
 
-        engine.iterate();
+        engine.iterate(Duration::from_millis(time.ticks64()));
 
         canvas.present();
     }
 }
 
+/// The [Pal] impl for the SDL2 based platform.
 pub struct Sdl2Pal {
     sdl_context: sdl2::Sdl,
 }
