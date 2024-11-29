@@ -66,6 +66,10 @@ pub struct Sdl2Pal {
 }
 
 impl Pal for Sdl2Pal {
+    fn println(&mut self, message: &str) {
+        println!("{message}");
+    }
+
     fn exit(&mut self, clean: bool) -> ! {
         exit(if clean { 0 } else { 1 });
     }
@@ -76,6 +80,6 @@ impl Pal for Sdl2Pal {
     }
 
     unsafe fn free(ptr: *mut std::ffi::c_void) {
-        SDL_free(ptr);
+        SDL_free(ptr)
     }
 }

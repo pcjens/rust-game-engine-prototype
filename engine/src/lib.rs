@@ -4,8 +4,9 @@ mod arena;
 
 use core::time::Duration;
 
-use arena::Arena;
 use pal::Pal;
+
+pub use arena::{Arena, FixedVec};
 
 /// How much memory is allocated for the frame allocator. Note that the unused
 /// tail will not necessarily hog up physical memory, thanks to virtual memory,
@@ -26,9 +27,8 @@ pub struct Engine<P: Pal> {
 impl<P: Pal> Engine<P> {
     /// Creates a new instance of the engine.
     pub fn new(platform: P) -> Engine<P> {
-        let frame_arena = Arena::new::<P>(FRAME_MEM).expect(
-            "should have enough RAM to accommodate the baseline memory usage of the engine",
-        );
+        let frame_arena =
+            Arena::new::<P>(FRAME_MEM).expect("should have enough memory for the frame allocator");
         Engine {
             platform,
             frame_arena,
@@ -38,7 +38,5 @@ impl<P: Pal> Engine<P> {
     /// Runs one iteration of the game loop.
     pub fn iterate(&mut self, _time_since_start: Duration) {
         self.frame_arena.reset();
-        let _foo = self.frame_arena.alloc([1, 2, 3]);
-        let _bar: &mut [u8; 1024] = self.frame_arena.alloc_zeroed();
     }
 }

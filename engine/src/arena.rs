@@ -1,8 +1,22 @@
-use core::{cell::Cell, ffi::c_void};
+mod vec;
+
+use core::{cell::Cell, ffi::c_void, mem::MaybeUninit, slice};
 
 use bytemuck::Zeroable;
 use pal::Pal;
 
+pub use vec::FixedVec;
+
+/// A stack allocator with a constant capacity.
+///
+/// NOTE: The allocation functions return mutable borrows to the allocated
+/// values, and [Arena::reset] does not drop those values. This means that the
+/// values allocated from this arena are not dropped, unless mem::swap is
+/// employed to extract the value out of the allocation, and then dropped.
+///
+/// However, you can allocate containers like [FixedVec] using the arena, and
+/// those containers in turn may drop the values they contain, see their
+/// documentation for details.
 pub struct Arena {
     backing_mem_ptr: *mut c_void,
     backing_mem_size: usize,
@@ -64,6 +78,15 @@ impl Arena {
     /// free memory left.
     pub fn alloc<T>(&self, value: T) -> &mut T {
         self.alloc_with_initializer(initialize_memory_by_move(value))
+            .expect("arena should not run out of backing memory")
+    }
+
+    /// Allocates an slice of `MaybeUninit<T>`. Panics if there's not enough
+    /// free memory left.
+    ///
+    /// See also: https://doc.rust-lang.org/nomicon/unchecked-uninit.html
+    pub fn alloc_uninit_slice<T>(&self, len: usize) -> &mut [MaybeUninit<T>] {
+        self.try_alloc_uninit_slice(len)
             .expect("arena should not run out of backing memory")
     }
 
@@ -145,10 +168,64 @@ impl Arena {
         Some(t_borrow)
     }
 
+    /// Allocates memory for a slice of `MaybeUninit<T>`, leaving the contents
+    /// of the slice uninitialized.
+    fn try_alloc_uninit_slice<'a, T>(&'a self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
+        // NOTE: This first part is the same as alloc_with_initializer, except
+        // that the size is multiplied by `len`.
+        let offset = self.allocated.get().next_multiple_of(align_of::<T>());
+        if offset + len * size_of::<T>() > self.backing_mem_size {
+            return None;
+        }
+        self.allocated.set(offset + len * size_of::<T>());
+        // Safety: see alloc_with_initializer, it's the same up to this point.
+        let allocated_void_ptr = unsafe { self.backing_mem_ptr.byte_add(offset) };
+        let uninit_t_ptr = allocated_void_ptr as *mut MaybeUninit<T>;
+
+        // NOTE: Here starts the differing section. Instead of initializing the
+        // memory and making a borrow out of the pointer, this function just
+        // makes a slice out of the pointer and the length we reserved after
+        // that pointer:
+
+        // Safety:
+        // - `uninit_t_ptr` is non-null and valid for both reads and writes
+        //   (which in turn have to follow MaybeUninit semantics, so we're
+        //   "passing the unsafety" to the user of the slice).
+        //   - The entire memory range of the slice is contained within a single
+        //     allocated object, the malloc'd area of memory from `Arena::new`.
+        //   - `uninit_ptr` is non-null and aligned regardless of slice length
+        //     of the size of T.
+        // - `uninit_ptr` does point to `len` consecutive properly initialized
+        //   values of type `MaybeUninit<T>`, because uninitialized values are
+        //   valid for the type.
+        // - The memory referenced by this slice is not accessed through any
+        //   other pointer for the duration of lifetime 'a, since this pointer
+        //   is derived from `self.allocated`, which has been bumped past the
+        //   bounds of this slice, and is not reset until Arena is mutably
+        //   borrowable again (i.e. after this slice has been dropped).
+        // - `len * size_of::<MaybeUninit<T>>()` is not larger than isize::MAX,
+        //   because it is not larger than `self.backing_mem_size` as checked
+        //   above, and that in turn is checked to be no larger than isize::MAX
+        //   in `Arena::new`.
+        let uninit_t_slice: &'a mut [MaybeUninit<T>] =
+            unsafe { slice::from_raw_parts_mut(uninit_t_ptr, len) };
+
+        Some(uninit_t_slice)
+    }
+
     /// Resets the arena memory, reclaiming all of the backing memory for future
-    /// allocation.
+    /// allocation. **NOTE:** While the memory is reclaimed, the values are not
+    /// dropped, i.e. they are leaked.
     pub fn reset(&mut self) {
-        self.allocated.set(0);
+        // Safety: though this is not an unsafe operation, pretty much all the
+        // unsafety in this file relies on `self.backing_mem_ptr +
+        // self.allocated` to not point in memory referenced by the mutable
+        // borrows dealt out by Arena. So, the safety of this assignment: we
+        // have a mutable borrow of self, which means that all the mutable
+        // borrows we've dealt out no longer exist, since those borrows cannot
+        // outlive the immutable borrow of Arena required by the allocation
+        // functions.
+        self.allocated = Cell::new(0);
     }
 }
 
