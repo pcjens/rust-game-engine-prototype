@@ -1,15 +1,42 @@
 use std::{process::exit, time::Duration};
 
+use engine::Engine;
 use pal::Pal;
 use sdl2::{event::Event, pixels::Color};
 use sdl2_sys::{SDL_free, SDL_malloc};
 
-/// Entrypoint for the SDL2 based platform.
-pub fn main_impl() {
-    let sdl_context = sdl2::init().expect("SDL 2 library should be able to init");
+/// The [Pal] impl for the SDL2 based platform.
+pub struct Sdl2Pal {
+    sdl_context: sdl2::Sdl,
+}
 
-    let mut engine = engine::Engine::new(Sdl2Pal { sdl_context });
+impl Sdl2Pal {
+    pub fn new() -> Sdl2Pal {
+        let sdl_context = sdl2::init().expect("SDL 2 library should be able to init");
+        Sdl2Pal { sdl_context }
+    }
+}
 
+impl Pal for Sdl2Pal {
+    fn println(&mut self, message: &str) {
+        println!("{message}");
+    }
+
+    fn exit(&mut self, clean: bool) -> ! {
+        exit(if clean { 0 } else { 1 });
+    }
+
+    fn malloc(size: usize) -> *mut std::ffi::c_void {
+        // Safety: ffi is unsafe by default, but there's nothing to ensure here.
+        unsafe { SDL_malloc(size) }
+    }
+
+    unsafe fn free(ptr: *mut std::ffi::c_void) {
+        SDL_free(ptr)
+    }
+}
+
+pub fn run(mut engine: Engine<Sdl2Pal>) -> ! {
     let time = engine
         .platform
         .sdl_context
@@ -57,29 +84,5 @@ pub fn main_impl() {
         engine.iterate(Duration::from_millis(time.ticks64()));
 
         canvas.present();
-    }
-}
-
-/// The [Pal] impl for the SDL2 based platform.
-pub struct Sdl2Pal {
-    sdl_context: sdl2::Sdl,
-}
-
-impl Pal for Sdl2Pal {
-    fn println(&mut self, message: &str) {
-        println!("{message}");
-    }
-
-    fn exit(&mut self, clean: bool) -> ! {
-        exit(if clean { 0 } else { 1 });
-    }
-
-    fn malloc(size: usize) -> *mut std::ffi::c_void {
-        // Safety: ffi is unsafe by default, but there's nothing to ensure here.
-        unsafe { SDL_malloc(size) }
-    }
-
-    unsafe fn free(ptr: *mut std::ffi::c_void) {
-        SDL_free(ptr)
     }
 }
