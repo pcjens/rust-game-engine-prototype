@@ -60,34 +60,22 @@ impl Arena {
         })
     }
 
-    /// Allocates one `T` zeroed out. Panics if there's not enough free memory
-    /// left.
-    pub fn alloc_zeroed<T: Zeroable>(&self) -> &mut T {
+    /// Allocates one `T` zeroed out. Returns None if there's not enough free
+    /// memory left.
+    pub fn alloc_zeroed<T: Zeroable>(&self) -> Option<&mut T> {
         self.alloc_with_initializer(initialize_memory_to_zero::<T>)
-            .expect("arena should not run out of backing memory")
     }
 
-    /// Allocates one `T` with its default value. Panics if there's not enough
-    /// free memory left.
-    pub fn alloc_default<T: Default>(&self) -> &mut T {
+    /// Allocates one `T` with its default value. Returns None if there's not
+    /// enough free memory left.
+    pub fn alloc_default<T: Default>(&self) -> Option<&mut T> {
         self.alloc_with_initializer(initialize_memory_to_default::<T>)
-            .expect("arena should not run out of backing memory")
     }
 
-    /// Allocates one `T` and moves `value` there. Panics if there's not enough
-    /// free memory left.
-    pub fn alloc<T>(&self, value: T) -> &mut T {
+    /// Allocates one `T` and moves `value` there. Returns None if there's not
+    /// enough free memory left.
+    pub fn alloc<T>(&self, value: T) -> Option<&mut T> {
         self.alloc_with_initializer(initialize_memory_by_move(value))
-            .expect("arena should not run out of backing memory")
-    }
-
-    /// Allocates an slice of `MaybeUninit<T>`. Panics if there's not enough
-    /// free memory left.
-    ///
-    /// See also: https://doc.rust-lang.org/nomicon/unchecked-uninit.html
-    pub fn alloc_uninit_slice<T>(&self, len: usize) -> &mut [MaybeUninit<T>] {
-        self.try_alloc_uninit_slice(len)
-            .expect("arena should not run out of backing memory")
     }
 
     /// Allocates memory for a `T` and initializes the memory with
@@ -170,6 +158,7 @@ impl Arena {
 
     /// Allocates memory for a slice of `MaybeUninit<T>`, leaving the contents
     /// of the slice uninitialized.
+    #[inline(always)]
     fn try_alloc_uninit_slice<'a, T>(&'a self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
         // NOTE: This first part is the same as alloc_with_initializer, except
         // that the size is multiplied by `len`.

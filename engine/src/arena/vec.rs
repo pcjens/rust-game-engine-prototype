@@ -15,30 +15,24 @@ pub struct FixedVec<'arena, T> {
 }
 
 impl<T> FixedVec<'_, T> {
-    pub fn new<'arena>(arena: &'arena Arena, capacity: usize) -> FixedVec<'arena, T> {
-        let uninit_slice: &'arena mut [MaybeUninit<T>] = arena.alloc_uninit_slice::<T>(capacity);
-        FixedVec {
+    /// Creates a new [FixedVec] with enough space for `capacity` elements of
+    /// type `T`. Returns None if the `arena` does not have enough free space.
+    pub fn new<'arena>(arena: &'arena Arena, capacity: usize) -> Option<FixedVec<'arena, T>> {
+        let uninit_slice: &'arena mut [MaybeUninit<T>] =
+            arena.try_alloc_uninit_slice::<T>(capacity)?;
+        Some(FixedVec {
             uninit_slice,
             initialized_len: 0,
-        }
+        })
     }
 
-    /// Appends the value to the back of the array, panicing if there's no
-    /// capacity left.
-    pub fn push(&mut self, value: T) {
-        if !self.try_push(value) {
-            panic!("should not push values into a full FixedVec");
-        }
-    }
-
-    /// Appends the value to the back of the array, returning `false` if there's
-    /// no capacity left.
-    #[must_use]
-    pub fn try_push(&mut self, value: T) -> bool {
+    /// Appends the value to the back of the array. Returns the given value back
+    /// in an Err if there's no capacity left.
+    pub fn push(&mut self, value: T) -> Result<(), T> {
         // Pick index, check it fits:
         let i = self.initialized_len;
         let Some(uninit) = self.uninit_slice.get_mut(i) else {
-            return false;
+            return Err(value);
         };
 
         // Write the value at the index:
@@ -57,7 +51,7 @@ impl<T> FixedVec<'_, T> {
         // The value at `i` is now initialized, update length:
         self.initialized_len = i + 1;
 
-        true
+        Ok(())
     }
 
     /// Empties out the array, dropping the currently contained values.
@@ -83,6 +77,12 @@ impl<T> FixedVec<'_, T> {
         }
 
         self.initialized_len = new_len;
+    }
+}
+
+impl<T> Drop for FixedVec<'_, T> {
+    fn drop(&mut self) {
+        self.clear();
     }
 }
 
