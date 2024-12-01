@@ -10,8 +10,13 @@ use pal::Pal;
 struct VeryAlignedThing([u8; 64]);
 const VERY_ALIGNED_THING: VeryAlignedThing = VeryAlignedThing([0; 64]);
 
-#[derive(Default)]
 pub struct TestPlatform;
+
+impl TestPlatform {
+    pub fn new() -> TestPlatform {
+        TestPlatform
+    }
+}
 
 impl Pal for TestPlatform {
     fn println(&self, _message: &str) {}
@@ -34,10 +39,11 @@ impl Pal for TestPlatform {
 impl TestPlatform {
     fn free_impl(&self, ptr: *mut c_void, size: usize) {
         let vec_ptr = ptr as *mut VeryAlignedThing;
+        let count = size.div_ceil(size_of::<VeryAlignedThing>());
         // Safety: ptr was allocated by a Vec<u8> so the requirements are
         // upheld, based on Vec::from_raw_parts documentation. The length and
         // capacity also match the original Vec.
-        let byte_vec: Vec<VeryAlignedThing> = unsafe { Vec::from_raw_parts(vec_ptr, size, size) };
+        let byte_vec: Vec<VeryAlignedThing> = unsafe { Vec::from_raw_parts(vec_ptr, count, count) };
         drop(byte_vec);
     }
 }

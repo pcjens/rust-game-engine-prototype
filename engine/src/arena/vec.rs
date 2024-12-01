@@ -107,3 +107,71 @@ impl<T> DerefMut for FixedVec<'_, T> {
         unsafe { transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(initialized_slice) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use core::{
+        str::FromStr,
+        sync::atomic::{AtomicI32, Ordering},
+    };
+
+    use arrayvec::ArrayString;
+
+    use crate::{test_platform::TestPlatform, Arena, FixedVec};
+
+    #[test]
+    fn does_not_leak() {
+        const COUNT: usize = 100;
+        static ELEMENT_COUNT: AtomicI32 = AtomicI32::new(0);
+
+        #[derive(Debug)]
+        struct Element {
+            _foo: bool,
+            _bar: ArrayString<100>,
+        }
+        impl Element {
+            pub fn create_and_count() -> Element {
+                ELEMENT_COUNT.fetch_add(1, Ordering::Relaxed);
+                Element {
+                    _foo: true,
+                    _bar: ArrayString::from_str("Bar").unwrap(),
+                }
+            }
+        }
+        impl Drop for Element {
+            fn drop(&mut self) {
+                ELEMENT_COUNT.fetch_add(-1, Ordering::Relaxed);
+            }
+        }
+
+        let platform = TestPlatform::new();
+        let arena = Arena::new(&platform, size_of::<Element>() * COUNT).unwrap();
+        let mut vec: FixedVec<Element> = FixedVec::new(&arena, COUNT).unwrap();
+
+        // Fill once:
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Relaxed));
+        for _ in 0..COUNT / 2 {
+            vec.push(Element::create_and_count()).unwrap();
+        }
+        assert_eq!(COUNT as i32 / 2, ELEMENT_COUNT.load(Ordering::Relaxed));
+
+        // Clear:
+        vec.clear();
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Relaxed));
+
+        // Refill:
+        for _ in 0..COUNT {
+            vec.push(Element::create_and_count()).unwrap();
+        }
+        assert_eq!(COUNT as i32, ELEMENT_COUNT.load(Ordering::Relaxed));
+        assert!(
+            vec.push(Element::create_and_count()).is_err(),
+            "vec should be full already"
+        );
+        assert_eq!(COUNT as i32, ELEMENT_COUNT.load(Ordering::Relaxed));
+
+        // Drop:
+        drop(vec);
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Relaxed));
+    }
+}
