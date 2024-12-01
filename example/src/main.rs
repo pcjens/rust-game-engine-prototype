@@ -1,8 +1,8 @@
 #[cfg(feature = "platform-sdl2")]
 fn main() {
     let platform = platform_sdl2::Sdl2Pal::new();
-    let engine = engine::Engine::new(platform);
-    platform_sdl2::run(engine);
+    let engine = engine::Engine::new(&platform);
+    platform_sdl2::run(engine, &platform);
 }
 
 #[cfg(not(any(feature = "platform-sdl2")))]

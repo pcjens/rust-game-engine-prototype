@@ -17,36 +17,38 @@ pub use vec::FixedVec;
 /// However, you can allocate containers like [FixedVec] using the arena, and
 /// those containers in turn may drop the values they contain, see their
 /// documentation for details.
-pub struct Arena {
+pub struct Arena<'platform> {
     backing_mem_ptr: *mut c_void,
     backing_mem_size: usize,
-    /// It's not safe to free a pointer to memory which is in use.
-    free_fn: unsafe fn(*mut c_void),
+    platform: &'platform dyn Pal,
 
     allocated: Cell<usize>,
 }
 
-impl Drop for Arena {
+impl Drop for Arena<'_> {
     fn drop(&mut self) {
         // Safety: backing_mem_ptr is a private field, so the only way to use it
         // is via Arena's API, which only deals out borrows which cannot outlive
         // the Arena itself. So since we're in the Drop impl, there must be no
         // such borrows, i.e. nobody is using the memory anymore.
-        unsafe { (self.free_fn)(self.backing_mem_ptr) };
+        unsafe {
+            self.platform
+                .free(self.backing_mem_ptr, self.backing_mem_size)
+        };
     }
 }
 
-impl Arena {
+impl Arena<'_> {
     /// Creates a new [Arena] with `capacity` bytes of backing memory. Returns
     /// None if allocating the memory fails or if `capacity` overflows `isize`.
-    pub fn new<P: Pal>(capacity: usize) -> Option<Arena> {
+    pub fn new(platform: &dyn Pal, capacity: usize) -> Option<Arena> {
         if capacity > isize::MAX as usize {
             // Practically never happens, but asserting this here helps avoid a
             // safety check later.
             return None;
         }
 
-        let backing_mem_ptr = P::malloc(capacity);
+        let backing_mem_ptr = platform.malloc(capacity);
         if backing_mem_ptr.is_null() {
             return None;
         }
@@ -54,7 +56,7 @@ impl Arena {
         Some(Arena {
             backing_mem_ptr,
             backing_mem_size: capacity,
-            free_fn: P::free,
+            platform,
 
             allocated: Cell::new(0),
         })

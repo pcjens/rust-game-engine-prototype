@@ -18,33 +18,31 @@ impl Sdl2Pal {
 }
 
 impl Pal for Sdl2Pal {
-    fn println(&mut self, message: &str) {
+    fn println(&self, message: &str) {
         println!("{message}");
     }
 
-    fn exit(&mut self, clean: bool) -> ! {
+    fn exit(&self, clean: bool) -> ! {
         exit(if clean { 0 } else { 1 });
     }
 
-    fn malloc(size: usize) -> *mut std::ffi::c_void {
+    fn malloc(&self, size: usize) -> *mut std::ffi::c_void {
         // Safety: ffi is unsafe by default, but there's nothing to ensure here.
         unsafe { SDL_malloc(size) }
     }
 
-    unsafe fn free(ptr: *mut std::ffi::c_void) {
+    unsafe fn free(&self, ptr: *mut std::ffi::c_void, _size: usize) {
         SDL_free(ptr)
     }
 }
 
-pub fn run(mut engine: Engine<Sdl2Pal>) -> ! {
-    let time = engine
-        .platform
+pub fn run(mut engine: Engine, platform: &Sdl2Pal) -> ! {
+    let time = platform
         .sdl_context
         .timer()
         .expect("SDL timer subsystem should be able to init");
 
-    let video = engine
-        .platform
+    let video = platform
         .sdl_context
         .video()
         .expect("SDL video subsystem should be able to init");
@@ -61,8 +59,7 @@ pub fn run(mut engine: Engine<Sdl2Pal>) -> ! {
         .build()
         .expect("should be able to create a renderer");
 
-    let mut event_pump = engine
-        .platform
+    let mut event_pump = platform
         .sdl_context
         .event_pump()
         .expect("SDL 2 event pump should init without issue");
