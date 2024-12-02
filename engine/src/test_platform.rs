@@ -40,6 +40,18 @@ impl Pal for TestPlatform {
         Some(pal::TextureRef::new(0))
     }
 
+    fn input_devices(&self) -> pal::InputDevices {
+        pal::InputDevices::new()
+    }
+
+    fn default_button_for_action(
+        &self,
+        _action: pal::ActionCategory,
+        _device: pal::InputDevice,
+    ) -> Option<pal::Button> {
+        None
+    }
+
     fn println(&self, _message: &str) {}
 
     fn exit(&self, clean: bool) {
@@ -59,6 +71,7 @@ impl Pal for TestPlatform {
         self.free_impl(ptr, size);
     }
 }
+
 impl TestPlatform {
     fn free_impl(&self, ptr: *mut c_void, size: usize) {
         let vec_ptr = ptr as *mut VeryAlignedThing;

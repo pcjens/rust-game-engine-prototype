@@ -7,10 +7,11 @@ use std::{
 };
 
 use engine::Engine;
-use pal::Pal;
+use pal::{ActionCategory, Button, InputDevice, InputDevices, Pal};
 use sdl2::{
+    controller::Button as SdlButton,
     event::Event,
-    keyboard::{Keycode, Mod},
+    keyboard::{Keycode, Mod, Scancode},
     pixels::{Color, PixelFormatEnum},
     rect::Rect,
     render::{Texture, TextureCreator, WindowCanvas},
@@ -19,9 +20,21 @@ use sdl2::{
     Sdl,
 };
 use sdl2_sys::{
-    SDL_BlendMode, SDL_Color, SDL_RenderGeometryRaw, SDL_Renderer, SDL_ScaleMode,
-    SDL_SetTextureBlendMode, SDL_SetTextureScaleMode, SDL_free, SDL_malloc,
+    SDL_BlendMode, SDL_Color, SDL_GameController, SDL_GameControllerGetType,
+    SDL_GameControllerOpen, SDL_GameControllerType, SDL_RenderGeometryRaw, SDL_Renderer,
+    SDL_ScaleMode, SDL_SetTextureBlendMode, SDL_SetTextureScaleMode, SDL_free, SDL_malloc,
 };
+
+enum Hid {
+    Keyboard,
+    Gamepad {
+        /// An opened SDL game controller which we'll never close. Unfortunate,
+        /// but shouldn't cause any major issues.
+        controller: *mut SDL_GameController,
+        connected: bool,
+        instance_id: u32,
+    },
+}
 
 /// The [Pal] impl for the SDL2 based platform.
 pub struct Sdl2Pal {
@@ -30,6 +43,9 @@ pub struct Sdl2Pal {
     exit_requested: Cell<bool>,
     texture_creator: &'static TextureCreator<WindowContext>,
     textures: RefCell<Vec<Texture<'static>>>,
+    /// List of input devices. Devices are never removed, so the InputDevice ids
+    /// used for this platform are indices to this list.
+    hids: RefCell<Vec<Hid>>,
 }
 
 impl Sdl2Pal {
@@ -60,7 +76,25 @@ impl Sdl2Pal {
             exit_requested: Cell::new(false),
             texture_creator,
             textures: RefCell::new(Vec::new()),
+            hids: RefCell::new(vec![Hid::Keyboard]),
         }
+    }
+
+    fn get_input_device_by_sdl_joystick_id(&self, which: u32) -> Option<InputDevice> {
+        let hids = self.hids.borrow();
+        for (i, hid) in hids.iter().enumerate() {
+            if let Hid::Gamepad {
+                connected: true,
+                instance_id,
+                ..
+            } = hid
+            {
+                if *instance_id == which {
+                    return Some(InputDevice::new(i as u64));
+                }
+            }
+        }
+        None
     }
 }
 
@@ -178,6 +212,76 @@ impl Pal for Sdl2Pal {
         Some(pal::TextureRef::new(texture_index as u64))
     }
 
+    fn input_devices(&self) -> InputDevices {
+        let mut devices = InputDevices::new();
+        {
+            let hids = self.hids.borrow();
+            for (id, hid) in hids.iter().enumerate() {
+                if let Hid::Gamepad {
+                    connected: false, ..
+                } = hid
+                {
+                    continue;
+                }
+                devices.push(InputDevice::new(id as u64));
+            }
+        }
+        devices
+    }
+
+    fn default_button_for_action(
+        &self,
+        action: ActionCategory,
+        device: InputDevice,
+    ) -> Option<Button> {
+        let hids = self.hids.borrow();
+        if let Some(hid) = hids.get(device.inner() as usize) {
+            let button = match hid {
+                Hid::Keyboard => match action {
+                    ActionCategory::Up => button_for_scancode(Scancode::Up),
+                    ActionCategory::Down => button_for_scancode(Scancode::Down),
+                    ActionCategory::Right => button_for_scancode(Scancode::Right),
+                    ActionCategory::Left => button_for_scancode(Scancode::Left),
+                    ActionCategory::Accept => button_for_scancode(Scancode::X),
+                    ActionCategory::Cancel => button_for_scancode(Scancode::Z),
+                    ActionCategory::Jump => button_for_scancode(Scancode::Space),
+                    ActionCategory::Run => button_for_scancode(Scancode::LShift),
+                    ActionCategory::ActPrimary => button_for_scancode(Scancode::X),
+                    ActionCategory::ActSecondary => button_for_scancode(Scancode::Z),
+                    ActionCategory::Pause => button_for_scancode(Scancode::Escape),
+                },
+                Hid::Gamepad { controller, .. } => match action {
+                    ActionCategory::Up => button_for_gamepad(SdlButton::DPadUp),
+                    ActionCategory::Down => button_for_gamepad(SdlButton::DPadDown),
+                    ActionCategory::Right => button_for_gamepad(SdlButton::DPadRight),
+                    ActionCategory::Left => button_for_gamepad(SdlButton::DPadLeft),
+                    ActionCategory::Accept => {
+                        button_for_gamepad(if flip_accept_cancel(*controller) {
+                            SdlButton::B // the right face button
+                        } else {
+                            SdlButton::A // the bottom face button
+                        })
+                    }
+                    ActionCategory::Cancel => {
+                        button_for_gamepad(if flip_accept_cancel(*controller) {
+                            SdlButton::A // the bottom face button
+                        } else {
+                            SdlButton::B // the right face button
+                        })
+                    }
+                    ActionCategory::Jump => button_for_gamepad(SdlButton::A),
+                    ActionCategory::Run => button_for_gamepad(SdlButton::B),
+                    ActionCategory::ActPrimary => button_for_gamepad(SdlButton::X),
+                    ActionCategory::ActSecondary => button_for_gamepad(SdlButton::Y),
+                    ActionCategory::Pause => button_for_gamepad(SdlButton::Start),
+                },
+            };
+            Some(button)
+        } else {
+            None
+        }
+    }
+
     fn println(&self, message: &str) {
         println!("{message}");
     }
@@ -204,6 +308,13 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
         .sdl_context
         .timer()
         .expect("SDL timer subsystem should be able to init");
+    // Init the subsystem. The subsystem is actually used, just through the FFI
+    // calls, since the subsystem doesn't expose everything we need (e.g. game
+    // controller type).
+    let _gamepad = platform
+        .sdl_context
+        .game_controller()
+        .expect("SDL controller subsystem should be able to init");
     let mut event_pump = platform
         .sdl_context
         .event_pump()
@@ -222,6 +333,90 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
                 } if keymod.intersects(Mod::LCTRLMOD) => {
                     platform.exit_requested.set(true);
                 }
+
+                Event::ControllerDeviceAdded { which, .. } => {
+                    // Safety: ffi call.
+                    let controller = unsafe { SDL_GameControllerOpen(which as i32) };
+                    if !controller.is_null() {
+                        let mut hids = platform.hids.borrow_mut();
+                        hids.push(Hid::Gamepad {
+                            controller,
+                            connected: true,
+                            instance_id: which,
+                        });
+                    }
+                }
+                Event::ControllerDeviceRemoved { which, .. } => {
+                    let mut hids = platform.hids.borrow_mut();
+                    for hid in hids.iter_mut() {
+                        if let Hid::Gamepad {
+                            connected,
+                            instance_id,
+                            ..
+                        } = hid
+                        {
+                            if *connected && *instance_id == which {
+                                *connected = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                Event::KeyDown {
+                    timestamp,
+                    scancode: Some(scancode),
+                    ..
+                } => {
+                    engine.event(
+                        engine::Event::DigitalInputPressed(
+                            InputDevice::new(0),
+                            button_for_scancode(scancode),
+                        ),
+                        Duration::from_millis(timestamp as u64),
+                    );
+                }
+
+                Event::KeyUp {
+                    timestamp,
+                    scancode: Some(scancode),
+                    ..
+                } => {
+                    engine.event(
+                        engine::Event::DigitalInputReleased(
+                            InputDevice::new(0),
+                            button_for_scancode(scancode),
+                        ),
+                        Duration::from_millis(timestamp as u64),
+                    );
+                }
+
+                Event::ControllerButtonDown {
+                    timestamp,
+                    which,
+                    button,
+                } => {
+                    if let Some(device) = platform.get_input_device_by_sdl_joystick_id(which) {
+                        engine.event(
+                            engine::Event::DigitalInputPressed(device, button_for_gamepad(button)),
+                            Duration::from_millis(timestamp as u64),
+                        );
+                    }
+                }
+
+                Event::ControllerButtonUp {
+                    timestamp,
+                    which,
+                    button,
+                } => {
+                    if let Some(device) = platform.get_input_device_by_sdl_joystick_id(which) {
+                        engine.event(
+                            engine::Event::DigitalInputReleased(device, button_for_gamepad(button)),
+                            Duration::from_millis(timestamp as u64),
+                        );
+                    }
+                }
+
                 _ => {}
             }
         }
@@ -239,4 +434,25 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
             canvas.present();
         }
     }
+}
+
+fn flip_accept_cancel(controller: *mut SDL_GameController) -> bool {
+    // Safety: controller is not null (checked when we get the pointer from an
+    // event).
+    let controller_type = unsafe { SDL_GameControllerGetType(controller) };
+    matches!(
+        controller_type,
+        SDL_GameControllerType::SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO
+            | SDL_GameControllerType::SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT
+            | SDL_GameControllerType::SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT
+            | SDL_GameControllerType::SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR
+    )
+}
+
+fn button_for_scancode(scancode: Scancode) -> Button {
+    Button::new((1 << 32) | scancode as u64)
+}
+
+fn button_for_gamepad(gamepad_button: SdlButton) -> Button {
+    Button::new((2 << 32) | gamepad_button as u64)
 }
