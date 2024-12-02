@@ -19,10 +19,33 @@ impl TestPlatform {
 }
 
 impl Pal for TestPlatform {
+    fn draw_area(&self) -> (f32, f32) {
+        (320.0, 240.0)
+    }
+
+    fn draw_triangles(
+        &self,
+        _vertices: &[pal::Vertex],
+        _indices: &[u32],
+        _settings: pal::DrawSettings,
+    ) {
+    }
+
+    fn create_texture(
+        &self,
+        _width: u32,
+        _height: u32,
+        _pixels: &mut [u8],
+    ) -> Option<pal::TextureRef> {
+        Some(pal::TextureRef::new(0))
+    }
+
     fn println(&self, _message: &str) {}
 
-    fn exit(&self, clean: bool) -> ! {
-        panic!("TestPlatform::exit({clean}) was called");
+    fn exit(&self, clean: bool) {
+        if !clean {
+            panic!("TestPlatform::exit({clean}) was called (test ran into an error?)");
+        }
     }
 
     fn malloc(&self, size: usize) -> *mut c_void {
