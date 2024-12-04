@@ -13,44 +13,15 @@ enum TestInput {
     Act,
 }
 
-/// Parts of [Engine] that would make it a self-referential type. First make
-/// this, pass then make an engine, and pass this in.
-pub struct EngineContext<'platform> {
+/// The top-level structure of the game engine which owns all the runtime state
+/// of the game engine and has methods for running the engine.
+pub struct Engine<'platform, 'engine> {
     /// The platform abstraction layer.
     platform: &'platform dyn Pal,
-    /// Linear allocator for dynamically sized but persistent data which does
-    /// not need to be freed before engine shutdown.
-    persistent_arena: LinearAllocator<'platform>,
-}
-
-impl EngineContext<'_> {
-    pub fn new(platform: &dyn Pal) -> EngineContext {
-        let persistent_arena = LinearAllocator::new(platform, 1_000_000_000)
-            .expect("should have enough memory for the persistent arena");
-        EngineContext {
-            platform,
-            persistent_arena,
-        }
-    }
-}
-
-/// The top-level structure of this game engine. Either owns, or has mutably
-/// borrowed\* all of the runtime resources and state related to the game
-/// engine.
-///
-/// \*: Since self-referential types are hard, everything that the engine would
-/// need to borrow for its entire lifetime are instead stored in
-/// [EngineContext], and mutably borrowed by this.
-///
-/// ## Lifetimes
-///
-/// `'platform` outlives `'ctx` which outlives the [Engine].
-pub struct Engine<'platform, 'ctx> {
-    /// The parts of the engine that need to outlive [Engine].
-    ctx: &'ctx mut EngineContext<'platform>,
-
-    /// The platform abstraction layer.
-    platform: &'platform dyn Pal,
+    /// Linear allocator for any persistent data that needs to be dynamically
+    /// allocated but does not need to be freed for the entire lifetime of the
+    /// engine. Engine internals are suballocated from this.
+    static_arena: &'engine LinearAllocator<'platform>,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'platform>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -63,16 +34,17 @@ pub struct Engine<'platform, 'ctx> {
 }
 
 impl Engine<'_, '_> {
+    pub const PERSISTENT_MEMORY_SIZE: usize = 1_000_000_000;
+
     /// Creates a new instance of the engine.
-    pub fn new<'platform, 'ctx>(
-        ctx: &'ctx mut EngineContext<'platform>,
-    ) -> Engine<'platform, 'ctx> {
-        let platform = ctx.platform;
+    pub fn new<'platform, 'engine>(
+        platform: &'platform dyn Pal,
+        static_arena: &'engine LinearAllocator<'platform>,
+    ) -> Engine<'platform, 'engine> {
         let frame_arena = LinearAllocator::new(platform, 1_000_000_000)
             .expect("should have enough memory for the frame arena");
 
-        let test_texture = ctx
-            .platform
+        let test_texture = platform
             .create_texture(
                 2,
                 2,
@@ -86,8 +58,8 @@ impl Engine<'_, '_> {
             .unwrap();
 
         Engine {
-            ctx,
             platform,
+            static_arena,
             frame_arena,
             event_queue: ArrayVec::new(),
 
@@ -113,9 +85,9 @@ impl Engine<'_, '_> {
             action_test = input.actions[TestInput::Act].pressed;
         }
 
-        let (w, _) = self.ctx.platform.draw_area();
+        let (w, _) = self.platform.draw_area();
         let w = if action_test { w / 2. } else { w };
-        self.ctx.platform.draw_triangles(
+        self.platform.draw_triangles(
             &[
                 pal::Vertex::new(w / 2. - 200., 200., 0.0, 0.0),
                 pal::Vertex::new(w / 2. - 200., 600., 0.0, 1.0),
