@@ -3,23 +3,28 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use super::Arena;
+use super::LinearAllocator;
 
-/// A fixed-capacity contiguous growable array type. Named like Vec since it's
-/// used similarly, but this type does *not* allocate more memory as needed, it
-/// **panics** if full. Allocates memory from an [Arena], so this is very cheap
-/// to create.
-pub struct FixedVec<'arena, T> {
-    uninit_slice: &'arena mut [MaybeUninit<T>],
+/// A fixed-capacity contiguous growable array type.
+///
+/// Named like Vec since it's used similarly, but this type does *not* allocate
+/// more memory as needed. Very cheap to create and push to. Unlike
+/// [arrayvec::ArrayVec], the capacity can be picked at runtime, and the backing
+/// memory does not need to be initialized until it's actually used.
+pub struct FixedVec<'alloc, T> {
+    uninit_slice: &'alloc mut [MaybeUninit<T>],
     initialized_len: usize,
 }
 
 impl<T> FixedVec<'_, T> {
     /// Creates a new [FixedVec] with enough space for `capacity` elements of
-    /// type `T`. Returns None if the `arena` does not have enough free space.
-    pub fn new<'arena>(arena: &'arena Arena, capacity: usize) -> Option<FixedVec<'arena, T>> {
-        let uninit_slice: &'arena mut [MaybeUninit<T>] =
-            arena.try_alloc_uninit_slice::<T>(capacity)?;
+    /// type `T`. Returns None if the allocator does not have enough free space.
+    pub fn new<'alloc>(
+        allocator: &'alloc LinearAllocator,
+        capacity: usize,
+    ) -> Option<FixedVec<'alloc, T>> {
+        let uninit_slice: &'alloc mut [MaybeUninit<T>] =
+            allocator.try_alloc_uninit_slice::<T>(capacity)?;
         Some(FixedVec {
             uninit_slice,
             initialized_len: 0,
@@ -117,7 +122,7 @@ mod tests {
 
     use arrayvec::ArrayString;
 
-    use crate::{test_platform::TestPlatform, Arena, FixedVec};
+    use crate::{test_platform::TestPlatform, FixedVec, LinearAllocator};
 
     #[test]
     fn does_not_leak() {
@@ -145,8 +150,8 @@ mod tests {
         }
 
         let platform = TestPlatform::new();
-        let arena = Arena::new(&platform, size_of::<Element>() * COUNT).unwrap();
-        let mut vec: FixedVec<Element> = FixedVec::new(&arena, COUNT).unwrap();
+        let alloc = LinearAllocator::new(&platform, size_of::<Element>() * COUNT).unwrap();
+        let mut vec: FixedVec<Element> = FixedVec::new(&alloc, COUNT).unwrap();
 
         // Fill once:
         assert_eq!(0, ELEMENT_COUNT.load(Ordering::Relaxed));

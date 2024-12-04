@@ -4,32 +4,75 @@ use arrayvec::ArrayVec;
 use enum_map::enum_map;
 use pal::Pal;
 
-use crate::{Action, ActionKind, Arena, Event, EventQueue, InputDeviceState, QueuedEvent};
-
-/// How much memory is allocated for the frame allocator.
-const FRAME_MEM: usize = 1_000_000_000;
+use crate::{
+    Action, ActionKind, Event, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
+};
 
 #[derive(enum_map::Enum)]
 enum TestInput {
     Act,
 }
 
-pub struct Engine<'platform> {
+/// Parts of [Engine] that would make it a self-referential type. First make
+/// this, pass then make an engine, and pass this in.
+pub struct EngineContext<'platform> {
+    /// The platform abstraction layer.
     platform: &'platform dyn Pal,
-    frame_arena: Arena<'platform>,
+    /// Linear allocator for dynamically sized but persistent data which does
+    /// not need to be freed before engine shutdown.
+    persistent_arena: LinearAllocator<'platform>,
+}
+
+impl EngineContext<'_> {
+    pub fn new(platform: &dyn Pal) -> EngineContext {
+        let persistent_arena = LinearAllocator::new(platform, 1_000_000_000)
+            .expect("should have enough memory for the persistent arena");
+        EngineContext {
+            platform,
+            persistent_arena,
+        }
+    }
+}
+
+/// The top-level structure of this game engine. Either owns, or has mutably
+/// borrowed\* all of the runtime resources and state related to the game
+/// engine.
+///
+/// \*: Since self-referential types are hard, everything that the engine would
+/// need to borrow for its entire lifetime are instead stored in
+/// [EngineContext], and mutably borrowed by this.
+///
+/// ## Lifetimes
+///
+/// `'platform` outlives `'ctx` which outlives the [Engine].
+pub struct Engine<'platform, 'ctx> {
+    /// The parts of the engine that need to outlive [Engine].
+    ctx: &'ctx mut EngineContext<'platform>,
+
+    /// The platform abstraction layer.
+    platform: &'platform dyn Pal,
+    /// Linear allocator for any frame-internal dynamic allocation needs.
+    frame_arena: LinearAllocator<'platform>,
+    /// Queued up events from the platform layer. Discarded after being used by
+    /// the game to trigger an action via [crate::input::InputDeviceState], or
+    /// after a timeout if not.
     event_queue: EventQueue,
 
     test_input: Option<InputDeviceState<TestInput>>,
     test_texture: pal::TextureRef,
 }
 
-impl Engine<'_> {
+impl Engine<'_, '_> {
     /// Creates a new instance of the engine.
-    pub fn new(platform: &dyn Pal) -> Engine {
-        let frame_arena = Arena::new(platform, FRAME_MEM)
-            .expect("should have enough memory for the frame allocator");
+    pub fn new<'platform, 'ctx>(
+        ctx: &'ctx mut EngineContext<'platform>,
+    ) -> Engine<'platform, 'ctx> {
+        let platform = ctx.platform;
+        let frame_arena = LinearAllocator::new(platform, 1_000_000_000)
+            .expect("should have enough memory for the frame arena");
 
-        let test_texture = platform
+        let test_texture = ctx
+            .platform
             .create_texture(
                 2,
                 2,
@@ -43,6 +86,7 @@ impl Engine<'_> {
             .unwrap();
 
         Engine {
+            ctx,
             platform,
             frame_arena,
             event_queue: ArrayVec::new(),
@@ -69,9 +113,9 @@ impl Engine<'_> {
             action_test = input.actions[TestInput::Act].pressed;
         }
 
-        let (w, _) = self.platform.draw_area();
+        let (w, _) = self.ctx.platform.draw_area();
         let w = if action_test { w / 2. } else { w };
-        self.platform.draw_triangles(
+        self.ctx.platform.draw_triangles(
             &[
                 pal::Vertex::new(w / 2. - 200., 200., 0.0, 0.0),
                 pal::Vertex::new(w / 2. - 200., 600., 0.0, 1.0),
