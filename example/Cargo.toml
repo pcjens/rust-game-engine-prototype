@@ -10,3 +10,6 @@ platform-sdl2 = { version = "0.1.0", path = "../platform-sdl2", optional = true 
 
 [features]
 default = ["platform-sdl2"]
+
+[profile.release]
+debug = "full"

@@ -1,9 +1,11 @@
+mod pool;
 mod vec;
 
 use core::{cell::Cell, ffi::c_void, mem::MaybeUninit, slice};
 
 use pal::Pal;
 
+pub use pool::{Pool, PoolBox};
 pub use vec::FixedVec;
 
 /// A linear allocator with a constant capacity. Can allocate memory regions
@@ -59,10 +61,26 @@ impl LinearAllocator<'_> {
     /// of the slice uninitialized, returning None if there's not enough free
     /// memory.
     pub fn try_alloc_uninit_slice<'a, T>(&'a self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
+        // Safety:
+        // - The computed offset does not overflow `isize`: any value stored in
+        //   `self.allocated` is checked to be no larger than
+        //   `self.backing_mem_size` which in turn is no larger than
+        //   `isize::MAX`.
+        // - `self.backing_mem_ptr` is a pointer to an allocated object (it's
+        //   from a successful `malloc`), and `self.allocated` is checked to be
+        //   less than the amount of memory we asked for before it's set. So the
+        //   memory range between `self.backing_mem_ptr` and the result is
+        //   within the bounds of the allocated object.
+        let previously_allocated_ptr =
+            unsafe { self.backing_mem_ptr.byte_add(self.allocated.get()) };
+
         // Figure out the properly aligned offset of the new allocation.
-        let offset = self.allocated.get().next_multiple_of(align_of::<T>());
-        if offset + len * size_of::<T>() > self.backing_mem_size {
-            // Bail if the allocation would not fit.
+        let extra_offset_for_alignment = previously_allocated_ptr.align_offset(align_of::<T>());
+        let offset_into_allocation = self.allocated.get() + extra_offset_for_alignment;
+
+        // Check that this allocation fits.
+        let new_allocated = offset_into_allocation + len * size_of::<T>();
+        if new_allocated > self.backing_mem_size {
             return None;
         }
 
@@ -72,7 +90,7 @@ impl LinearAllocator<'_> {
         // this value only goes up, which ensures that allocations don't
         // overlap. The reset function does reset this, see the safety
         // explanation in its body.
-        self.allocated.set(offset + len * size_of::<T>());
+        self.allocated.set(new_allocated);
 
         // Safety:
         // - The computed offset does not overflow `isize`: `offset + len *
@@ -84,9 +102,9 @@ impl LinearAllocator<'_> {
         //   of memory we asked for (checked above). So the memory range between
         //   `self.backing_mem_ptr` and the result is within the bounds of the
         //   allocated object.
-        let allocated_void_ptr = unsafe { self.backing_mem_ptr.byte_add(offset) };
+        let now_allocated_ptr = unsafe { self.backing_mem_ptr.byte_add(offset_into_allocation) };
 
-        let uninit_t_ptr = allocated_void_ptr as *mut MaybeUninit<T>;
+        let uninit_t_ptr = now_allocated_ptr as *mut MaybeUninit<T>;
 
         // Safety:
         // - `uninit_t_ptr` is non-null and valid for both reads and writes

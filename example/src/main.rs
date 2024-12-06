@@ -4,7 +4,11 @@ fn main() {
     let persistent_arena =
         engine::LinearAllocator::new(&platform, engine::Engine::PERSISTENT_MEMORY_SIZE)
             .expect("should have enough memory for the persistent arena");
-    let engine = engine::Engine::new(&platform, &persistent_arena);
+    let resources_arena = engine::LinearAllocator::new(&platform, 100_000_000)
+        .expect("should have enough memory for the resource arena");
+    let resources = engine::Resources::new(&platform, &resources_arena).unwrap();
+
+    let engine = engine::Engine::new(&platform, &persistent_arena, &resources);
     platform_sdl2::run(engine, &platform);
 }
 

@@ -6,6 +6,7 @@ use pal::Pal;
 
 use crate::{
     Action, ActionKind, Event, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
+    Resources,
 };
 
 #[derive(enum_map::Enum)]
@@ -15,13 +16,17 @@ enum TestInput {
 
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
-pub struct Engine<'platform, 'engine> {
+pub struct Engine<'platform, 'internals, 'resources> {
     /// The platform abstraction layer.
     platform: &'platform dyn Pal,
     /// Linear allocator for any persistent data that needs to be dynamically
     /// allocated but does not need to be freed for the entire lifetime of the
     /// engine. Engine internals are suballocated from this.
-    static_arena: &'engine LinearAllocator<'platform>,
+    persistent_arena: &'internals LinearAllocator<'platform>,
+    /// The resource manager for this engine. Used to allocate textures, audio
+    /// data, etc. and load them from the disk.
+    resources: &'resources Resources<'platform, 'resources>,
+
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'platform>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -33,14 +38,26 @@ pub struct Engine<'platform, 'engine> {
     test_texture: pal::TextureRef,
 }
 
-impl Engine<'_, '_> {
+impl Engine<'_, '_, '_> {
     pub const PERSISTENT_MEMORY_SIZE: usize = 1_000_000_000;
 
     /// Creates a new instance of the engine.
-    pub fn new<'platform, 'engine>(
+    ///
+    /// Aside from platform, the parameters are owned outside the engine to
+    /// allow them to outlive the engine, so that everything inside the engine
+    /// can borrow them for as long as needed.
+    /// - platform: the platform implementation to be used for this instance of
+    ///   the engine.
+    /// - persistent_arena: an arena for all the persistent memory the engine
+    ///   requires, should be an empty arena with at least
+    ///   [Engine::PERSISTENT_MEMORY_SIZE] bytes of capacity. The engine doesn't
+    ///   (and can't, it's an immutable borrow) reset this arena.
+    /// - resources: the resource manager used by the engine.
+    pub fn new<'platform, 'internals, 'resources>(
         platform: &'platform dyn Pal,
-        static_arena: &'engine LinearAllocator<'platform>,
-    ) -> Engine<'platform, 'engine> {
+        persistent_arena: &'internals LinearAllocator<'platform>,
+        resources: &'resources Resources<'platform, 'resources>,
+    ) -> Engine<'platform, 'internals, 'resources> {
         let frame_arena = LinearAllocator::new(platform, 1_000_000_000)
             .expect("should have enough memory for the frame arena");
 
@@ -59,7 +76,9 @@ impl Engine<'_, '_> {
 
         Engine {
             platform,
-            static_arena,
+            persistent_arena,
+            resources,
+
             frame_arena,
             event_queue: ArrayVec::new(),
 
