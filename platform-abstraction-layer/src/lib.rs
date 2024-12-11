@@ -33,10 +33,29 @@ pub trait Pal {
     /// Render out a pile of triangles.
     fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings);
 
-    /// Creates a texture from the given pixels, which can be used in
-    /// [DrawSettings]. Returns None if the texture could not be created due to
-    /// any reason (texture dimensions too large, out of vram, etc.).
-    fn create_texture(&self, width: u32, height: u32, pixels: &mut [u8]) -> Option<TextureRef>;
+    /// Create a texture of the given size and format. Returns None if the
+    /// texture could not be created due to any reason (texture dimensions too
+    /// large, out of vram, etc.). See [Vertex] and [DrawSettings] for sampler
+    /// details.
+    ///
+    /// ## Implementation note
+    ///
+    /// These are never freed during the lifetime of the engine, which could be
+    /// exploited for performance benefits. Internally, individual textures are
+    /// reused as textures and sprites get streamed in and out.
+    fn create_texture(&self, width: u16, height: u16, format: PixelFormat) -> Option<TextureRef>;
+
+    /// Update the pixel data of a texture within a region. Pixels are tightly
+    /// packed and in the same format as passed into the creation function.
+    fn update_texture(
+        &self,
+        texture: TextureRef,
+        x_offset: u16,
+        y_offset: u16,
+        width: u16,
+        height: u16,
+        pixels: &[u8],
+    );
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

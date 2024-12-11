@@ -16,7 +16,7 @@ use sdl2::{
     keyboard::{Keycode, Mod, Scancode},
     pixels::{Color, PixelFormatEnum},
     rect::Rect,
-    render::{Texture, TextureCreator, WindowCanvas},
+    render::{Texture, TextureAccess, TextureCreator, WindowCanvas},
     surface::Surface,
     video::WindowContext,
     Sdl,
@@ -189,16 +189,17 @@ impl Pal for Sdl2Pal {
 
     fn create_texture(
         &self,
-        width: u32,
-        height: u32,
-        pixels: &mut [u8],
+        width: u16,
+        height: u16,
+        format: pal::PixelFormat,
     ) -> Option<pal::TextureRef> {
-        // Unsure why ABGR8888 reads `[r, g, b, a, r, g, b, a]` correctly, but here we are.
-        let fmt = PixelFormatEnum::ABGR8888;
-        let surface = Surface::from_data(pixels, width, height, width * 4, fmt).ok()?;
+        let fmt = match format {
+            // Unsure why ABGR8888 reads `[r, g, b, a, r, ...]` correctly, but here we are.
+            pal::PixelFormat::Rgba => PixelFormatEnum::ABGR8888,
+        };
         let texture = self
             .texture_creator
-            .create_texture_from_surface(surface)
+            .create_texture(fmt, TextureAccess::Streaming, width as u32, height as u32)
             .ok()?;
         let texture_index = {
             let mut textures = self.textures.borrow_mut();
@@ -207,6 +208,28 @@ impl Pal for Sdl2Pal {
             idx
         };
         Some(pal::TextureRef::new(texture_index as u64))
+    }
+
+    fn update_texture(
+        &self,
+        texture: platform_abstraction_layer::TextureRef,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        pixels: &[u8],
+    ) {
+        let mut textures = self.textures.borrow_mut();
+        if let Some(tex) = textures.get_mut(texture.inner() as usize) {
+            let bpp = tex.query().format.byte_size_per_pixel();
+            if let Err(err) = tex.update(
+                Rect::new(x as i32, y as i32, width as u32, height as u32),
+                pixels,
+                width as usize * bpp,
+            ) {
+                println!("[Sdl2Pal::update_texure]: texture update failed: {err}");
+            }
+        }
     }
 
     fn input_devices(&self) -> InputDevices {
@@ -280,7 +303,7 @@ impl Pal for Sdl2Pal {
     }
 
     fn println(&self, message: &str) {
-        println!("{message}");
+        println!("[Sdl2Pal::println]: {message}");
     }
 
     fn exit(&self, clean: bool) {

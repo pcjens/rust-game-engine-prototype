@@ -1,7 +1,7 @@
 mod pool;
 mod vec;
 
-use core::{cell::Cell, ffi::c_void, mem::MaybeUninit, slice};
+use core::{cell::Cell, ffi::c_void, fmt::Debug, mem::MaybeUninit, slice};
 
 use platform_abstraction_layer::Pal;
 
@@ -17,6 +17,16 @@ pub struct LinearAllocator<'platform> {
     platform: &'platform dyn Pal,
 
     allocated: Cell<usize>,
+}
+
+impl Debug for LinearAllocator<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LinearAllocator")
+            .field("backing_mem_ptr", &self.backing_mem_ptr)
+            .field("backing_mem_size", &self.backing_mem_size)
+            .field("allocated", &self.allocated)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for LinearAllocator<'_> {

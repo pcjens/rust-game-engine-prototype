@@ -2,6 +2,7 @@
 members = [
     "platform-abstraction-layer",
     "engine",
+    "import-asset",
     "platform-sdl2",
     "example",
 ]

@@ -17,6 +17,15 @@ pub struct FixedVec<'allocation, T> {
 }
 
 impl<T> FixedVec<'_, T> {
+    /// Creates a new [FixedVec] with zero capacity, but also no need for an
+    /// allocator.
+    pub fn empty() -> FixedVec<'static, T> {
+        FixedVec {
+            uninit_slice: &mut [],
+            initialized_len: 0,
+        }
+    }
+
     /// Creates a new [FixedVec] with enough space for `capacity` elements of
     /// type `T`. Returns None if the allocator does not have enough free space.
     pub fn new<'allocation>(

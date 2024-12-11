@@ -2,7 +2,9 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use enum_map::enum_map;
-use platform_abstraction_layer::{ActionCategory, DrawSettings, Pal, TextureRef, Vertex};
+use platform_abstraction_layer::{
+    ActionCategory, DrawSettings, Pal, PixelFormat, TextureRef, Vertex,
+};
 
 use crate::{
     Action, ActionKind, Event, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
@@ -43,16 +45,18 @@ impl Engine<'_, '_, '_> {
 
     /// Creates a new instance of the engine.
     ///
-    /// Aside from platform, the parameters are owned outside the engine to
-    /// allow them to outlive the engine, so that everything inside the engine
-    /// can borrow them for as long as needed.
+    /// Pardon the lifetime mess.
+    ///
     /// - platform: the platform implementation to be used for this instance of
     ///   the engine.
     /// - persistent_arena: an arena for all the persistent memory the engine
     ///   requires, should be an empty arena with at least
-    ///   [Engine::PERSISTENT_MEMORY_SIZE] bytes of capacity. The engine doesn't
-    ///   (and can't, it's an immutable borrow) reset this arena.
-    /// - resources: the resource manager used by the engine.
+    ///   [Engine::PERSISTENT_MEMORY_SIZE] bytes of capacity. Needs to outlive
+    ///   the engine so that engine internals can borrow from it, so it's passed
+    ///   in here instead of being created behind the scenes.
+    /// - resources: the resource manager used by the engine. Needs to outlive
+    ///   the engine so that the game and engine internals can borrow from it,
+    ///   so it's passed in here instead of being created behind the scenes.
     pub fn new<'platform, 'internals, 'resources>(
         platform: &'platform dyn Pal,
         persistent_arena: &'internals LinearAllocator<'platform>,
@@ -61,18 +65,14 @@ impl Engine<'_, '_, '_> {
         let frame_arena = LinearAllocator::new(platform, 1_000_000_000)
             .expect("should have enough memory for the frame arena");
 
-        let test_texture = platform
-            .create_texture(
-                2,
-                2,
-                &mut [
-                    0xFF, 0xFF, 0x00, 0xFF, // Yellow
-                    0xFF, 0x00, 0xFF, 0xFF, // Pink
-                    0x00, 0xFF, 0x00, 0xFF, // Green
-                    0x00, 0xFF, 0xFF, 0xFF, // Cyan
-                ],
-            )
-            .unwrap();
+        let test_texture = platform.create_texture(2, 2, PixelFormat::Rgba).unwrap();
+        let pixels = &[
+            0xFF, 0xFF, 0x00, 0xFF, // Yellow
+            0xFF, 0x00, 0xFF, 0xFF, // Pink
+            0x00, 0xFF, 0x00, 0xFF, // Green
+            0x00, 0xFF, 0xFF, 0xFF, // Cyan
+        ];
+        platform.update_texture(test_texture, 0, 0, 2, 2, pixels);
 
         Engine {
             platform,

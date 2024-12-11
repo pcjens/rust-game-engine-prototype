@@ -1,6 +1,10 @@
 use bytemuck::{Pod, Zeroable};
 
 /// Vertex describing a 2D point with a texture coordinate and a color.
+///
+/// Texture coordinates (u, v) should be interpreted as "0, 0" referring to the
+/// top-left corner of the texture and "1, 1" referring to the bottom-right
+/// corner, with "repeat" tiling for coordinates outside of that range.
 #[derive(Debug, Default, Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 pub struct Vertex {
@@ -60,8 +64,7 @@ pub struct DrawSettings {
     pub clip_area: Option<[f32; 4]>,
 }
 
-/// Platform-specific texture reference. No guarantees about the texture
-/// actually existing.
+/// Platform-specific texture reference.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextureRef(u64);
 impl TextureRef {
@@ -103,4 +106,21 @@ pub enum TextureFilter {
     NearestNeighbor,
     #[default]
     Anisotropic,
+}
+
+/// Descriptions of pixel data layouts, used to interpret the byte arrays passed
+/// into uploading functions.
+#[derive(Debug)]
+pub enum PixelFormat {
+    /// 8-bit per channel RGBA colors, arranged in order: `[red, green, blue,
+    /// alpha, red, ...]`.
+    Rgba,
+}
+
+impl PixelFormat {
+    pub const fn bytes_per_pixel(self) -> usize {
+        match self {
+            PixelFormat::Rgba => 4,
+        }
+    }
 }

@@ -1,5 +1,6 @@
 use core::{
     cell::RefCell,
+    fmt::Debug,
     mem::replace,
     ops::{Deref, DerefMut},
 };
@@ -7,6 +8,7 @@ use core::{
 use super::LinearAllocator;
 
 /// A container for `T`. Think of `Box`, but allocated from a [Pool].
+#[derive(Debug)]
 pub struct PoolBox<'pool, T> {
     /// Contains a mutable borrow of the thing this references. Always Some
     /// while in use, gets take()n in the Drop impl.
@@ -36,13 +38,13 @@ impl<T> DerefMut for PoolBox<'_, T> {
 
 impl<T> Drop for PoolBox<'_, T> {
     fn drop(&mut self) {
-        // Create the new head of the free list.
+        // Create the new head of the free list (which will be stored where the
+        // contents of this box used to be).
         let mut pool_next_free = self.pool.next_free.borrow_mut();
         let next_free = pool_next_free.take();
         let new_next_free = PoolElement::Free { next_free };
 
-        // Get the allocated value (to drop) and put the free slot in its
-        // place in the dynamically allocated memory
+        // Get the allocated value (to drop) and put the free slot in its place.
         let allocation = self.inner.take().unwrap();
         let allocated_element = replace(allocation, new_next_free);
 
@@ -55,6 +57,7 @@ impl<T> Drop for PoolBox<'_, T> {
     }
 }
 
+#[derive(Debug)]
 enum PoolElement<'allocation, T> {
     Free {
         next_free: Option<&'allocation mut PoolElement<'allocation, T>>,
@@ -71,6 +74,7 @@ enum PoolElement<'allocation, T> {
 /// which can be dropped to free up memory for new allocations. Uses a
 /// [LinearAllocator] for backing memory, which cannot be reset for the lifetime
 /// of the pool.
+#[derive(Debug)]
 pub struct Pool<'allocation, T> {
     allocator: &'allocation LinearAllocator<'allocation>,
     next_free: RefCell<Option<&'allocation mut PoolElement<'allocation, T>>>,
