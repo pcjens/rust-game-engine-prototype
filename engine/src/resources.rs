@@ -1,4 +1,4 @@
-use pal::Pal;
+use platform_abstraction_layer::Pal;
 
 use crate::{linear_allocator::Pool, LinearAllocator};
 

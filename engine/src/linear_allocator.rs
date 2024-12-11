@@ -3,7 +3,7 @@ mod vec;
 
 use core::{cell::Cell, ffi::c_void, mem::MaybeUninit, slice};
 
-use pal::Pal;
+use platform_abstraction_layer::Pal;
 
 pub use pool::{Pool, PoolBox};
 pub use vec::FixedVec;

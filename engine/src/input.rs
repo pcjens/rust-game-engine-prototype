@@ -2,7 +2,7 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use enum_map::{EnumArray, EnumMap};
-use pal::{Button, InputDevice};
+use platform_abstraction_layer::{Button, InputDevice};
 
 use crate::Event;
 

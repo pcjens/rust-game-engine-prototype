@@ -33,9 +33,9 @@ pub trait Pal {
     /// Render out a pile of triangles.
     fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings);
 
-    /// Creates a texture from the given pixels, which can be used to draw
-    /// triangles with it. The layout of `pixels` is RGBA. Returns None if the
-    /// texture could not be created.
+    /// Creates a texture from the given pixels, which can be used in
+    /// [DrawSettings]. Returns None if the texture could not be created due to
+    /// any reason (texture dimensions too large, out of vram, etc.).
     fn create_texture(&self, width: u32, height: u32, pixels: &mut [u8]) -> Option<TextureRef>;
 
     /// Get a list of the currently connected input devices.

@@ -2,7 +2,7 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use enum_map::enum_map;
-use pal::Pal;
+use platform_abstraction_layer::{ActionCategory, DrawSettings, Pal, TextureRef, Vertex};
 
 use crate::{
     Action, ActionKind, Event, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
@@ -35,7 +35,7 @@ pub struct Engine<'platform, 'internals, 'resources> {
     event_queue: EventQueue,
 
     test_input: Option<InputDeviceState<TestInput>>,
-    test_texture: pal::TextureRef,
+    test_texture: TextureRef,
 }
 
 impl Engine<'_, '_, '_> {
@@ -108,13 +108,13 @@ impl Engine<'_, '_, '_> {
         let w = if action_test { w / 2. } else { w };
         self.platform.draw_triangles(
             &[
-                pal::Vertex::new(w / 2. - 200., 200., 0.0, 0.0),
-                pal::Vertex::new(w / 2. - 200., 600., 0.0, 1.0),
-                pal::Vertex::new(w / 2. + 200., 600., 1.0, 1.0),
-                pal::Vertex::new(w / 2. + 200., 200., 1.0, 0.0),
+                Vertex::new(w / 2. - 200., 200., 0.0, 0.0),
+                Vertex::new(w / 2. - 200., 600., 0.0, 1.0),
+                Vertex::new(w / 2. + 200., 600., 1.0, 1.0),
+                Vertex::new(w / 2. + 200., 200., 1.0, 0.0),
             ],
             &[0, 1, 2, 0, 2, 3],
-            pal::DrawSettings {
+            DrawSettings {
                 texture: Some(self.test_texture),
                 ..Default::default()
             },
@@ -132,7 +132,7 @@ impl Engine<'_, '_, '_> {
                         actions: enum_map! {
                             TestInput::Act => Action {
                                 kind: ActionKind::Held,
-                                mapping: self.platform.default_button_for_action(pal::ActionCategory::ActPrimary, device).unwrap(),
+                                mapping: self.platform.default_button_for_action(ActionCategory::ActPrimary, device).unwrap(),
                                 disabled: false,
                                 pressed: false,
                             },

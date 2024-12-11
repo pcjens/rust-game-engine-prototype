@@ -1,3 +1,11 @@
 [workspace]
-members = [ "engine","example", "pal", "platform-sdl2" ]
+members = [
+    "platform-abstraction-layer",
+    "engine",
+    "platform-sdl2",
+    "example",
+]
 resolver = "2"
+
+[profile.release]
+debug = "full"

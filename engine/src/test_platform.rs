@@ -3,7 +3,9 @@ extern crate alloc;
 use core::ffi::c_void;
 
 use alloc::vec::Vec;
-use pal::Pal;
+use platform_abstraction_layer::{
+    ActionCategory, Button, DrawSettings, InputDevice, InputDevices, Pal, TextureRef, Vertex,
+};
 
 #[derive(Clone, Copy)]
 #[repr(C, align(64))]
@@ -23,32 +25,21 @@ impl Pal for TestPlatform {
         (320.0, 240.0)
     }
 
-    fn draw_triangles(
-        &self,
-        _vertices: &[pal::Vertex],
-        _indices: &[u32],
-        _settings: pal::DrawSettings,
-    ) {
+    fn draw_triangles(&self, _vertices: &[Vertex], _indices: &[u32], _settings: DrawSettings) {}
+
+    fn create_texture(&self, _width: u32, _height: u32, _pixels: &mut [u8]) -> Option<TextureRef> {
+        Some(TextureRef::new(0))
     }
 
-    fn create_texture(
-        &self,
-        _width: u32,
-        _height: u32,
-        _pixels: &mut [u8],
-    ) -> Option<pal::TextureRef> {
-        Some(pal::TextureRef::new(0))
-    }
-
-    fn input_devices(&self) -> pal::InputDevices {
-        pal::InputDevices::new()
+    fn input_devices(&self) -> InputDevices {
+        InputDevices::new()
     }
 
     fn default_button_for_action(
         &self,
-        _action: pal::ActionCategory,
-        _device: pal::InputDevice,
-    ) -> Option<pal::Button> {
+        _action: ActionCategory,
+        _device: InputDevice,
+    ) -> Option<Button> {
         None
     }
 

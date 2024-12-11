@@ -7,7 +7,9 @@ use std::{
 };
 
 use engine::Engine;
-use pal::{ActionCategory, Button, InputDevice, InputDevices, Pal};
+use platform_abstraction_layer::{
+    self as pal, ActionCategory, Button, DrawSettings, InputDevice, InputDevices, Pal, Vertex,
+};
 use sdl2::{
     controller::Button as SdlButton,
     event::Event,
@@ -113,12 +115,7 @@ impl Pal for Sdl2Pal {
         (w as f32, h as f32)
     }
 
-    fn draw_triangles(
-        &self,
-        vertices: &[pal::Vertex],
-        indices: &[u32],
-        settings: pal::DrawSettings,
-    ) {
+    fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings) {
         if vertices.len() < 3 || indices.len() < 3 {
             return;
         }
