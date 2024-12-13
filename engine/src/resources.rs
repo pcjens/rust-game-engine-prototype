@@ -30,15 +30,13 @@ impl<'eng> Resources<'eng> {
         allocator: &'eng LinearAllocator,
     ) -> Option<Resources<'eng>> {
         // TODO: actually reading this from a file or something pretending to be one
-        let mut test_index = AssetIndex::new(
-            allocator,
-            AssetIndexHeader {
-                textures: 1,
-                audio_clips: 0,
-                chunks: 0,
-                texture_chunks: 1,
-            },
-        )?;
+        let test_header = AssetIndexHeader {
+            textures: 1,
+            audio_clips: 0,
+            chunks: 0,
+            texture_chunks: 1,
+        };
+        let mut test_index = AssetIndex::new(allocator, test_header)?;
 
         test_index
             .texture_chunks
@@ -64,8 +62,8 @@ impl<'eng> Resources<'eng> {
         //  chunk's data)
 
         Some(Resources {
-            loaded_chunks: Pool::new(allocator)?,
-            loaded_texture_chunks: Pool::new(allocator)?,
+            loaded_chunks: Pool::new(allocator, test_header.chunks as usize)?,
+            loaded_texture_chunks: Pool::new(allocator, test_header.texture_chunks as usize)?,
             asset_index: test_index,
         })
     }

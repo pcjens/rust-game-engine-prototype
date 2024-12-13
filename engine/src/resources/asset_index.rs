@@ -4,6 +4,7 @@ use super::{
     assets::TextureChunkDescriptor, AudioClipAsset, ChunkDescriptor, Chunksize, TextureAsset,
 };
 
+#[derive(Clone, Copy)]
 pub struct AssetIndexHeader {
     pub textures: Chunksize,
     pub audio_clips: Chunksize,

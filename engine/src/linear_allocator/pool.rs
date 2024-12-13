@@ -1,68 +1,66 @@
 use core::{
     cell::RefCell,
     fmt::Debug,
-    mem::replace,
     ops::{Deref, DerefMut},
 };
 
-use super::LinearAllocator;
+use super::{FixedVec, LinearAllocator};
 
-/// A container for `T`. Think of `Box`, but allocated from a [Pool].
+/// A container for `T`. Think of `Box`, but allocated from a [`Pool`]. Frees up
+/// memory for a new [`Pool::insert`] on drop.
+///
+/// ## Lifetime notes
+///
+/// `'a` is the backing [`Pool`]'s lifetime parameter (the `'a` in `Pool<'a,
+/// T>`).
+///
+/// `'b` is the lifetime of the [`Pool::insert`] borrow.
+///
+/// For example, if you create a pool using the frame allocator, `'a` would be
+/// (bounded by) `'frm`, and `'b` would generally be some anonymous lifetime
+/// that prevents the Pool from being dropped while this box exists.
 #[derive(Debug)]
-pub struct PoolBox<'pool, T> {
+pub struct PoolBox<'a, 'b, T> {
     /// Contains a mutable borrow of the thing this references. Always Some
-    /// while in use, gets take()n in the Drop impl.
-    inner: Option<&'pool mut PoolElement<'pool, T>>,
-    pool: &'pool Pool<'pool, T>,
+    /// while in use, gets take()n in the Drop impl so that it can be moved out
+    /// of self.
+    inner: Option<&'a mut Option<T>>,
+    free_list: &'b RefCell<FixedVec<'a, &'a mut Option<T>>>,
 }
 
-impl<T> Deref for PoolBox<'_, T> {
+impl<T> Deref for PoolBox<'_, '_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
         match self.inner.as_ref().unwrap() {
-            PoolElement::Allocated(value) => value,
-            PoolElement::Free { .. } => unreachable!(),
+            Some(value) => value,
+            None => unreachable!(),
         }
     }
 }
 
-impl<T> DerefMut for PoolBox<'_, T> {
+impl<T> DerefMut for PoolBox<'_, '_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self.inner.as_mut().unwrap() {
-            PoolElement::Allocated(value) => value,
-            PoolElement::Free { .. } => unreachable!(),
+            Some(value) => value,
+            None => unreachable!(),
         }
     }
 }
 
-impl<T> Drop for PoolBox<'_, T> {
+impl<T> Drop for PoolBox<'_, '_, T> {
     fn drop(&mut self) {
-        // Create the new head of the free list (which will be stored where the
-        // contents of this box used to be).
-        let mut pool_next_free = self.pool.next_free.borrow_mut();
-        let next_free = pool_next_free.take();
-        let new_next_free = PoolElement::Free { next_free };
+        let mut free_list = self.free_list.borrow_mut();
 
-        // Get the allocated value (to drop) and put the free slot in its place.
         let allocation = self.inner.take().unwrap();
-        let allocated_element = replace(allocation, new_next_free);
 
-        // MaybeUninit leaking note: this is where values allocated by Pool are
-        // dropped.
+        let allocated_element = allocation.take().unwrap();
         drop(allocated_element);
 
-        // Assign the (new) head of the free list back to the pool.
-        let _ = pool_next_free.insert(allocation);
+        let Ok(_) = free_list.push(allocation) else {
+            panic!("the pool free list should not be able to overflow");
+        };
     }
-}
-
-#[derive(Debug)]
-enum PoolElement<'pool, T> {
-    Free {
-        next_free: Option<&'pool mut PoolElement<'pool, T>>,
-    },
-    Allocated(T),
 }
 
 /// An object pool for objects of type `T`.
@@ -82,49 +80,54 @@ enum PoolElement<'pool, T> {
 #[derive(Debug)]
 pub struct Pool<'a, T> {
     allocator: &'a LinearAllocator<'a>,
-    next_free: RefCell<Option<&'a mut PoolElement<'a, T>>>,
+    free_list: RefCell<FixedVec<'a, &'a mut Option<T>>>,
 }
 
 impl<'a, T> Pool<'a, T> {
-    pub fn new(allocator: &'a LinearAllocator) -> Option<Pool<'a, T>> {
+    /// Creates a new pool with `capacity` possible allocations at the same
+    /// time, and allocates the free list for it.
+    ///
+    /// If `allocator` runs out of memory before `capacity` allocations have
+    /// been made, then that's the bounding factor. In either case,
+    /// [`Pool::insert`] will start returning None until existing [`PoolBox`]es
+    /// are dropped.
+    ///
+    /// The free list is a simple list of pointers, so it takes up `capacity *
+    /// size_of::<usize>()` of memory and any required padding for the
+    /// allocation to have pointer alignment.
+    pub fn new(allocator: &'a LinearAllocator, capacity: usize) -> Option<Pool<'a, T>> {
         Some(Pool {
             allocator,
-            next_free: RefCell::new(None),
+            free_list: RefCell::new(FixedVec::new(allocator, capacity)?),
         })
     }
 
-    pub fn insert(&'a self, value: T) -> Result<PoolBox<'a, T>, T> {
+    /// Stores the value in a [`PoolBox`], reusing previous allocations that
+    /// have since been freed, or if none are available, by allocating from the
+    /// [`LinearAllocator`] passed into the constructor of the pool. If neither
+    /// is possible, the value is returned back wrapped in an `Err`.
+    ///
+    /// If `T` doesn't implement [`Debug`] and you want to unwrap the result,
+    /// use [`Result::ok`] and then unwrap.
+    pub fn insert(&self, value: T) -> Result<PoolBox<'a, '_, T>, T> {
         'use_a_free_slot: {
-            let mut next_free = self.next_free.borrow_mut();
-
-            let Some(dst_slot) = next_free.take() else {
+            let mut free_list = self.free_list.borrow_mut();
+            let Some(dst_slot) = free_list.pop() else {
                 break 'use_a_free_slot;
             };
 
-            // Put the given value into the free slot.
-            let old_free_list_head = replace(dst_slot, PoolElement::Allocated(value));
-
-            // Pop the head off the free list (it's now owned by this function,
-            // so it's not really a free slot in the backing memory anymore).
-            match old_free_list_head {
-                PoolElement::Allocated(_) => unreachable!(),
-                PoolElement::Free {
-                    next_free: new_free_list_head,
-                } => {
-                    *next_free = new_free_list_head;
-                }
-            }
+            let _ = dst_slot.insert(value);
 
             return Ok(PoolBox {
                 inner: Some(dst_slot),
-                pool: self,
+                free_list: &self.free_list,
             });
         }
 
         'allocate_new_slot: {
             let Some(new_slot) = self
                 .allocator
-                .try_alloc_uninit_slice::<PoolElement<'a, T>>(1)
+                .try_alloc_uninit_slice::<Option<T>>(1)
                 .and_then(|slice| slice.first_mut())
             else {
                 break 'allocate_new_slot;
@@ -132,11 +135,11 @@ impl<'a, T> Pool<'a, T> {
 
             // MaybeUninit leaking note: this borrow is stored in PoolBox, which
             // extracts the value and drops it in its Drop implementation.
-            let initialized = new_slot.write(PoolElement::Allocated(value));
+            let initialized = new_slot.write(Some(value));
 
             return Ok(PoolBox {
                 inner: Some(initialized),
-                pool: self,
+                free_list: &self.free_list,
             });
         }
 
@@ -146,31 +149,63 @@ impl<'a, T> Pool<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use core::{
-        str::FromStr,
-        sync::atomic::{AtomicI32, Ordering},
-    };
-
-    use arrayvec::ArrayString;
+    use core::sync::atomic::{AtomicI32, Ordering};
 
     use crate::{test_platform::TestPlatform, LinearAllocator, Pool};
 
+    use super::PoolBox;
+
+    /// Something high for allocator-bottlenecked tests
+    const HIGH_CAP: usize = 10;
+    /// Memory required for the pool's free list with [HIGH_CAP] capacity.
+    const HIGH_CAP_BASELINE: usize = HIGH_CAP * size_of::<usize>();
+
     #[test]
-    fn does_not_leak() {
+    fn does_not_allocate_more_than_peak_usage() {
+        type Element = u8;
+        const EXPECTED_ALLOC: usize = size_of::<Option<Element>>() * 3;
+
+        let platform = TestPlatform::new();
+        let alloc = LinearAllocator::new(&platform, HIGH_CAP_BASELINE + EXPECTED_ALLOC).unwrap();
+        let pool: Pool<Element> = Pool::new(&alloc, HIGH_CAP).unwrap();
+
+        let a = pool.insert(0).unwrap(); // no free slots space, allocate
+        let _b = pool.insert(0).unwrap(); // no free slots space, allocate
+        drop(a);
+        let _c = pool.insert(0).unwrap(); // this should go in a's original memory
+        let _d = pool.insert(0).unwrap(); // no free slots space again, allocate
+
+        assert_eq!(
+            EXPECTED_ALLOC,
+            alloc.allocated() - HIGH_CAP_BASELINE,
+            "pool should reuse previous allocations once in these four inserts"
+        );
+    }
+
+    #[test]
+    fn handles_allocator_oom_gracefully() {
+        type Element = u8;
+        const ALLOC_SIZE: usize = size_of::<Option<Element>>();
+
+        let platform = TestPlatform::new();
+        let alloc = LinearAllocator::new(&platform, HIGH_CAP_BASELINE + ALLOC_SIZE).unwrap();
+        let pool: Pool<Element> = Pool::new(&alloc, HIGH_CAP).unwrap();
+
+        let _a: PoolBox<Element> = pool.insert(0).unwrap();
+        let _b: Element = pool.insert(0).unwrap_err(); // space for just one, should oom
+    }
+
+    #[test]
+    fn does_not_leak_allocated_values() {
         static ELEMENT_COUNT: AtomicI32 = AtomicI32::new(0);
 
-        #[derive(Debug)]
         struct Element {
             _foo: bool,
-            _bar: ArrayString<100>,
         }
         impl Element {
             pub fn create_and_count() -> Element {
                 ELEMENT_COUNT.fetch_add(1, Ordering::Release);
-                Element {
-                    _foo: true,
-                    _bar: ArrayString::from_str("Bar").unwrap(),
-                }
+                Element { _foo: true }
             }
         }
         impl Drop for Element {
@@ -180,35 +215,13 @@ mod tests {
         }
 
         let platform = TestPlatform::new();
-        let alloc =
-            LinearAllocator::new(&platform, size_of::<Element>() + align_of::<Element>()).unwrap();
-        let pool: Pool<Element> = Pool::new(&alloc).unwrap();
+        let alloc = LinearAllocator::new(&platform, 1000).unwrap();
+        let pool: Pool<Element> = Pool::new(&alloc, 1).unwrap();
 
-        // Fill once:
-        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Acquire));
-        pool.insert(Element::create_and_count()).unwrap();
-        assert_eq!(1, ELEMENT_COUNT.load(Ordering::Acquire));
-
-        let oom_returned = pool.insert(Element::create_and_count()).unwrap_err();
-        assert_eq!(2, ELEMENT_COUNT.load(Ordering::Acquire));
-        drop(oom_returned);
-        assert_eq!(1, ELEMENT_COUNT.load(Ordering::Acquire));
-
-        // Drop:
-        // drop(pool); // FIXME: turns out, Pools leak everything currently. Oops,
-        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn does_not_allocate_more_than_peak_usage() {
-        let platform = TestPlatform::new();
-        let alloc = LinearAllocator::new(&platform, 3).unwrap();
-        let pool: Pool<u8> = Pool::new(&alloc).unwrap();
-        let a = pool.insert(0);
-        let _b = pool.insert(0);
-        drop(a);
-        let _c = pool.insert(0); // this should go in a's original memory
-        let _d = pool.insert(0);
-        assert_eq!(3, alloc.allocated());
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Acquire), "test's haunted");
+        let allocated_thing = pool.insert(Element::create_and_count()).ok().unwrap();
+        assert_eq!(1, ELEMENT_COUNT.load(Ordering::Acquire), "dropped early?");
+        drop(allocated_thing);
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Acquire), "value leaked!");
     }
 }

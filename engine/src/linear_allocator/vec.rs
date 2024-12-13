@@ -1,4 +1,5 @@
 use core::{
+    fmt::Debug,
     mem::{needs_drop, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
 };
@@ -65,6 +66,24 @@ impl<T> FixedVec<'_, T> {
         Ok(())
     }
 
+    /// If non-empty, shortens the array by one and returns the previously final
+    /// element.
+    pub fn pop(&mut self) -> Option<T> {
+        if self.initialized_len == 0 {
+            return None;
+        }
+        let i = self.initialized_len - 1;
+
+        // Safety: since i < initialized_len, the MaybeUninit at that index is
+        // definitely initialized. Double-reads (thus double-drops) are avoided
+        // by decrementing initialized_len right after, which means that the
+        // previous value in the slice won't be used as if it were initialized.
+        let value = unsafe { self.uninit_slice[i].assume_init_read() };
+        self.initialized_len -= 1;
+
+        Some(value)
+    }
+
     /// Empties out the array, dropping the currently contained values.
     pub fn clear(&mut self) {
         self.truncate(0);
@@ -116,6 +135,13 @@ impl<T> DerefMut for FixedVec<'_, T> {
         // uninitialized, and all values up to `self.initialized_len` are
         // initialized.
         unsafe { transmute::<&'a mut [MaybeUninit<T>], &'a mut [T]>(initialized_slice) }
+    }
+}
+
+impl<T: Debug> Debug for FixedVec<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let slice: &[T] = self;
+        f.debug_list().entries(slice).finish()
     }
 }
 

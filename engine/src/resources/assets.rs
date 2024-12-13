@@ -36,7 +36,7 @@ pub struct ChunkDescriptor<'eng> {
     /// audio clip).
     pub region: ChunkRegion,
     /// A reference to the allocated chunk, if it is currently loaded.
-    pub resident: Option<PoolBox<'eng, LoadedChunk>>,
+    pub resident: Option<PoolBox<'eng, 'eng, LoadedChunk>>,
 }
 
 #[derive(Debug)]
@@ -46,5 +46,5 @@ pub struct TextureChunkDescriptor<'eng> {
     /// The height of the texture the chunk contains.
     pub region_height: u16,
     /// A reference to the allocated chunk, if it is currently loaded.
-    pub resident: Option<PoolBox<'eng, LoadedTextureChunk>>,
+    pub resident: Option<PoolBox<'eng, 'eng, LoadedTextureChunk>>,
 }
