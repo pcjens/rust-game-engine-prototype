@@ -3,7 +3,7 @@
 pub struct Button(u64);
 
 impl Button {
-    /// Creates a new [Button]. Should only be created in the platform
+    /// Creates a new [`Button`]. Should only be created in the platform
     /// implementation, which also knows how the inner value is going to be
     /// used.
     pub fn new(id: u64) -> Button {
@@ -20,7 +20,7 @@ impl Button {
 pub struct InputDevice(u64);
 
 impl InputDevice {
-    /// Creates a new [InputDevice]. Should only be created in the platform
+    /// Creates a new [`InputDevice`]. Should only be created in the platform
     /// implementation, which also knows how the inner value is going to be
     /// used.
     pub fn new(id: u64) -> InputDevice {

@@ -21,7 +21,7 @@ pub struct Vertex {
 }
 
 impl Vertex {
-    /// Creates a [Vertex] with zeroed texture coordinates and a white color,
+    /// Creates a [`Vertex`] with zeroed texture coordinates and a white color,
     /// with the given coordinates.
     pub fn xy(x: f32, y: f32) -> Vertex {
         Vertex {
@@ -36,8 +36,8 @@ impl Vertex {
         }
     }
 
-    /// Creates a [Vertex] with the given position and texture coordinates, and
-    /// no color modulation (white vertex colors).
+    /// Creates a [`Vertex`] with the given position and texture coordinates,
+    /// and no color modulation (white vertex colors).
     pub fn new(x: f32, y: f32, u: f32, v: f32) -> Vertex {
         Vertex {
             x,
@@ -68,7 +68,7 @@ pub struct DrawSettings {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextureRef(u64);
 impl TextureRef {
-    /// Creates a new [TextureRef]. Should only be created in the platform
+    /// Creates a new [`TextureRef`]. Should only be created in the platform
     /// implementation, which also knows how the inner value is going to be
     /// used.
     pub fn new(id: u64) -> TextureRef {

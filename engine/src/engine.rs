@@ -25,8 +25,8 @@ pub struct Engine<'eng> {
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Queued up events from the platform layer. Discarded after being used by
-    /// the game to trigger an action via [InputDeviceState], or after a timeout
-    /// if not.
+    /// the game to trigger an action via [`InputDeviceState`], or after a
+    /// timeout if not.
     event_queue: EventQueue,
 
     test_input: Option<InputDeviceState<TestInput>>,

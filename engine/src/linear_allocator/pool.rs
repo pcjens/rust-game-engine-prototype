@@ -65,17 +65,14 @@ impl<T> Drop for PoolBox<'_, '_, T> {
 
 /// An object pool for objects of type `T`.
 ///
-/// Can allocate instances of `T` very fast, and the allocated memory gets
-/// fragmented only in the sense that subsequent allocations may be far from
-/// each other. No memory is wasted since this only allocates fixed size chunks,
-/// which are always reused. Individual allocations are returned as [PoolBox]es,
-/// which can be dropped to free up memory for new allocations.
+/// Can allocate instances of `T` very fast. Individual allocations are returned
+/// as [`PoolBox`]es, which can be dropped to free up memory for new allocations.
 ///
 /// Never frees up the backing memory, all allocated "slots" are just added to
 /// the free list to be reused, so the pool reserves enough memory for its peak
 /// usage until it's dropped.
 ///
-/// Uses a [LinearAllocator] for backing memory, which cannot be reset for the
+/// Uses a [`LinearAllocator`] for backing memory, which cannot be reset for the
 /// lifetime of the pool.
 #[derive(Debug)]
 pub struct Pool<'a, T> {
@@ -94,7 +91,7 @@ impl<'a, T> Pool<'a, T> {
     ///
     /// The free list is a simple list of pointers, so it takes up `capacity *
     /// size_of::<usize>()` of memory and any required padding for the
-    /// allocation to have pointer alignment.
+    /// list to have pointer alignment.
     pub fn new(allocator: &'a LinearAllocator, capacity: usize) -> Option<Pool<'a, T>> {
         Some(Pool {
             allocator,
@@ -105,7 +102,7 @@ impl<'a, T> Pool<'a, T> {
     /// Stores the value in a [`PoolBox`], reusing previous allocations that
     /// have since been freed, or if none are available, by allocating from the
     /// [`LinearAllocator`] passed into the constructor of the pool. If neither
-    /// is possible, the value is returned back wrapped in an `Err`.
+    /// is possible, the value is returned back wrapped in a [`Result::Err`].
     ///
     /// If `T` doesn't implement [`Debug`] and you want to unwrap the result,
     /// use [`Result::ok`] and then unwrap.
@@ -155,9 +152,9 @@ mod tests {
 
     use super::PoolBox;
 
-    /// Something high for allocator-bottlenecked tests
+    /// Something high for allocator-bottlenecked tests.
     const HIGH_CAP: usize = 10;
-    /// Memory required for the pool's free list with [HIGH_CAP] capacity.
+    /// Memory required for the pool's free list with [`HIGH_CAP`] capacity.
     const HIGH_CAP_BASELINE: usize = HIGH_CAP * size_of::<usize>();
 
     #[test]

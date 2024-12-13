@@ -6,19 +6,24 @@ use core::{
 
 use super::LinearAllocator;
 
+#[allow(unused_imports)] // mentioned in docs
+use arrayvec::ArrayVec;
+
 /// A fixed-capacity contiguous growable array type.
 ///
 /// Named like Vec since it's used similarly, but this type does *not* allocate
 /// more memory as needed. Very cheap to create and push to. Unlike
-/// [arrayvec::ArrayVec], the capacity can be picked at runtime, and the backing
-/// memory does not need to be initialized until it's actually used.
+/// [`ArrayVec`], the capacity can be picked at runtime, and the backing memory
+/// does not need to be initialized until it's actually used. This means that
+/// creating a [`FixedVec`] is very fast, and you only pay in page faults for
+/// the memory you actually use.
 pub struct FixedVec<'a, T> {
     uninit_slice: &'a mut [MaybeUninit<T>],
     initialized_len: usize,
 }
 
 impl<T> FixedVec<'_, T> {
-    /// Creates a new [FixedVec] with zero capacity, but also no need for an
+    /// Creates a new [`FixedVec`] with zero capacity, but also no need for an
     /// allocator.
     pub fn empty() -> FixedVec<'static, T> {
         FixedVec {
@@ -27,7 +32,7 @@ impl<T> FixedVec<'_, T> {
         }
     }
 
-    /// Creates a new [FixedVec] with enough space for `capacity` elements of
+    /// Creates a new [`FixedVec`] with enough space for `capacity` elements of
     /// type `T`. Returns None if the allocator does not have enough free space.
     pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<FixedVec<'a, T>> {
         let uninit_slice: &'a mut [MaybeUninit<T>] =
@@ -38,8 +43,11 @@ impl<T> FixedVec<'_, T> {
         })
     }
 
-    /// Appends the value to the back of the array. Returns the given value back
-    /// in an Err if there's no capacity left.
+    /// Appends the value to the back of the array. If there's no capacity left,
+    /// returns the given value back wrapped in a [`Result::Err`].
+    ///
+    /// If `T` doesn't implement [`Debug`] and you want to unwrap the result,
+    /// use [`Result::ok`] and then unwrap.
     pub fn push(&mut self, value: T) -> Result<(), T> {
         // Pick index, check it fits:
         let i = self.initialized_len;
@@ -66,8 +74,7 @@ impl<T> FixedVec<'_, T> {
         Ok(())
     }
 
-    /// If non-empty, shortens the array by one and returns the previously final
-    /// element.
+    /// If non-empty, returns the final element and shortens the array by one.
     pub fn pop(&mut self) -> Option<T> {
         if self.initialized_len == 0 {
             return None;

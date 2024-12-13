@@ -95,7 +95,7 @@ pub enum ActionKind {
     /// Actions that start happening when the button is pressed, and stop
     /// happening when it's released.
     Held,
-    /// (Accessible alternative for [ActionKind::Held], gameplay logic shouldn't
+    /// (Accessible alternative for [`ActionKind::Held`], gameplay logic shouldn't
     /// really change between these two.) Actions that start happening when the
     /// button is pressed one time, and stop happening when it's pressed again.
     Toggle,

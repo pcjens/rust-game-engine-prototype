@@ -11,10 +11,10 @@ pub use vec::FixedVec;
 /// A linear allocator with a constant capacity. Can allocate memory regions
 /// with any size or alignment very fast, but individual allocations can't be
 /// freed, all of the allocations must be freed at once.
-pub struct LinearAllocator<'platform> {
+pub struct LinearAllocator<'eng> {
     backing_mem_ptr: *mut c_void,
     backing_mem_size: usize,
-    platform: &'platform dyn Pal,
+    platform: &'eng dyn Pal,
 
     allocated: Cell<usize>,
 }
@@ -40,9 +40,9 @@ impl Drop for LinearAllocator<'_> {
 }
 
 impl LinearAllocator<'_> {
-    /// Creates a new [LinearAllocator] with `capacity` bytes of backing memory.
-    /// Returns None if allocating the memory fails or if `capacity` overflows
-    /// `isize`.
+    /// Creates a new [`LinearAllocator`] with `capacity` bytes of backing
+    /// memory. Returns None if allocating the memory fails or if `capacity`
+    /// overflows `isize`.
     pub fn new(platform: &dyn Pal, capacity: usize) -> Option<LinearAllocator> {
         if capacity > isize::MAX as usize {
             // Practically never happens, but asserting this here helps avoid a

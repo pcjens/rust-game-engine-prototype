@@ -6,7 +6,7 @@ use crate::resources::{TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
 
 use super::CHUNK_SIZE;
 
-/// Loaded memory for a single regular chunk. Contains [CHUNK_SIZE] bytes.
+/// Loaded memory for a single regular chunk. Contains [`CHUNK_SIZE`] bytes.
 #[repr(C, align(64))]
 pub struct LoadedChunk(pub [u8; CHUNK_SIZE]);
 
@@ -16,8 +16,9 @@ impl Debug for LoadedChunk {
     }
 }
 
-/// Loaded (video) memory for a single texture chunk. Contains a texture with
-/// the size and format [TEXTURE_CHUNK_DIMENSIONS] and [TEXTURE_CHUNK_FORMAT].
+/// Loaded (video) memory for a single texture chunk. Contains a reference to a
+/// loaded texture, ready for drawing, with the size and format
+/// [`TEXTURE_CHUNK_DIMENSIONS`] and [`TEXTURE_CHUNK_FORMAT`].
 pub struct LoadedTextureChunk(pub TextureRef);
 
 impl Debug for LoadedTextureChunk {

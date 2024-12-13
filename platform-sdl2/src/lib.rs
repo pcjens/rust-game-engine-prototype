@@ -37,7 +37,7 @@ enum Hid {
     },
 }
 
-/// The [Pal] impl for the SDL2 based platform.
+/// The [`Pal`] impl for the SDL2 based platform.
 pub struct Sdl2Pal {
     sdl_context: Sdl,
     time: TimerSubsystem,
