@@ -1,23 +1,23 @@
-extern crate alloc;
+use core::{cell::Cell, ffi::c_void, time::Duration};
 
-use core::ffi::c_void;
-
-use alloc::vec::Vec;
 use platform_abstraction_layer::{
     ActionCategory, Button, DrawSettings, InputDevice, InputDevices, Pal, PixelFormat, TextureRef,
     Vertex,
 };
 
-#[derive(Clone, Copy)]
-#[repr(C, align(64))]
-struct VeryAlignedThing([u8; 64]);
-const VERY_ALIGNED_THING: VeryAlignedThing = VeryAlignedThing([0; 64]);
-
-pub struct TestPlatform;
+pub struct TestPlatform {
+    current_time: Cell<Duration>,
+}
 
 impl TestPlatform {
     pub fn new() -> TestPlatform {
-        TestPlatform
+        TestPlatform {
+            current_time: Cell::new(Duration::from_millis(0)),
+        }
+    }
+
+    pub fn set_elapsed_millis(&self, new_millis: u64) {
+        self.current_time.set(Duration::from_millis(new_millis));
     }
 }
 
@@ -58,15 +58,24 @@ impl Pal for TestPlatform {
     }
 
     fn input_devices(&self) -> InputDevices {
-        InputDevices::new()
+        let mut devices = InputDevices::new();
+        devices.push(InputDevice::new(1234));
+        devices
     }
 
     fn default_button_for_action(
         &self,
-        _action: ActionCategory,
-        _device: InputDevice,
+        action: ActionCategory,
+        device: InputDevice,
     ) -> Option<Button> {
-        None
+        match (action, device.inner()) {
+            (ActionCategory::ActPrimary, 1234) => Some(Button::new(4321)),
+            _ => None,
+        }
+    }
+
+    fn elapsed(&self) -> Duration {
+        self.current_time.get()
     }
 
     fn println(&self, _message: &str) {}
@@ -78,25 +87,11 @@ impl Pal for TestPlatform {
     }
 
     fn malloc(&self, size: usize) -> *mut c_void {
-        let count = size.div_ceil(size_of::<VeryAlignedThing>());
-        let byte_vec: Vec<VeryAlignedThing> = alloc::vec![VERY_ALIGNED_THING; count];
-        let vec_ptr: *mut VeryAlignedThing = byte_vec.leak().as_mut_ptr();
-        vec_ptr as *mut c_void
+        // Safety: ffi call, handling the possible null pointer is up to the caller
+        unsafe { libc::malloc(size) }
     }
 
-    unsafe fn free(&self, ptr: *mut c_void, size: usize) {
-        self.free_impl(ptr, size);
-    }
-}
-
-impl TestPlatform {
-    fn free_impl(&self, ptr: *mut c_void, size: usize) {
-        let vec_ptr = ptr as *mut VeryAlignedThing;
-        let count = size.div_ceil(size_of::<VeryAlignedThing>());
-        // Safety: ptr was allocated by a Vec<u8> so the requirements are
-        // upheld, based on Vec::from_raw_parts documentation. The length and
-        // capacity also match the original Vec.
-        let byte_vec: Vec<VeryAlignedThing> = unsafe { Vec::from_raw_parts(vec_ptr, count, count) };
-        drop(byte_vec);
+    unsafe fn free(&self, ptr: *mut c_void) {
+        libc::free(ptr);
     }
 }

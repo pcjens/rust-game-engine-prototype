@@ -48,6 +48,7 @@ dependencies = [
  "bytemuck",
  "enum-map",
  "glam",
+ "libc",
  "platform-abstraction-layer",
 ]
 

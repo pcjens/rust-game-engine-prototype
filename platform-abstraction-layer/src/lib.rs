@@ -5,7 +5,7 @@ mod render;
 
 use arrayvec::ArrayVec;
 
-use core::ffi::c_void;
+use core::{ffi::c_void, time::Duration};
 
 pub use input::*;
 pub use render::*;
@@ -68,6 +68,9 @@ pub trait Pal {
         device: InputDevice,
     ) -> Option<Button>;
 
+    /// Returns the amount of time elapsed since the platform was initialized.
+    fn elapsed(&self) -> Duration;
+
     /// Print out a string. For very crude debugging.
     fn println(&self, message: &str);
 
@@ -92,7 +95,5 @@ pub trait Pal {
     /// - Since the implementation is free to free the memory, the memory
     ///   pointed at by the given pointer shouldn't be accessed after calling
     ///   this.
-    /// - The `size` parameter must be the same value passed into the matching
-    ///   `malloc` call.
-    unsafe fn free(&self, ptr: *mut c_void, size: usize);
+    unsafe fn free(&self, ptr: *mut c_void);
 }

@@ -17,9 +17,8 @@ use sdl2::{
     pixels::{Color, PixelFormatEnum},
     rect::Rect,
     render::{Texture, TextureAccess, TextureCreator, WindowCanvas},
-    surface::Surface,
     video::WindowContext,
-    Sdl,
+    Sdl, TimerSubsystem,
 };
 use sdl2_sys::{
     SDL_BlendMode, SDL_Color, SDL_GameController, SDL_GameControllerGetType,
@@ -41,6 +40,7 @@ enum Hid {
 /// The [Pal] impl for the SDL2 based platform.
 pub struct Sdl2Pal {
     sdl_context: Sdl,
+    time: TimerSubsystem,
     canvas: RefCell<WindowCanvas>,
     exit_requested: Cell<bool>,
     texture_creator: &'static TextureCreator<WindowContext>,
@@ -70,10 +70,15 @@ impl Sdl2Pal {
             .build()
             .expect("should be able to create a renderer");
 
+        let time = sdl_context
+            .timer()
+            .expect("SDL timer subsystem should be able to init");
+
         let texture_creator = Box::leak(Box::new(canvas.texture_creator()));
 
         Sdl2Pal {
             sdl_context,
+            time,
             canvas: RefCell::new(canvas),
             exit_requested: Cell::new(false),
             texture_creator,
@@ -302,6 +307,12 @@ impl Pal for Sdl2Pal {
         }
     }
 
+    fn elapsed(&self) -> Duration {
+        // Not using Instant even though we have std, to make timestamps between
+        // SDL events and this consistent.
+        Duration::from_millis(self.time.ticks64())
+    }
+
     fn println(&self, message: &str) {
         println!("[Sdl2Pal::println]: {message}");
     }
@@ -318,16 +329,12 @@ impl Pal for Sdl2Pal {
         unsafe { SDL_malloc(size) }
     }
 
-    unsafe fn free(&self, ptr: *mut c_void, _size: usize) {
+    unsafe fn free(&self, ptr: *mut c_void) {
         SDL_free(ptr)
     }
 }
 
 pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
-    let time = platform
-        .sdl_context
-        .timer()
-        .expect("SDL timer subsystem should be able to init");
     // Init the subsystem. The subsystem is actually used, just through the FFI
     // calls, since the subsystem doesn't expose everything we need (e.g. game
     // controller type).
@@ -394,6 +401,7 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
                             button_for_scancode(scancode),
                         ),
                         Duration::from_millis(timestamp as u64),
+                        platform,
                     );
                 }
 
@@ -408,6 +416,7 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
                             button_for_scancode(scancode),
                         ),
                         Duration::from_millis(timestamp as u64),
+                        platform,
                     );
                 }
 
@@ -420,6 +429,7 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
                         engine.event(
                             engine::Event::DigitalInputPressed(device, button_for_gamepad(button)),
                             Duration::from_millis(timestamp as u64),
+                            platform,
                         );
                     }
                 }
@@ -433,6 +443,7 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
                         engine.event(
                             engine::Event::DigitalInputReleased(device, button_for_gamepad(button)),
                             Duration::from_millis(timestamp as u64),
+                            platform,
                         );
                     }
                 }
@@ -447,7 +458,7 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
             canvas.clear();
         }
 
-        engine.iterate(Duration::from_millis(time.ticks64()));
+        engine.iterate(platform);
 
         {
             let mut canvas = platform.canvas.borrow_mut();

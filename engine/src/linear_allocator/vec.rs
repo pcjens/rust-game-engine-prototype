@@ -11,8 +11,8 @@ use super::LinearAllocator;
 /// more memory as needed. Very cheap to create and push to. Unlike
 /// [arrayvec::ArrayVec], the capacity can be picked at runtime, and the backing
 /// memory does not need to be initialized until it's actually used.
-pub struct FixedVec<'allocation, T> {
-    uninit_slice: &'allocation mut [MaybeUninit<T>],
+pub struct FixedVec<'a, T> {
+    uninit_slice: &'a mut [MaybeUninit<T>],
     initialized_len: usize,
 }
 
@@ -28,11 +28,8 @@ impl<T> FixedVec<'_, T> {
 
     /// Creates a new [FixedVec] with enough space for `capacity` elements of
     /// type `T`. Returns None if the allocator does not have enough free space.
-    pub fn new<'allocation>(
-        allocator: &'allocation LinearAllocator,
-        capacity: usize,
-    ) -> Option<FixedVec<'allocation, T>> {
-        let uninit_slice: &'allocation mut [MaybeUninit<T>] =
+    pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<FixedVec<'a, T>> {
+        let uninit_slice: &'a mut [MaybeUninit<T>] =
             allocator.try_alloc_uninit_slice::<T>(capacity)?;
         Some(FixedVec {
             uninit_slice,

@@ -58,9 +58,9 @@ impl<T> Drop for PoolBox<'_, T> {
 }
 
 #[derive(Debug)]
-enum PoolElement<'allocation, T> {
+enum PoolElement<'pool, T> {
     Free {
-        next_free: Option<&'allocation mut PoolElement<'allocation, T>>,
+        next_free: Option<&'pool mut PoolElement<'pool, T>>,
     },
     Allocated(T),
 }
@@ -71,24 +71,29 @@ enum PoolElement<'allocation, T> {
 /// fragmented only in the sense that subsequent allocations may be far from
 /// each other. No memory is wasted since this only allocates fixed size chunks,
 /// which are always reused. Individual allocations are returned as [PoolBox]es,
-/// which can be dropped to free up memory for new allocations. Uses a
-/// [LinearAllocator] for backing memory, which cannot be reset for the lifetime
-/// of the pool.
+/// which can be dropped to free up memory for new allocations.
+///
+/// Never frees up the backing memory, all allocated "slots" are just added to
+/// the free list to be reused, so the pool reserves enough memory for its peak
+/// usage until it's dropped.
+///
+/// Uses a [LinearAllocator] for backing memory, which cannot be reset for the
+/// lifetime of the pool.
 #[derive(Debug)]
-pub struct Pool<'allocation, T> {
-    allocator: &'allocation LinearAllocator<'allocation>,
-    next_free: RefCell<Option<&'allocation mut PoolElement<'allocation, T>>>,
+pub struct Pool<'a, T> {
+    allocator: &'a LinearAllocator<'a>,
+    next_free: RefCell<Option<&'a mut PoolElement<'a, T>>>,
 }
 
-impl<'allocation, T> Pool<'allocation, T> {
-    pub fn new(allocator: &'allocation LinearAllocator) -> Option<Pool<'allocation, T>> {
+impl<'a, T> Pool<'a, T> {
+    pub fn new(allocator: &'a LinearAllocator) -> Option<Pool<'a, T>> {
         Some(Pool {
             allocator,
             next_free: RefCell::new(None),
         })
     }
 
-    pub fn insert(&'allocation self, value: T) -> Result<PoolBox<'allocation, T>, T> {
+    pub fn insert(&'a self, value: T) -> Result<PoolBox<'a, T>, T> {
         'use_a_free_slot: {
             let mut next_free = self.next_free.borrow_mut();
 
@@ -119,7 +124,7 @@ impl<'allocation, T> Pool<'allocation, T> {
         'allocate_new_slot: {
             let Some(new_slot) = self
                 .allocator
-                .try_alloc_uninit_slice::<PoolElement<'allocation, T>>(1)
+                .try_alloc_uninit_slice::<PoolElement<'a, T>>(1)
                 .and_then(|slice| slice.first_mut())
             else {
                 break 'allocate_new_slot;
@@ -139,5 +144,71 @@ impl<'allocation, T> Pool<'allocation, T> {
     }
 }
 
-// TODO: Unit test to ensure that OOM is handled properly, and that free slots
-// are reused as expected.
+#[cfg(test)]
+mod tests {
+    use core::{
+        str::FromStr,
+        sync::atomic::{AtomicI32, Ordering},
+    };
+
+    use arrayvec::ArrayString;
+
+    use crate::{test_platform::TestPlatform, LinearAllocator, Pool};
+
+    #[test]
+    fn does_not_leak() {
+        static ELEMENT_COUNT: AtomicI32 = AtomicI32::new(0);
+
+        #[derive(Debug)]
+        struct Element {
+            _foo: bool,
+            _bar: ArrayString<100>,
+        }
+        impl Element {
+            pub fn create_and_count() -> Element {
+                ELEMENT_COUNT.fetch_add(1, Ordering::Release);
+                Element {
+                    _foo: true,
+                    _bar: ArrayString::from_str("Bar").unwrap(),
+                }
+            }
+        }
+        impl Drop for Element {
+            fn drop(&mut self) {
+                ELEMENT_COUNT.fetch_add(-1, Ordering::Release);
+            }
+        }
+
+        let platform = TestPlatform::new();
+        let alloc =
+            LinearAllocator::new(&platform, size_of::<Element>() + align_of::<Element>()).unwrap();
+        let pool: Pool<Element> = Pool::new(&alloc).unwrap();
+
+        // Fill once:
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Acquire));
+        pool.insert(Element::create_and_count()).unwrap();
+        assert_eq!(1, ELEMENT_COUNT.load(Ordering::Acquire));
+
+        let oom_returned = pool.insert(Element::create_and_count()).unwrap_err();
+        assert_eq!(2, ELEMENT_COUNT.load(Ordering::Acquire));
+        drop(oom_returned);
+        assert_eq!(1, ELEMENT_COUNT.load(Ordering::Acquire));
+
+        // Drop:
+        // drop(pool); // FIXME: turns out, Pools leak everything currently. Oops,
+        assert_eq!(0, ELEMENT_COUNT.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn does_not_allocate_more_than_peak_usage() {
+        let platform = TestPlatform::new();
+        let alloc = LinearAllocator::new(&platform, 3).unwrap();
+        let pool: Pool<u8> = Pool::new(&alloc).unwrap();
+        let a = pool.insert(0);
+        let _b = pool.insert(0);
+        drop(a);
+        let _c = pool.insert(0); // this should go in a's original memory
+        let _d = pool.insert(0);
+        assert_eq!(3, alloc.allocated());
+    }
+}

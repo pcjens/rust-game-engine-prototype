@@ -35,10 +35,7 @@ impl Drop for LinearAllocator<'_> {
         // Safety: reset "frees" everything, so we can be sure that there's no
         // pointers to the memory backed by this pointer anymore, so it's safe
         // to free. See further safety explanation in the reset implementation.
-        unsafe {
-            self.platform
-                .free(self.backing_mem_ptr, self.backing_mem_size);
-        }
+        unsafe { self.platform.free(self.backing_mem_ptr) };
     }
 }
 
@@ -65,6 +62,17 @@ impl LinearAllocator<'_> {
 
             allocated: Cell::new(0),
         })
+    }
+
+    /// Returns the amount of allocated memory currently, in bytes.
+    pub fn allocated(&self) -> usize {
+        self.allocated.get()
+    }
+
+    /// Returns the total (free and allocated) amount of memory owned by this
+    /// allocator, in bytes.
+    pub fn total(&self) -> usize {
+        self.backing_mem_size
     }
 
     /// Allocates memory for a slice of `MaybeUninit<T>`, leaving the contents
