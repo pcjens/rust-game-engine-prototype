@@ -43,6 +43,7 @@ impl<'eng> Resources<'eng> {
             .push(TextureChunkDescriptor {
                 region_width: 2,
                 region_height: 2,
+                source_bytes: 0..(2 * 2 * 4),
                 resident: None,
             })
             .unwrap();

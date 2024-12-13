@@ -35,6 +35,9 @@ pub struct ChunkDescriptor<'eng> {
     /// The region of a resource the chunk contains (e.g. a timespan of an
     /// audio clip).
     pub region: ChunkRegion,
+    /// The range of bytes in the chunk data portion of the database this
+    /// texture chunk can be loaded from.
+    pub source_bytes: Range<usize>,
     /// A reference to the allocated chunk, if it is currently loaded.
     pub resident: Option<PoolBox<'eng, 'eng, LoadedChunk>>,
 }
@@ -45,6 +48,9 @@ pub struct TextureChunkDescriptor<'eng> {
     pub region_width: u16,
     /// The height of the texture the chunk contains.
     pub region_height: u16,
+    /// The range of bytes in the chunk data portion of the database this
+    /// texture chunk can be loaded from.
+    pub source_bytes: Range<usize>,
     /// A reference to the allocated chunk, if it is currently loaded.
     pub resident: Option<PoolBox<'eng, 'eng, LoadedTextureChunk>>,
 }

@@ -1,6 +1,7 @@
 #![no_std]
 
 mod input;
+mod io;
 mod render;
 
 use arrayvec::ArrayVec;
@@ -8,6 +9,7 @@ use arrayvec::ArrayVec;
 use core::{ffi::c_void, time::Duration};
 
 pub use input::*;
+pub use io::*;
 pub use render::*;
 
 pub type InputDevices = ArrayVec<InputDevice, 15>;
@@ -56,6 +58,8 @@ pub trait Pal {
         height: u16,
         pixels: &[u8],
     );
+
+    fn create_file_reader<'a>(&'a self, path: &str) -> FileReader<'a>;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

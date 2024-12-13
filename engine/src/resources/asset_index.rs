@@ -15,11 +15,7 @@ pub struct AssetIndexHeader {
 pub struct AssetIndex<'eng> {
     pub textures: FixedVec<'eng, TextureAsset>,
     pub audio_clips: FixedVec<'eng, AudioClipAsset>,
-    /// Descriptors for every regular chunk. The layout of this array matches
-    /// the list of regular chunks in the database file.
     pub chunks: FixedVec<'eng, ChunkDescriptor<'eng>>,
-    /// Descriptors for every texture chunk. The layout of this array matches
-    /// the list of texture chunks in the database file.
     pub texture_chunks: FixedVec<'eng, TextureChunkDescriptor<'eng>>,
 }
 

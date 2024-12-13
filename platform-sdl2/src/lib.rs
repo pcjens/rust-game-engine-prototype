@@ -1,6 +1,9 @@
 use std::{
     cell::{Cell, RefCell},
     ffi::{c_int, c_void},
+    fs::File,
+    io::{Read, Seek, SeekFrom},
+    path::Path,
     process::exit,
     ptr::{addr_of, null_mut},
     time::Duration,
@@ -8,7 +11,8 @@ use std::{
 
 use engine::Engine;
 use platform_abstraction_layer::{
-    self as pal, ActionCategory, Button, DrawSettings, InputDevice, InputDevices, Pal, Vertex,
+    self as pal, ActionCategory, Button, DrawSettings, FileReader, InputDevice, InputDevices, Pal,
+    Vertex,
 };
 use sdl2::{
     controller::Button as SdlButton,
@@ -235,6 +239,10 @@ impl Pal for Sdl2Pal {
                 println!("[Sdl2Pal::update_texure]: texture update failed: {err}");
             }
         }
+    }
+
+    fn create_file_reader<'a>(&'a self, path: &str) -> FileReader<'a> {
+        create_file_reader(path)
     }
 
     fn input_devices(&self) -> InputDevices {
@@ -467,6 +475,8 @@ pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
     }
 }
 
+// Keyboard/gamepad input helpers:
+
 fn flip_accept_cancel(controller: *mut SDL_GameController) -> bool {
     // Safety: controller is not null (checked when we get the pointer from an
     // event).
@@ -486,4 +496,40 @@ fn button_for_scancode(scancode: Scancode) -> Button {
 
 fn button_for_gamepad(gamepad_button: SdlButton) -> Button {
     Button::new((2 << 32) | gamepad_button as u64)
+}
+
+// File IO helpers:
+
+struct BlockingStdFileReader(Option<File>);
+
+pub fn create_file_reader<'a, P: AsRef<Path>>(path: P) -> FileReader<'a> {
+    // We could store this in some LinearAllocator-like append-only data structure in Sdl2Pal, but
+    // this is easier since we have std.
+    FileReader::new(Box::leak(Box::new(BlockingStdFileReader(Some(
+        File::open(path).unwrap(),
+    )))))
+}
+
+impl pal::FileReaderOps for BlockingStdFileReader {
+    fn read<'a>(&mut self, first_byte: u64, buffer: &'a mut [u8]) -> pal::ReadHandle<'a> {
+        let pos = SeekFrom::Start(first_byte);
+        self.0.as_mut().unwrap().seek(pos).unwrap();
+        self.0.as_mut().unwrap().read_exact(buffer).unwrap();
+        pal::ReadHandle::new(buffer)
+    }
+
+    fn poll<'a>(
+        &mut self,
+        handle: pal::ReadHandle<'a>,
+    ) -> Result<&'a mut [u8], pal::ReadHandle<'a>> {
+        // Safety: did not share any access to the buffer.
+        Ok(unsafe { handle.into_inner() })
+    }
+
+    fn close(&mut self) {
+        // Close the file by dropping it.
+        let file = self.0.take().unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+    }
 }

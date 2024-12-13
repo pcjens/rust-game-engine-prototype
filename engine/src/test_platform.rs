@@ -1,8 +1,8 @@
 use core::{cell::Cell, ffi::c_void, time::Duration};
 
 use platform_abstraction_layer::{
-    ActionCategory, Button, DrawSettings, InputDevice, InputDevices, Pal, PixelFormat, TextureRef,
-    Vertex,
+    ActionCategory, Button, DrawSettings, FileReader, FileReaderOps, InputDevice, InputDevices,
+    Pal, PixelFormat, ReadHandle, TextureRef, Vertex,
 };
 
 pub struct TestPlatform {
@@ -55,6 +55,10 @@ impl Pal for TestPlatform {
             1 => assert_eq!(width as u64 * height as u64 * 4, pixels.len() as u64),
             _ => panic!("got an invalid TextureRef, not from TestPlatform::create_texture"),
         }
+    }
+
+    fn create_file_reader<'a>(&'a self, _path: &str) -> FileReader<'a> {
+        todo!()
     }
 
     fn input_devices(&self) -> InputDevices {
