@@ -42,17 +42,12 @@ impl<'eng> Engine<'eng> {
     ///   requires, e.g. the resource database. Needs to outlive the engine so
     ///   that engine internals can borrow from it, so it's passed in here
     ///   instead of being created behind the scenes.
-    /// - `frame_arena_capacity`: the size of the frame arena.
-    pub fn new(
-        platform: &'eng dyn Pal,
-        persistent_arena: &'eng LinearAllocator,
-        frame_arena_size: usize,
-    ) -> Self {
-        let frame_arena = LinearAllocator::new(platform, frame_arena_size)
+    pub fn new(platform: &'eng dyn Pal, persistent_arena: &'eng LinearAllocator) -> Self {
+        let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
-
-        let resources = Resources::new(platform, persistent_arena)
+        let resources = Resources::new(platform, persistent_arena, &frame_arena)
             .expect("should have enough resource memory to initialize the database");
+        frame_arena.reset();
 
         // TODO: don't create the texture here directly, use the resource db
         let test_texture = platform.create_texture(2, 2, PixelFormat::Rgba).unwrap();
@@ -158,7 +153,7 @@ mod tests {
             .unwrap();
 
         let persistent_arena = LinearAllocator::new(&platform, 1_000).unwrap();
-        let mut engine = Engine::new(&platform, &persistent_arena, 0);
+        let mut engine = Engine::new(&platform, &persistent_arena);
 
         let fps = 30;
         for current_frame in 0..(10 * fps) {

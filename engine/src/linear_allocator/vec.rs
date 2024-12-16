@@ -8,6 +8,7 @@ use super::LinearAllocator;
 
 #[allow(unused_imports)] // mentioned in docs
 use arrayvec::ArrayVec;
+use bytemuck::{fill_zeroes, Zeroable};
 
 /// A fixed-capacity contiguous growable array type.
 ///
@@ -114,6 +115,18 @@ impl<T> FixedVec<'_, T> {
         }
 
         self.initialized_len = new_len;
+    }
+}
+
+impl<T: Zeroable> FixedVec<'_, T> {
+    /// Fills out the rest of the array's capacity with zeroed values.
+    pub fn fill_with_zeroes(&mut self) {
+        fill_zeroes(&mut self.uninit_slice[self.initialized_len..]);
+        // Safety: everything up until `self.initialized_len` must've already
+        // been initialized, and now the rest is zeroed, and zeroed memory is
+        // valid for T (because it's Zeroable) => the whole slice is
+        // initialized.
+        self.initialized_len = self.uninit_slice.len();
     }
 }
 

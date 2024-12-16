@@ -2,33 +2,7 @@ use core::ops::Range;
 
 use crate::PoolBox;
 
-use super::{Chunksize, LoadedChunk, LoadedTextureChunk};
-
-#[derive(Debug)]
-pub struct AudioClipAsset {
-    pub samples_per_second: u32,
-    pub samples: u32,
-    pub chunks: Range<Chunksize>,
-}
-
-#[derive(Debug)]
-pub struct TextureAsset {
-    /// The width of the whole texture.
-    pub width: u16,
-    /// The height of the whole texture.
-    pub height: u16,
-    /// The chunks the texture is made up of. Multi-chunk textures are allocated
-    /// starting from the top-left of the texture, row-major.
-    pub texture_chunks: Range<Chunksize>,
-}
-
-#[derive(Debug)]
-pub enum ChunkRegion {
-    AudioClip {
-        start_sample_index: u32,
-        samples: u32,
-    },
-}
+use super::{LoadedChunk, LoadedTextureChunk};
 
 #[derive(Debug)]
 pub struct ChunkDescriptor<'eng> {
@@ -37,7 +11,7 @@ pub struct ChunkDescriptor<'eng> {
     pub region: ChunkRegion,
     /// The range of bytes in the chunk data portion of the database this
     /// texture chunk can be loaded from.
-    pub source_bytes: Range<usize>,
+    pub source_bytes: Range<u64>,
     /// A reference to the allocated chunk, if it is currently loaded.
     pub resident: Option<PoolBox<'eng, 'eng, LoadedChunk>>,
 }
@@ -50,7 +24,34 @@ pub struct TextureChunkDescriptor<'eng> {
     pub region_height: u16,
     /// The range of bytes in the chunk data portion of the database this
     /// texture chunk can be loaded from.
-    pub source_bytes: Range<usize>,
+    pub source_bytes: Range<u64>,
     /// A reference to the allocated chunk, if it is currently loaded.
     pub resident: Option<PoolBox<'eng, 'eng, LoadedTextureChunk>>,
 }
+
+#[derive(Debug)]
+pub struct AudioClipAsset {
+    pub samples_per_second: u32,
+    pub samples: u32,
+    pub chunks: Range<u32>,
+}
+
+#[derive(Debug)]
+pub struct TextureAsset {
+    /// The width of the whole texture.
+    pub width: u16,
+    /// The height of the whole texture.
+    pub height: u16,
+    /// The chunks the texture is made up of. Multi-chunk textures are allocated
+    /// starting from the top-left of the texture, row-major.
+    pub texture_chunks: Range<u32>,
+}
+
+#[derive(Debug)]
+pub enum ChunkRegion {
+    AudioClip {
+        start_sample_index: u32,
+        samples: u32,
+    },
+}
+pub const CHUNK_REGION_AUDIO_CLIP_TAG: u8 = 0;

@@ -57,24 +57,35 @@ impl Pal for TestPlatform {
         }
     }
 
-    fn open_file(&self, _path: &str) -> Option<FileHandle> {
-        todo!()
+    fn open_file(&self, path: &str) -> Option<FileHandle> {
+        match path {
+            "resources.db" => Some(FileHandle::new(4321)),
+            _ => None,
+        }
     }
 
     fn begin_file_read<'a>(
         &self,
-        _file: FileHandle,
-        _first_byte: u64,
-        _buffer: &'a mut [u8],
+        file: FileHandle,
+        first_byte: u64,
+        buffer: &'a mut [u8],
     ) -> FileReadTask<'a> {
-        todo!()
+        FileReadTask::new(file, first_byte, buffer)
     }
 
     fn poll_file_read<'a>(
         &self,
-        _task: FileReadTask<'a>,
+        task: FileReadTask<'a>,
     ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>> {
-        todo!()
+        static RESOURCES_DB: &[u8] = include_bytes!("../../resources.db");
+        if task.file().inner() != 4321 {
+            return Err(None);
+        }
+        let first_byte = task.task_id() as usize;
+        // Safety: never shared this buffer.
+        let buffer = unsafe { task.into_inner() };
+        buffer.copy_from_slice(&RESOURCES_DB[first_byte..first_byte + buffer.len()]);
+        Ok(buffer)
     }
 
     fn input_devices(&self) -> InputDevices {
