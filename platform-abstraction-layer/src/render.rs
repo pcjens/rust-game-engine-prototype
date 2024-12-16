@@ -67,6 +67,7 @@ pub struct DrawSettings {
 /// Platform-specific texture reference.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TextureRef(u64);
+
 impl TextureRef {
     /// Creates a new [`TextureRef`]. Should only be created in the platform
     /// implementation, which also knows how the inner value is going to be

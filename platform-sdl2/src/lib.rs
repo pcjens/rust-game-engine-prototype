@@ -2,17 +2,19 @@ use std::{
     cell::{Cell, RefCell},
     ffi::{c_int, c_void},
     fs::File,
-    io::{Read, Seek, SeekFrom},
-    path::Path,
+    io::{self, Read, Seek, SeekFrom},
+    path::PathBuf,
     process::exit,
     ptr::{addr_of, null_mut},
+    str::FromStr,
+    thread::JoinHandle,
     time::Duration,
 };
 
 use engine::Engine;
 use platform_abstraction_layer::{
-    self as pal, ActionCategory, Button, DrawSettings, FileReader, InputDevice, InputDevices, Pal,
-    Vertex,
+    self as pal, ActionCategory, Button, DrawSettings, FileHandle, FileReadTask, InputDevice,
+    InputDevices, Pal, Vertex,
 };
 use sdl2::{
     controller::Button as SdlButton,
@@ -41,6 +43,13 @@ enum Hid {
     },
 }
 
+type FileReadHandle = JoinHandle<Result<Vec<u8>, io::Error>>;
+
+struct FileHolder {
+    path: PathBuf,
+    tasks: Vec<(u64, FileReadHandle)>,
+}
+
 /// The [`Pal`] impl for the SDL2 based platform.
 pub struct Sdl2Pal {
     sdl_context: Sdl,
@@ -52,6 +61,7 @@ pub struct Sdl2Pal {
     /// List of input devices. Devices are never removed, so the InputDevice ids
     /// used for this platform are indices to this list.
     hids: RefCell<Vec<Hid>>,
+    files: RefCell<Vec<FileHolder>>,
 }
 
 impl Sdl2Pal {
@@ -88,6 +98,7 @@ impl Sdl2Pal {
             texture_creator,
             textures: RefCell::new(Vec::new()),
             hids: RefCell::new(vec![Hid::Keyboard]),
+            files: RefCell::new(Vec::new()),
         }
     }
 
@@ -241,8 +252,85 @@ impl Pal for Sdl2Pal {
         }
     }
 
-    fn create_file_reader<'a>(&'a self, path: &str) -> FileReader<'a> {
-        create_file_reader(path)
+    fn open_file(&self, path: &str) -> Option<FileHandle> {
+        let handle = {
+            let path = PathBuf::from_str(path).ok()?;
+            if !path.exists() {
+                return None;
+            }
+            let mut files = self.files.borrow_mut();
+            let i = files.len() as u64;
+            files.push(FileHolder {
+                path,
+                tasks: Vec::new(),
+            });
+            FileHandle::new(i)
+        };
+        Some(handle)
+    }
+
+    fn begin_file_read<'a>(
+        &self,
+        file_handle: FileHandle,
+        first_byte: u64,
+        buffer: &'a mut [u8],
+    ) -> FileReadTask<'a> {
+        // This is not an efficient implementation, it's a proof of concept.
+        let id = {
+            let mut files = self.files.borrow_mut();
+            let file = files
+                .get_mut(file_handle.inner() as usize)
+                .expect("invalid FileHandle");
+            let id = file.tasks.len() as u64;
+            let path = file.path.clone();
+            let mut buffer_on_thread = vec![0; buffer.len()];
+            file.tasks.push((
+                id,
+                std::thread::spawn(move || {
+                    let mut file = File::open(path)?;
+                    file.seek(SeekFrom::Start(first_byte))?;
+                    file.read_exact(&mut buffer_on_thread)?;
+                    Ok(buffer_on_thread)
+                }),
+            ));
+            id
+        };
+        FileReadTask::new(file_handle, id, buffer)
+    }
+
+    fn poll_file_read<'a>(
+        &self,
+        task: FileReadTask<'a>,
+    ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>> {
+        let written_buffer = {
+            let mut files = self.files.borrow_mut();
+            let file = files
+                .get_mut(task.file().inner() as usize)
+                .expect("invalid FileHandle");
+            let Some(idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
+                return Err(None);
+            };
+
+            let (id, join_handle) = file.tasks.swap_remove(idx);
+            if !join_handle.is_finished() {
+                file.tasks.push((id, join_handle));
+                return Err(Some(task));
+            }
+
+            match join_handle.join().unwrap() {
+                Ok(read_bytes) => {
+                    // Safety: this implementation does not share the borrow for perf.
+                    let buffer = unsafe { task.into_inner() };
+                    buffer.copy_from_slice(&read_bytes);
+                    buffer
+                }
+                Err(err) => {
+                    println!("[Sdl2Pal::poll_file_read]: could not read file: {err}");
+                    return Err(None);
+                }
+            }
+        };
+        Ok(written_buffer)
     }
 
     fn input_devices(&self) -> InputDevices {
@@ -496,40 +584,4 @@ fn button_for_scancode(scancode: Scancode) -> Button {
 
 fn button_for_gamepad(gamepad_button: SdlButton) -> Button {
     Button::new((2 << 32) | gamepad_button as u64)
-}
-
-// File IO helpers:
-
-struct BlockingStdFileReader(Option<File>);
-
-pub fn create_file_reader<'a, P: AsRef<Path>>(path: P) -> FileReader<'a> {
-    // We could store this in some LinearAllocator-like append-only data structure in Sdl2Pal, but
-    // this is easier since we have std.
-    FileReader::new(Box::leak(Box::new(BlockingStdFileReader(Some(
-        File::open(path).unwrap(),
-    )))))
-}
-
-impl pal::FileReaderOps for BlockingStdFileReader {
-    fn read<'a>(&mut self, first_byte: u64, buffer: &'a mut [u8]) -> pal::ReadHandle<'a> {
-        let pos = SeekFrom::Start(first_byte);
-        self.0.as_mut().unwrap().seek(pos).unwrap();
-        self.0.as_mut().unwrap().read_exact(buffer).unwrap();
-        pal::ReadHandle::new(buffer)
-    }
-
-    fn poll<'a>(
-        &mut self,
-        handle: pal::ReadHandle<'a>,
-    ) -> Result<&'a mut [u8], pal::ReadHandle<'a>> {
-        // Safety: did not share any access to the buffer.
-        Ok(unsafe { handle.into_inner() })
-    }
-
-    fn close(&mut self) {
-        // Close the file by dropping it.
-        let file = self.0.take().unwrap();
-        file.sync_all().unwrap();
-        drop(file);
-    }
 }

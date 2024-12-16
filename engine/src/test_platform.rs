@@ -1,8 +1,8 @@
 use core::{cell::Cell, ffi::c_void, time::Duration};
 
 use platform_abstraction_layer::{
-    ActionCategory, Button, DrawSettings, FileReader, FileReaderOps, InputDevice, InputDevices,
-    Pal, PixelFormat, ReadHandle, TextureRef, Vertex,
+    ActionCategory, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices, Pal,
+    PixelFormat, TextureRef, Vertex,
 };
 
 pub struct TestPlatform {
@@ -57,7 +57,23 @@ impl Pal for TestPlatform {
         }
     }
 
-    fn create_file_reader<'a>(&'a self, _path: &str) -> FileReader<'a> {
+    fn open_file(&self, _path: &str) -> Option<FileHandle> {
+        todo!()
+    }
+
+    fn begin_file_read<'a>(
+        &self,
+        _file: FileHandle,
+        _first_byte: u64,
+        _buffer: &'a mut [u8],
+    ) -> FileReadTask<'a> {
+        todo!()
+    }
+
+    fn poll_file_read<'a>(
+        &self,
+        _task: FileReadTask<'a>,
+    ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>> {
         todo!()
     }
 

@@ -59,7 +59,40 @@ pub trait Pal {
         pixels: &[u8],
     );
 
-    fn create_file_reader<'a>(&'a self, path: &str) -> FileReader<'a>;
+    /// Open a file for reading. Returns None if the file can't be read.
+    fn open_file(&self, path: &str) -> Option<FileHandle>;
+
+    /// Start an asynchronous read operation to fill `buffer` from the `file` at
+    /// offset `first_byte`.
+    ///
+    /// ## Safety
+    ///
+    /// The returned [`FileReadTask`] must not be dropped, but instead be passed
+    /// to [`Pal::poll_file_read`]. [`FileReadTask::drop`] will panic if this is
+    /// not followed. Leaking the [`FileReadTask`] is a way to avoid the panic
+    /// without polling.
+    #[must_use]
+    fn begin_file_read<'a>(
+        &self,
+        file: FileHandle,
+        first_byte: u64,
+        buffer: &'a mut [u8],
+    ) -> FileReadTask<'a>;
+
+    /// Poll if a read has completed successfully, returning the buffer
+    /// containing the data if it has. If not, but the read is still being
+    /// processed, the task is returned back, to be polled again later. If the
+    /// read fails, an `Err(None)` is returned.
+    ///
+    /// ## Safety
+    ///
+    /// The `Err(Some(task))` result from this function implies that the read is
+    /// still processing. The returned [`FileReadTask`] must be dealt with
+    /// according to the rules explained in [`Pal::begin_file_read`].
+    fn poll_file_read<'a>(
+        &self,
+        task: FileReadTask<'a>,
+    ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>>;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;
