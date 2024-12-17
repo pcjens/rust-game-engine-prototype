@@ -1,4 +1,4 @@
-use platform_abstraction_layer::{FileHandle, Pal};
+use platform_abstraction_layer::{FileHandle, FileReadTask, Pal};
 
 use crate::{FixedVec, LinearAllocator};
 
@@ -20,6 +20,7 @@ pub struct AssetIndex<'eng> {
     pub texture_chunks: FixedVec<'eng, TextureChunkDescriptor<'eng>>,
     pub textures: FixedVec<'eng, TextureAsset>,
     pub audio_clips: FixedVec<'eng, AudioClipAsset>,
+    pub chunk_data_offset: u64,
 }
 
 impl AssetIndex<'_> {
@@ -30,10 +31,11 @@ impl AssetIndex<'_> {
         file: FileHandle,
     ) -> Option<AssetIndex<'eng>> {
         let mut header_bytes = [0; u32::SERIALIZED_SIZE + AssetIndexHeader::SERIALIZED_SIZE];
-        blocking_read_file(platform, file, 0, &mut header_bytes).ok()?;
+        let header_read = platform.begin_file_read(file, 0, &mut header_bytes);
+        let header_bytes = blocking_read_file(platform, header_read).ok()?;
 
-        let mut c = 0;
-        let magic = deserialize::<u32>(&header_bytes, &mut c);
+        let mut cursor = 0;
+        let magic = deserialize::<u32>(header_bytes, &mut cursor);
         if magic != RESOURCE_DB_MAGIC_NUMBER {
             return None;
         }
@@ -42,32 +44,44 @@ impl AssetIndex<'_> {
             texture_chunks,
             textures,
             audio_clips,
-        } = deserialize::<AssetIndexHeader>(&header_bytes, &mut c);
+        } = deserialize::<AssetIndexHeader>(header_bytes, &mut cursor);
+
+        let mut buffer = alloc_file_buf::<ChunkDescriptor>(temp_arena, chunks)?;
+        let chunks = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        cursor += chunks.read_size();
+
+        let mut buffer = alloc_file_buf::<TextureChunkDescriptor>(temp_arena, texture_chunks)?;
+        let texture_chunks = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        cursor += texture_chunks.read_size();
+
+        let mut buffer = alloc_file_buf::<TextureAsset>(temp_arena, textures)?;
+        let textures = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        cursor += textures.read_size();
+
+        let mut buffer = alloc_file_buf::<AudioClipAsset>(temp_arena, audio_clips)?;
+        let audio_clips = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        cursor += textures.read_size();
+
+        let chunk_data_offset = cursor as u64;
 
         Some(AssetIndex {
-            chunks: read_array(platform, arena, temp_arena, file, &mut c, chunks)?,
-            texture_chunks: read_array(platform, arena, temp_arena, file, &mut c, texture_chunks)?,
-            textures: read_array(platform, arena, temp_arena, file, &mut c, textures)?,
-            audio_clips: read_array(platform, arena, temp_arena, file, &mut c, audio_clips)?,
+            chunks: deserialize_from_file(platform, arena, chunks)?,
+            texture_chunks: deserialize_from_file(platform, arena, texture_chunks)?,
+            textures: deserialize_from_file(platform, arena, textures)?,
+            audio_clips: deserialize_from_file(platform, arena, audio_clips)?,
+            chunk_data_offset,
         })
     }
 }
 
-fn read_array<'eng, D: Deserialize>(
+fn deserialize_from_file<'eng, D: Deserialize>(
     platform: &dyn Pal,
     alloc: &'eng LinearAllocator,
-    temp_allocator: &LinearAllocator,
-    file: FileHandle,
-    cursor: &mut usize,
-    count: u32,
+    file_read: FileReadTask,
 ) -> Option<FixedVec<'eng, D>> {
-    let file_size = count as usize * D::SERIALIZED_SIZE;
-    let mut file_bytes = FixedVec::<u8>::new(temp_allocator, file_size)?;
-    file_bytes.fill_with_zeroes();
-    blocking_read_file(platform, file, *cursor as u64, &mut file_bytes).ok()?;
-    *cursor += file_size;
-
-    let mut vec = FixedVec::new(alloc, count as usize)?;
+    let file_bytes = blocking_read_file(platform, file_read).ok()?;
+    let count = file_bytes.len() / D::SERIALIZED_SIZE;
+    let mut vec = FixedVec::new(alloc, count)?;
     for element_bytes in file_bytes.chunks(D::SERIALIZED_SIZE) {
         let Ok(_) = vec.push(D::deserialize(element_bytes)) else {
             unreachable!()
@@ -76,16 +90,23 @@ fn read_array<'eng, D: Deserialize>(
     Some(vec)
 }
 
-fn blocking_read_file(
+fn alloc_file_buf<'a, D: Deserialize>(
+    temp_allocator: &'a LinearAllocator,
+    count: u32,
+) -> Option<FixedVec<'a, u8>> {
+    let file_size = count as usize * D::SERIALIZED_SIZE;
+    let mut file_bytes = FixedVec::<u8>::new(temp_allocator, file_size)?;
+    file_bytes.fill_with_zeroes();
+    Some(file_bytes)
+}
+
+fn blocking_read_file<'a>(
     platform: &dyn Pal,
-    file: FileHandle,
-    first_byte: u64,
-    buffer: &mut [u8],
-) -> Result<(), ()> {
-    let mut task = platform.begin_file_read(file, first_byte, buffer);
+    mut task: FileReadTask<'a>,
+) -> Result<&'a mut [u8], ()> {
     loop {
         match platform.poll_file_read(task) {
-            Ok(_) => return Ok(()),
+            Ok(result) => return Ok(result),
             Err(None) => return Err(()),
             Err(Some(returned_task)) => task = returned_task,
         }

@@ -48,6 +48,10 @@ impl<'a> FileReadTask<'a> {
         self.task_id
     }
 
+    pub fn read_size(&self) -> usize {
+        self.buffer.as_ref().unwrap().len()
+    }
+
     /// ## Safety
     /// The platform may have shared a pointer to this buffer with e.g. the
     /// kernel for async writing. The caller must ensure that at this point,
