@@ -1,3 +1,9 @@
+/// An input event sent by the platform to the engine for handling.
+pub enum Event {
+    DigitalInputPressed(InputDevice, Button),
+    DigitalInputReleased(InputDevice, Button),
+}
+
 /// A button or key on a specific input device.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Button(u64);

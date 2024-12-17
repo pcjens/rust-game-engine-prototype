@@ -8,9 +8,10 @@ use platform_abstraction_layer::Pal;
 pub use pool::{Pool, PoolBox};
 pub use vec::FixedVec;
 
-/// A linear allocator with a constant capacity. Can allocate memory regions
-/// with any size or alignment very fast, but individual allocations can't be
-/// freed, all of the allocations must be freed at once.
+/// A linear allocator with a constant capacity. Can allocate memory
+/// regions with any size or alignment (within the capacity) very
+/// fast, but individual allocations can't be freed to make more
+/// space while there's still other allocations in use.
 pub struct LinearAllocator<'eng> {
     backing_mem_ptr: *mut c_void,
     backing_mem_size: usize,

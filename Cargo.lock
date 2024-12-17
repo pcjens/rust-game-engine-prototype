@@ -127,7 +127,6 @@ dependencies = [
 name = "platform-sdl2"
 version = "0.1.0"
 dependencies = [
- "engine",
  "platform-abstraction-layer",
  "sdl2",
  "sdl2-sys",

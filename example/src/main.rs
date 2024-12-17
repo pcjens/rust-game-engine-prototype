@@ -3,8 +3,8 @@ fn main() {
     let platform = platform_sdl2::Sdl2Pal::new();
     let persistent_arena = engine::LinearAllocator::new(&platform, 100_000_000)
         .expect("persistent game engine memory allocation should not fail");
-    let engine = engine::Engine::new(&platform, &persistent_arena);
-    platform_sdl2::run(engine, &platform);
+    let mut engine = engine::Engine::new(&platform, &persistent_arena);
+    platform.run_game_loop(&mut engine);
 }
 
 #[cfg(not(any(feature = "platform-sdl2")))]

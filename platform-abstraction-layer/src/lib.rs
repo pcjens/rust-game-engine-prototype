@@ -14,6 +14,20 @@ pub use render::*;
 
 pub type InputDevices = ArrayVec<InputDevice, 15>;
 
+/// The "engine side" of [Pal], for passing the engine to the platform layer
+/// implementation for event and update callbacks.
+///
+/// This is not the most ideal design, ideally it'd just all be downstream from
+/// Engine, but emscripten as a platform is very much designed around callbacks
+/// instead of a regular game loop the engine could own. So here we are.
+pub trait EngineCallbacks {
+    /// Run one iteration of the game loop.
+    fn iterate(&mut self, platform: &dyn Pal);
+    /// Handle an event. The duration passed in should refer to the time the
+    /// event happened, using the same clock as [`Pal::elapsed`].
+    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal);
+}
+
 /// "Platform abstraction layer": a trait for using platform-dependent features
 /// from the engine without depending on any platform directly. A full
 /// implementation should implement this trait, and also call the engine's

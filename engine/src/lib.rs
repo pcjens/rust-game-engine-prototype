@@ -18,6 +18,6 @@ mod linear_allocator;
 pub mod resources;
 
 pub use engine::Engine;
-pub use input::{Action, ActionKind, Event, EventQueue, InputDeviceState, QueuedEvent};
+pub use input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent};
 pub use linear_allocator::{FixedVec, LinearAllocator, Pool, PoolBox};
 pub use resources::Resources;

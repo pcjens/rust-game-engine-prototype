@@ -3,12 +3,11 @@ use core::time::Duration;
 use arrayvec::ArrayVec;
 use enum_map::enum_map;
 use platform_abstraction_layer::{
-    ActionCategory, DrawSettings, Pal, PixelFormat, TextureRef, Vertex,
+    ActionCategory, DrawSettings, EngineCallbacks, Event, Pal, PixelFormat, TextureRef, Vertex,
 };
 
 use crate::{
-    Action, ActionKind, Event, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
-    Resources,
+    Action, ActionKind, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent, Resources,
 };
 
 #[derive(enum_map::Enum)]
@@ -68,10 +67,10 @@ impl<'eng> Engine<'eng> {
             test_texture,
         }
     }
+}
 
-    /// Runs one iteration of the game loop (called by the platform
-    /// implementation).
-    pub fn iterate(&mut self, platform: &dyn Pal) {
+impl EngineCallbacks for Engine<'_> {
+    fn iterate(&mut self, platform: &dyn Pal) {
         let timestamp = platform.elapsed();
 
         self.frame_arena.reset();
@@ -106,8 +105,7 @@ impl<'eng> Engine<'eng> {
         );
     }
 
-    /// Handles an event (called by the platform implementation).
-    pub fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {
+    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {
         match event {
             Event::DigitalInputPressed(device, _) | Event::DigitalInputReleased(device, _) => {
                 {
@@ -136,9 +134,9 @@ impl<'eng> Engine<'eng> {
 
 #[cfg(test)]
 mod tests {
-    use platform_abstraction_layer::{ActionCategory, Pal};
+    use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
-    use crate::{test_platform::TestPlatform, Event, LinearAllocator};
+    use crate::{test_platform::TestPlatform, LinearAllocator};
 
     use super::Engine;
 

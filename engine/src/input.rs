@@ -2,14 +2,9 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use enum_map::{EnumArray, EnumMap};
-use platform_abstraction_layer::{Button, InputDevice};
+use platform_abstraction_layer::{Button, Event, InputDevice};
 
 const EVENT_QUEUE_TIMEOUT: Duration = Duration::from_millis(200);
-
-pub enum Event {
-    DigitalInputPressed(InputDevice, Button),
-    DigitalInputReleased(InputDevice, Button),
-}
 
 pub type EventQueue = ArrayVec<QueuedEvent, 1000>;
 

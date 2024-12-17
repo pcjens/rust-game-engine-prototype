@@ -21,10 +21,10 @@ impl FileHandle {
 }
 
 /// Handle to an asynchronous file reading operation. Instead of dropping, these
-/// *must* be passed to a [`Pal::poll`] call until they are consumed.
+/// *must* be passed to a [`Pal::poll_file_read`] call until they are consumed.
 ///
 /// Alternatively, they can be leaked, to avoid ever dropping. If dropped
-/// outside of [`Pal::poll`], panics.
+/// outside of [`Pal::poll_file_read`], panics.
 pub struct FileReadTask<'a> {
     file: FileHandle,
     task_id: u64,

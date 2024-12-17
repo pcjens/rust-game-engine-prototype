@@ -11,10 +11,9 @@ use std::{
     time::Duration,
 };
 
-use engine::Engine;
 use platform_abstraction_layer::{
-    self as pal, ActionCategory, Button, DrawSettings, FileHandle, FileReadTask, InputDevice,
-    InputDevices, Pal, Vertex,
+    self as pal, ActionCategory, Button, DrawSettings, EngineCallbacks, FileHandle, FileReadTask,
+    InputDevice, InputDevices, Pal, Vertex,
 };
 use sdl2::{
     controller::Button as SdlButton,
@@ -117,6 +116,142 @@ impl Sdl2Pal {
             }
         }
         None
+    }
+
+    pub fn run_game_loop(&self, engine: &mut dyn EngineCallbacks) {
+        // Init the subsystem. The subsystem is actually used, just through the FFI
+        // calls, since the subsystem doesn't expose everything we need (e.g. game
+        // controller type).
+        let _gamepad = self
+            .sdl_context
+            .game_controller()
+            .expect("SDL controller subsystem should be able to init");
+        let mut event_pump = self
+            .sdl_context
+            .event_pump()
+            .expect("SDL 2 event pump should init without issue");
+
+        while !self.exit_requested.get() {
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. } => {
+                        self.exit_requested.set(true);
+                    }
+                    Event::KeyDown {
+                        keycode: Some(Keycode::Q),
+                        keymod,
+                        ..
+                    } if keymod.intersects(Mod::LCTRLMOD) => {
+                        self.exit_requested.set(true);
+                    }
+
+                    Event::ControllerDeviceAdded { which, .. } => {
+                        // Safety: ffi call.
+                        let controller = unsafe { SDL_GameControllerOpen(which as i32) };
+                        if !controller.is_null() {
+                            let mut hids = self.hids.borrow_mut();
+                            hids.push(Hid::Gamepad {
+                                controller,
+                                connected: true,
+                                instance_id: which,
+                            });
+                        }
+                    }
+                    Event::ControllerDeviceRemoved { which, .. } => {
+                        let mut hids = self.hids.borrow_mut();
+                        for hid in hids.iter_mut() {
+                            if let Hid::Gamepad {
+                                connected,
+                                instance_id,
+                                ..
+                            } = hid
+                            {
+                                if *connected && *instance_id == which {
+                                    *connected = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    Event::KeyDown {
+                        timestamp,
+                        scancode: Some(scancode),
+                        ..
+                    } => {
+                        engine.event(
+                            pal::Event::DigitalInputPressed(
+                                InputDevice::new(0),
+                                button_for_scancode(scancode),
+                            ),
+                            Duration::from_millis(timestamp as u64),
+                            self,
+                        );
+                    }
+
+                    Event::KeyUp {
+                        timestamp,
+                        scancode: Some(scancode),
+                        ..
+                    } => {
+                        engine.event(
+                            pal::Event::DigitalInputReleased(
+                                InputDevice::new(0),
+                                button_for_scancode(scancode),
+                            ),
+                            Duration::from_millis(timestamp as u64),
+                            self,
+                        );
+                    }
+
+                    Event::ControllerButtonDown {
+                        timestamp,
+                        which,
+                        button,
+                    } => {
+                        if let Some(device) = self.get_input_device_by_sdl_joystick_id(which) {
+                            engine.event(
+                                pal::Event::DigitalInputPressed(device, button_for_gamepad(button)),
+                                Duration::from_millis(timestamp as u64),
+                                self,
+                            );
+                        }
+                    }
+
+                    Event::ControllerButtonUp {
+                        timestamp,
+                        which,
+                        button,
+                    } => {
+                        if let Some(device) = self.get_input_device_by_sdl_joystick_id(which) {
+                            engine.event(
+                                pal::Event::DigitalInputReleased(
+                                    device,
+                                    button_for_gamepad(button),
+                                ),
+                                Duration::from_millis(timestamp as u64),
+                                self,
+                            );
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+
+            {
+                let mut canvas = self.canvas.borrow_mut();
+                canvas.set_draw_color(Color::BLACK);
+                canvas.clear();
+            }
+
+            engine.iterate(self);
+
+            {
+                let mut canvas = self.canvas.borrow_mut();
+                canvas.present();
+            }
+        }
     }
 }
 
@@ -427,139 +562,6 @@ impl Pal for Sdl2Pal {
 
     unsafe fn free(&self, ptr: *mut c_void) {
         SDL_free(ptr)
-    }
-}
-
-pub fn run(mut engine: Engine, platform: &Sdl2Pal) {
-    // Init the subsystem. The subsystem is actually used, just through the FFI
-    // calls, since the subsystem doesn't expose everything we need (e.g. game
-    // controller type).
-    let _gamepad = platform
-        .sdl_context
-        .game_controller()
-        .expect("SDL controller subsystem should be able to init");
-    let mut event_pump = platform
-        .sdl_context
-        .event_pump()
-        .expect("SDL 2 event pump should init without issue");
-
-    while !platform.exit_requested.get() {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. } => {
-                    platform.exit_requested.set(true);
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Q),
-                    keymod,
-                    ..
-                } if keymod.intersects(Mod::LCTRLMOD) => {
-                    platform.exit_requested.set(true);
-                }
-
-                Event::ControllerDeviceAdded { which, .. } => {
-                    // Safety: ffi call.
-                    let controller = unsafe { SDL_GameControllerOpen(which as i32) };
-                    if !controller.is_null() {
-                        let mut hids = platform.hids.borrow_mut();
-                        hids.push(Hid::Gamepad {
-                            controller,
-                            connected: true,
-                            instance_id: which,
-                        });
-                    }
-                }
-                Event::ControllerDeviceRemoved { which, .. } => {
-                    let mut hids = platform.hids.borrow_mut();
-                    for hid in hids.iter_mut() {
-                        if let Hid::Gamepad {
-                            connected,
-                            instance_id,
-                            ..
-                        } = hid
-                        {
-                            if *connected && *instance_id == which {
-                                *connected = false;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                Event::KeyDown {
-                    timestamp,
-                    scancode: Some(scancode),
-                    ..
-                } => {
-                    engine.event(
-                        engine::Event::DigitalInputPressed(
-                            InputDevice::new(0),
-                            button_for_scancode(scancode),
-                        ),
-                        Duration::from_millis(timestamp as u64),
-                        platform,
-                    );
-                }
-
-                Event::KeyUp {
-                    timestamp,
-                    scancode: Some(scancode),
-                    ..
-                } => {
-                    engine.event(
-                        engine::Event::DigitalInputReleased(
-                            InputDevice::new(0),
-                            button_for_scancode(scancode),
-                        ),
-                        Duration::from_millis(timestamp as u64),
-                        platform,
-                    );
-                }
-
-                Event::ControllerButtonDown {
-                    timestamp,
-                    which,
-                    button,
-                } => {
-                    if let Some(device) = platform.get_input_device_by_sdl_joystick_id(which) {
-                        engine.event(
-                            engine::Event::DigitalInputPressed(device, button_for_gamepad(button)),
-                            Duration::from_millis(timestamp as u64),
-                            platform,
-                        );
-                    }
-                }
-
-                Event::ControllerButtonUp {
-                    timestamp,
-                    which,
-                    button,
-                } => {
-                    if let Some(device) = platform.get_input_device_by_sdl_joystick_id(which) {
-                        engine.event(
-                            engine::Event::DigitalInputReleased(device, button_for_gamepad(button)),
-                            Duration::from_millis(timestamp as u64),
-                            platform,
-                        );
-                    }
-                }
-
-                _ => {}
-            }
-        }
-
-        {
-            let mut canvas = platform.canvas.borrow_mut();
-            canvas.set_draw_color(Color::BLACK);
-            canvas.clear();
-        }
-
-        engine.iterate(platform);
-
-        {
-            let mut canvas = platform.canvas.borrow_mut();
-            canvas.present();
-        }
     }
 }
 
