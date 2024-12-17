@@ -1,5 +1,5 @@
 use core::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     fmt::Debug,
     ops::{Deref, DerefMut},
 };
@@ -78,6 +78,7 @@ impl<T> Drop for PoolBox<'_, '_, T> {
 pub struct Pool<'a, T> {
     allocator: &'a LinearAllocator<'a>,
     free_list: RefCell<FixedVec<'a, &'a mut Option<T>>>,
+    capacity_left: Cell<usize>,
 }
 
 impl<'a, T> Pool<'a, T> {
@@ -96,6 +97,7 @@ impl<'a, T> Pool<'a, T> {
         Some(Pool {
             allocator,
             free_list: RefCell::new(FixedVec::new(allocator, capacity)?),
+            capacity_left: Cell::new(capacity),
         })
     }
 
@@ -122,6 +124,12 @@ impl<'a, T> Pool<'a, T> {
         }
 
         'allocate_new_slot: {
+            let current_capacity = self.capacity_left.get();
+            if current_capacity == 0 {
+                break 'allocate_new_slot;
+            }
+            self.capacity_left.set(current_capacity - 1);
+
             let Some(new_slot) = self
                 .allocator
                 .try_alloc_uninit_slice::<Option<T>>(1)
@@ -190,6 +198,18 @@ mod tests {
 
         let _a: PoolBox<Element> = pool.insert(0).unwrap();
         let _b: Element = pool.insert(0).unwrap_err(); // space for just one, should oom
+    }
+
+    #[test]
+    fn handles_out_of_capacity_gracefully() {
+        type Element = u8;
+
+        let platform = TestPlatform::new();
+        let alloc = LinearAllocator::new(&platform, 1000).unwrap();
+        let pool: Pool<Element> = Pool::new(&alloc, 1).unwrap();
+
+        let _a: PoolBox<Element> = pool.insert(0).unwrap();
+        let _b: Element = pool.insert(0).unwrap_err(); // should be out of capacity
     }
 
     #[test]
