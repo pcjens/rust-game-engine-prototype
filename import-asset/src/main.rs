@@ -1,7 +1,9 @@
-use std::fs;
+use std::{fs, str::FromStr};
 
+use arrayvec::ArrayString;
 use engine::resources::{
-    serialize, AssetIndexHeader, TextureAsset, TextureChunkDescriptor, RESOURCE_DB_MAGIC_NUMBER,
+    asset_index::{AssetIndexHeader, NamedAsset},
+    serialize, TextureAsset, TextureChunkDescriptor, RESOURCE_DB_MAGIC_NUMBER,
 };
 
 fn main() {
@@ -22,10 +24,13 @@ fn main() {
         resident: None,
     };
 
-    let texture = TextureAsset {
-        width: 2,
-        height: 2,
-        texture_chunks: 0..1,
+    let texture = NamedAsset {
+        name: ArrayString::from_str("testing texture").unwrap(),
+        asset: TextureAsset {
+            width: 2,
+            height: 2,
+            texture_chunks: 0..1,
+        },
     };
 
     let mut cursor = 0;

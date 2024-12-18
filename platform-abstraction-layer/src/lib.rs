@@ -82,9 +82,10 @@ pub trait Pal {
     /// ## Safety
     ///
     /// The returned [`FileReadTask`] must not be dropped, but instead be passed
-    /// to [`Pal::poll_file_read`]. [`FileReadTask::drop`] will panic if this is
-    /// not followed. Leaking the [`FileReadTask`] is a way to avoid the panic
-    /// without polling.
+    /// to [`Pal::poll_file_read`]. This rule ensures that the `buffer` passed
+    /// into this function is not accessed while it's still being written to, as
+    /// the buffer's mutable borrow would end after dropping the
+    /// [`FileReadTask`], which is unsafe!
     #[must_use]
     fn begin_file_read<'a>(
         &self,

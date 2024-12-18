@@ -1,10 +1,12 @@
 use core::ops::Range;
 
-use crate::resources::assets::CHUNK_REGION_AUDIO_CLIP_TAG;
+use arrayvec::ArrayString;
+
+use crate::resources::chunks::CHUNK_REGION_AUDIO_CLIP_TAG;
 
 use super::{
-    AssetIndexHeader, AudioClipAsset, ChunkDescriptor, ChunkRegion, TextureAsset,
-    TextureChunkDescriptor,
+    asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
+    AudioClipAsset, ChunkDescriptor, ChunkRegion, TextureAsset, TextureChunkDescriptor,
 };
 
 pub trait Serialize {
@@ -85,6 +87,18 @@ impl Serialize for AssetIndexHeader {
     }
 }
 
+impl<S: Serialize> Serialize for NamedAsset<S> {
+    const SERIALIZED_SIZE: usize =
+        <ArrayString<ASSET_NAME_LENGTH> as Serialize>::SERIALIZED_SIZE + S::SERIALIZED_SIZE;
+    fn serialize(&self, dst: &mut [u8]) {
+        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
+        let mut cursor = 0;
+        let NamedAsset { name, asset } = self;
+        serialize::<ArrayString<ASSET_NAME_LENGTH>>(name, dst, &mut cursor);
+        serialize::<S>(asset, dst, &mut cursor);
+    }
+}
+
 impl Serialize for AudioClipAsset {
     const SERIALIZED_SIZE: usize =
         u32::SERIALIZED_SIZE * 2 + <Range<u32> as Serialize>::SERIALIZED_SIZE;
@@ -126,6 +140,19 @@ impl Serialize for TextureAsset {
 pub fn serialize<S: Serialize>(value: &S, dst: &mut [u8], cursor: &mut usize) {
     value.serialize(&mut dst[*cursor..(*cursor + S::SERIALIZED_SIZE)]);
     *cursor += S::SERIALIZED_SIZE;
+}
+
+impl<const LEN: usize> Serialize for ArrayString<LEN> {
+    const SERIALIZED_SIZE: usize = u8::SERIALIZED_SIZE + LEN;
+    fn serialize(&self, dst: &mut [u8]) {
+        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
+        assert!(
+            LEN < 0xFF,
+            "deserialization impl for ArrayString only supports string lengths up to 255",
+        );
+        (self.len() as u8).serialize(&mut dst[0..1]);
+        dst[1..1 + self.len()].copy_from_slice(self.as_bytes());
+    }
 }
 
 impl Serialize for Range<u64> {

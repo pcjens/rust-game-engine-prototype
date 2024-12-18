@@ -1,10 +1,12 @@
-use core::ops::Range;
+use core::{ops::Range, str};
 
-use crate::resources::assets::CHUNK_REGION_AUDIO_CLIP_TAG;
+use arrayvec::ArrayString;
+
+use crate::resources::chunks::CHUNK_REGION_AUDIO_CLIP_TAG;
 
 use super::{
-    AssetIndexHeader, AudioClipAsset, ChunkDescriptor, ChunkRegion, TextureAsset,
-    TextureChunkDescriptor,
+    asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
+    AudioClipAsset, ChunkDescriptor, ChunkRegion, TextureAsset, TextureChunkDescriptor,
 };
 
 pub trait Deserialize {
@@ -41,7 +43,7 @@ impl Deserialize for ChunkDescriptor<'_> {
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
-        ChunkDescriptor {
+        Self {
             region: deserialize::<ChunkRegion>(src, &mut cursor),
             source_bytes: deserialize::<Range<u64>>(src, &mut cursor),
             resident: None,
@@ -55,7 +57,7 @@ impl Deserialize for TextureChunkDescriptor<'_> {
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
-        TextureChunkDescriptor {
+        Self {
             region_width: deserialize::<u16>(src, &mut cursor),
             region_height: deserialize::<u16>(src, &mut cursor),
             source_bytes: deserialize::<Range<u64>>(src, &mut cursor),
@@ -69,11 +71,24 @@ impl Deserialize for AssetIndexHeader {
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
-        AssetIndexHeader {
+        Self {
             chunks: deserialize::<u32>(src, &mut cursor),
             texture_chunks: deserialize::<u32>(src, &mut cursor),
             textures: deserialize::<u32>(src, &mut cursor),
             audio_clips: deserialize::<u32>(src, &mut cursor),
+        }
+    }
+}
+
+impl<D: Deserialize> Deserialize for NamedAsset<D> {
+    const SERIALIZED_SIZE: usize =
+        <ArrayString<ASSET_NAME_LENGTH> as Deserialize>::SERIALIZED_SIZE + D::SERIALIZED_SIZE;
+    fn deserialize(src: &[u8]) -> Self {
+        assert_eq!(Self::SERIALIZED_SIZE, src.len());
+        let mut cursor = 0;
+        Self {
+            name: deserialize::<ArrayString<ASSET_NAME_LENGTH>>(src, &mut cursor),
+            asset: deserialize::<D>(src, &mut cursor),
         }
     }
 }
@@ -84,7 +99,7 @@ impl Deserialize for AudioClipAsset {
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
-        AudioClipAsset {
+        Self {
             samples_per_second: deserialize::<u32>(src, &mut cursor),
             samples: deserialize::<u32>(src, &mut cursor),
             chunks: deserialize::<Range<u32>>(src, &mut cursor),
@@ -98,7 +113,7 @@ impl Deserialize for TextureAsset {
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
-        TextureAsset {
+        Self {
             width: deserialize::<u16>(src, &mut cursor),
             height: deserialize::<u16>(src, &mut cursor),
             texture_chunks: deserialize::<Range<u32>>(src, &mut cursor),
@@ -114,6 +129,20 @@ pub fn deserialize<D: Deserialize>(src: &[u8], cursor: &mut usize) -> D {
     let value = D::deserialize(&src[*cursor..(*cursor + D::SERIALIZED_SIZE)]);
     *cursor += D::SERIALIZED_SIZE;
     value
+}
+
+impl<const LEN: usize> Deserialize for ArrayString<LEN> {
+    const SERIALIZED_SIZE: usize = u8::SERIALIZED_SIZE + LEN;
+    fn deserialize(src: &[u8]) -> Self {
+        assert_eq!(Self::SERIALIZED_SIZE, src.len());
+        assert!(
+            LEN < 0xFF,
+            "deserialization impl for ArrayString only supports string lengths up to 255",
+        );
+        let len = src[0] as usize;
+        assert!(len <= LEN, "serialized string cannot fit");
+        ArrayString::from(str::from_utf8(&src[1..1 + len]).unwrap()).unwrap()
+    }
 }
 
 impl Deserialize for Range<u64> {

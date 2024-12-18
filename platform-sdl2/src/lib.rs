@@ -452,10 +452,11 @@ impl Pal for Sdl2Pal {
                 return Err(Some(task));
             }
 
+            // Safety: this implementation does not share the borrow for perf.
+            let buffer = unsafe { task.into_inner() };
+
             match join_handle.join().unwrap() {
                 Ok(read_bytes) => {
-                    // Safety: this implementation does not share the borrow for perf.
-                    let buffer = unsafe { task.into_inner() };
                     buffer.copy_from_slice(&read_bytes);
                     buffer
                 }

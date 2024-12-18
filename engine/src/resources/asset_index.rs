@@ -1,11 +1,17 @@
+mod handles;
+mod named_asset;
+
 use platform_abstraction_layer::{FileHandle, FileReadTask, Pal};
 
 use crate::{FixedVec, LinearAllocator};
 
 use super::{
-    assets::TextureChunkDescriptor, deserialize, AudioClipAsset, ChunkDescriptor, Deserialize,
-    TextureAsset, RESOURCE_DB_MAGIC_NUMBER,
+    deserialize, AudioClipAsset, ChunkDescriptor, Deserialize, TextureAsset,
+    TextureChunkDescriptor, RESOURCE_DB_MAGIC_NUMBER,
 };
+
+pub use handles::*;
+pub use named_asset::{NamedAsset, ASSET_NAME_LENGTH};
 
 #[derive(Clone, Copy)]
 pub struct AssetIndexHeader {
@@ -18,8 +24,9 @@ pub struct AssetIndexHeader {
 pub struct AssetIndex<'eng> {
     pub chunks: FixedVec<'eng, ChunkDescriptor<'eng>>,
     pub texture_chunks: FixedVec<'eng, TextureChunkDescriptor<'eng>>,
-    pub textures: FixedVec<'eng, TextureAsset>,
-    pub audio_clips: FixedVec<'eng, AudioClipAsset>,
+    pub textures: FixedVec<'eng, NamedAsset<TextureAsset>>,
+    pub audio_clips: FixedVec<'eng, NamedAsset<AudioClipAsset>>,
+    pub chunk_data_file: FileHandle,
     pub chunk_data_offset: u64,
 }
 
@@ -54,11 +61,11 @@ impl AssetIndex<'_> {
         let texture_chunks = platform.begin_file_read(file, cursor as u64, &mut buffer);
         cursor += texture_chunks.read_size();
 
-        let mut buffer = alloc_file_buf::<TextureAsset>(temp_arena, textures)?;
+        let mut buffer = alloc_file_buf::<NamedAsset<TextureAsset>>(temp_arena, textures)?;
         let textures = platform.begin_file_read(file, cursor as u64, &mut buffer);
         cursor += textures.read_size();
 
-        let mut buffer = alloc_file_buf::<AudioClipAsset>(temp_arena, audio_clips)?;
+        let mut buffer = alloc_file_buf::<NamedAsset<AudioClipAsset>>(temp_arena, audio_clips)?;
         let audio_clips = platform.begin_file_read(file, cursor as u64, &mut buffer);
         cursor += textures.read_size();
 
@@ -67,11 +74,17 @@ impl AssetIndex<'_> {
         Some(AssetIndex {
             chunks: deserialize_from_file(platform, arena, chunks)?,
             texture_chunks: deserialize_from_file(platform, arena, texture_chunks)?,
-            textures: deserialize_from_file(platform, arena, textures)?,
-            audio_clips: deserialize_from_file(platform, arena, audio_clips)?,
+            textures: sorted(deserialize_from_file(platform, arena, textures)?),
+            audio_clips: sorted(deserialize_from_file(platform, arena, audio_clips)?),
+            chunk_data_file: file,
             chunk_data_offset,
         })
     }
+}
+
+fn sorted<T: Ord>(mut input: FixedVec<'_, T>) -> FixedVec<'_, T> {
+    input.sort_unstable();
+    input
 }
 
 fn deserialize_from_file<'eng, D: Deserialize>(

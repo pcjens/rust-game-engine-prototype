@@ -3,11 +3,12 @@ use core::time::Duration;
 use arrayvec::ArrayVec;
 use enum_map::enum_map;
 use platform_abstraction_layer::{
-    ActionCategory, DrawSettings, EngineCallbacks, Event, Pal, PixelFormat, TextureRef, Vertex,
+    ActionCategory, DrawSettings, EngineCallbacks, Event, Pal, Vertex,
 };
 
 use crate::{
-    Action, ActionKind, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent, Resources,
+    resources::asset_index::TextureHandle, Action, ActionKind, EventQueue, InputDeviceState,
+    LinearAllocator, QueuedEvent, Resources,
 };
 
 #[derive(enum_map::Enum)]
@@ -29,7 +30,7 @@ pub struct Engine<'eng> {
     event_queue: EventQueue,
 
     test_input: Option<InputDeviceState<TestInput>>,
-    test_texture: TextureRef,
+    test_texture: TextureHandle,
 }
 
 impl<'eng> Engine<'eng> {
@@ -44,19 +45,10 @@ impl<'eng> Engine<'eng> {
     pub fn new(platform: &'eng dyn Pal, persistent_arena: &'eng LinearAllocator) -> Self {
         let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
-        let resources = Resources::new(platform, persistent_arena, &frame_arena)
-            .expect("should have enough resource memory to initialize the database");
+        let resources = Resources::new(platform, persistent_arena, &frame_arena).unwrap();
         frame_arena.reset();
 
-        // TODO: don't create the texture here directly, use the resource db
-        let test_texture = platform.create_texture(2, 2, PixelFormat::Rgba).unwrap();
-        let pixels = &[
-            0xFF, 0xFF, 0x00, 0xFF, // Yellow
-            0xFF, 0x00, 0xFF, 0xFF, // Pink
-            0x00, 0xFF, 0x00, 0xFF, // Green
-            0x00, 0xFF, 0xFF, 0xFF, // Cyan
-        ];
-        platform.update_texture(test_texture, 0, 0, 2, 2, pixels);
+        let test_texture = resources.index().find_texture("testing texture").unwrap();
 
         Engine {
             resources,
@@ -99,7 +91,7 @@ impl EngineCallbacks for Engine<'_> {
             &[0, 1, 2, 0, 2, 3],
             DrawSettings {
                 // TODO: get the texture from the resource db
-                texture: Some(self.test_texture),
+                texture: None,
                 ..Default::default()
             },
         );

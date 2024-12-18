@@ -22,13 +22,12 @@ impl FileHandle {
 
 /// Handle to an asynchronous file reading operation. Instead of dropping, these
 /// *must* be passed to a [`Pal::poll_file_read`] call until they are consumed.
-///
-/// Alternatively, they can be leaked, to avoid ever dropping. If dropped
-/// outside of [`Pal::poll_file_read`], panics.
+/// It is not safe to use the buffer contained in the task until the read
+/// operation is finished.
 pub struct FileReadTask<'a> {
     file: FileHandle,
     task_id: u64,
-    buffer: Option<&'a mut [u8]>,
+    buffer: &'a mut [u8],
 }
 
 impl<'a> FileReadTask<'a> {
@@ -36,7 +35,7 @@ impl<'a> FileReadTask<'a> {
         FileReadTask {
             file,
             task_id,
-            buffer: Some(buffer),
+            buffer,
         }
     }
 
@@ -49,22 +48,14 @@ impl<'a> FileReadTask<'a> {
     }
 
     pub fn read_size(&self) -> usize {
-        self.buffer.as_ref().unwrap().len()
+        self.buffer.len()
     }
 
     /// ## Safety
     /// The platform may have shared a pointer to this buffer with e.g. the
     /// kernel for async writing. The caller must ensure that at this point,
     /// such a shared pointer will not be used anymore.
-    pub unsafe fn into_inner(mut self) -> &'a mut [u8] {
-        self.buffer.take().unwrap()
-    }
-}
-
-impl Drop for FileReadTask<'_> {
-    fn drop(&mut self) {
-        if self.buffer.is_some() {
-            panic!("ReadHandle dropped instead of being passed into FileReader::poll");
-        }
+    pub unsafe fn into_inner(self) -> &'a mut [u8] {
+        self.buffer
     }
 }
