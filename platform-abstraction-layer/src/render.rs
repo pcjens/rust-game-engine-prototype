@@ -112,6 +112,7 @@ pub enum TextureFilter {
 /// Descriptions of pixel data layouts, used to interpret the byte arrays passed
 /// into uploading functions.
 #[derive(Debug)]
+#[repr(u8)]
 pub enum PixelFormat {
     /// 8-bit per channel RGBA colors, arranged in order: `[red, green, blue,
     /// alpha, red, ...]`.

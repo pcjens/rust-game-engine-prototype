@@ -3,7 +3,10 @@ mod named_asset;
 
 use platform_abstraction_layer::{FileHandle, FileReadTask, Pal};
 
-use crate::{FixedVec, LinearAllocator};
+use crate::{
+    resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT},
+    FixedVec, LinearAllocator,
+};
 
 use super::{
     deserialize, AudioClipAsset, ChunkDescriptor, Deserialize, TextureAsset,
@@ -22,12 +25,13 @@ pub struct AssetIndexHeader {
 }
 
 pub struct AssetIndex<'eng> {
-    pub chunks: FixedVec<'eng, ChunkDescriptor<'eng>>,
-    pub texture_chunks: FixedVec<'eng, TextureChunkDescriptor<'eng>>,
-    pub textures: FixedVec<'eng, NamedAsset<TextureAsset>>,
-    pub audio_clips: FixedVec<'eng, NamedAsset<AudioClipAsset>>,
+    pub chunks: FixedVec<'eng, ChunkDescriptor>,
+    pub texture_chunks: FixedVec<'eng, TextureChunkDescriptor>,
     pub chunk_data_file: FileHandle,
     pub chunk_data_offset: u64,
+
+    pub textures: FixedVec<'eng, NamedAsset<TextureAsset>>,
+    pub audio_clips: FixedVec<'eng, NamedAsset<AudioClipAsset>>,
 }
 
 impl AssetIndex<'_> {
@@ -37,15 +41,12 @@ impl AssetIndex<'_> {
         temp_arena: &LinearAllocator,
         file: FileHandle,
     ) -> Option<AssetIndex<'eng>> {
-        let mut header_bytes = [0; u32::SERIALIZED_SIZE + AssetIndexHeader::SERIALIZED_SIZE];
+        let mut header_bytes = [0; AssetIndexHeader::SERIALIZED_SIZE];
         let header_read = platform.begin_file_read(file, 0, &mut header_bytes);
         let header_bytes = blocking_read_file(platform, header_read).ok()?;
 
         let mut cursor = 0;
-        let magic = deserialize::<u32>(header_bytes, &mut cursor);
-        if magic != RESOURCE_DB_MAGIC_NUMBER {
-            return None;
-        }
+
         let AssetIndexHeader {
             chunks,
             texture_chunks,

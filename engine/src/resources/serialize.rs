@@ -35,7 +35,7 @@ impl Serialize for ChunkRegion {
     }
 }
 
-impl Serialize for ChunkDescriptor<'_> {
+impl Serialize for ChunkDescriptor {
     const SERIALIZED_SIZE: usize =
         ChunkRegion::SERIALIZED_SIZE + <Range<u64> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
@@ -44,14 +44,13 @@ impl Serialize for ChunkDescriptor<'_> {
         let ChunkDescriptor {
             region,
             source_bytes,
-            resident: _,
         } = self;
         serialize::<ChunkRegion>(region, dst, &mut cursor);
         serialize::<Range<u64>>(source_bytes, dst, &mut cursor);
     }
 }
 
-impl Serialize for TextureChunkDescriptor<'_> {
+impl Serialize for TextureChunkDescriptor {
     const SERIALIZED_SIZE: usize =
         u16::SERIALIZED_SIZE * 2 + <Range<u64> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
@@ -61,7 +60,6 @@ impl Serialize for TextureChunkDescriptor<'_> {
             region_width,
             region_height,
             source_bytes,
-            resident: _,
         } = self;
         serialize::<u16>(region_width, dst, &mut cursor);
         serialize::<u16>(region_height, dst, &mut cursor);
@@ -74,6 +72,16 @@ impl Serialize for AssetIndexHeader {
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
+
+        {
+            use crate::resources::*;
+            serialize::<u32>(&RESOURCE_DB_MAGIC_NUMBER, dst, &mut cursor);
+            serialize::<u32>(&CHUNK_SIZE, dst, &mut cursor);
+            serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.0, dst, &mut cursor);
+            serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.1, dst, &mut cursor);
+            serialize::<u8>(&(TEXTURE_CHUNK_FORMAT as u8), dst, &mut cursor);
+        }
+
         let AssetIndexHeader {
             chunks,
             texture_chunks,

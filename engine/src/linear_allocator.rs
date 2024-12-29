@@ -1,11 +1,9 @@
-mod pool;
 mod vec;
 
 use core::{cell::Cell, ffi::c_void, fmt::Debug, mem::MaybeUninit, slice};
 
 use platform_abstraction_layer::Pal;
 
-pub use pool::{Pool, PoolBox};
 pub use vec::FixedVec;
 
 /// A linear allocator with a constant capacity. Can allocate memory

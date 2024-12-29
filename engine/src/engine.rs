@@ -7,8 +7,8 @@ use platform_abstraction_layer::{
 };
 
 use crate::{
-    resources::asset_index::TextureHandle, Action, ActionKind, EventQueue, InputDeviceState,
-    LinearAllocator, QueuedEvent, Resources,
+    resources::asset_index::{AssetIndex, TextureHandle},
+    Action, ActionKind, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
 };
 
 #[derive(enum_map::Enum)]
@@ -19,9 +19,7 @@ enum TestInput {
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'eng> {
-    /// The resource manager for this engine. Used to allocate textures, audio
-    /// data, etc. and load them from the disk.
-    resources: Resources<'eng>,
+    asset_index: AssetIndex<'eng>,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -45,13 +43,17 @@ impl<'eng> Engine<'eng> {
     pub fn new(platform: &'eng dyn Pal, persistent_arena: &'eng LinearAllocator) -> Self {
         let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
-        let resources = Resources::new(platform, persistent_arena, &frame_arena).unwrap();
+        let db_file = platform
+            .open_file("resources.db")
+            .expect("resources.db should exist and be readable");
+        let asset_index =
+            AssetIndex::new(platform, persistent_arena, &frame_arena, db_file).unwrap();
         frame_arena.reset();
 
-        let test_texture = resources.index().find_texture("testing texture").unwrap();
+        let test_texture = asset_index.find_texture("testing texture").unwrap();
 
         Engine {
-            resources,
+            asset_index,
             frame_arena,
             event_queue: ArrayVec::new(),
 

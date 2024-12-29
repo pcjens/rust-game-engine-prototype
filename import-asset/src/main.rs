@@ -3,7 +3,8 @@ use std::{fs, str::FromStr};
 use arrayvec::ArrayString;
 use engine::resources::{
     asset_index::{AssetIndexHeader, NamedAsset},
-    serialize, TextureAsset, TextureChunkDescriptor, RESOURCE_DB_MAGIC_NUMBER,
+    serialize, TextureAsset, TextureChunkDescriptor, CHUNK_SIZE, RESOURCE_DB_MAGIC_NUMBER,
+    TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
 };
 
 fn main() {
@@ -21,7 +22,6 @@ fn main() {
         region_width: 2,
         region_height: 2,
         source_bytes: 0..texture_size as u64,
-        resident: None,
     };
 
     let texture = NamedAsset {
@@ -34,7 +34,6 @@ fn main() {
     };
 
     let mut cursor = 0;
-    serialize(&RESOURCE_DB_MAGIC_NUMBER, &mut dst, &mut cursor);
     serialize(&header, &mut dst, &mut cursor);
     serialize(&texture_chunk, &mut dst, &mut cursor);
     serialize(&texture, &mut dst, &mut cursor);

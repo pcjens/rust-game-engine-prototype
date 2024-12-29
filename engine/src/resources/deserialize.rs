@@ -37,7 +37,7 @@ impl Deserialize for ChunkRegion {
     }
 }
 
-impl Deserialize for ChunkDescriptor<'_> {
+impl Deserialize for ChunkDescriptor {
     const SERIALIZED_SIZE: usize =
         ChunkRegion::SERIALIZED_SIZE + <Range<u64> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
@@ -46,12 +46,11 @@ impl Deserialize for ChunkDescriptor<'_> {
         Self {
             region: deserialize::<ChunkRegion>(src, &mut cursor),
             source_bytes: deserialize::<Range<u64>>(src, &mut cursor),
-            resident: None,
         }
     }
 }
 
-impl Deserialize for TextureChunkDescriptor<'_> {
+impl Deserialize for TextureChunkDescriptor {
     const SERIALIZED_SIZE: usize =
         u16::SERIALIZED_SIZE * 2 + <Range<u64> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
@@ -61,16 +60,30 @@ impl Deserialize for TextureChunkDescriptor<'_> {
             region_width: deserialize::<u16>(src, &mut cursor),
             region_height: deserialize::<u16>(src, &mut cursor),
             source_bytes: deserialize::<Range<u64>>(src, &mut cursor),
-            resident: None,
         }
     }
 }
 
 impl Deserialize for AssetIndexHeader {
-    const SERIALIZED_SIZE: usize = u32::SERIALIZED_SIZE * 4;
+    const SERIALIZED_SIZE: usize = 13 + u32::SERIALIZED_SIZE * 4;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
+
+        {
+            use crate::resources::*;
+            let magic = deserialize::<u32>(src, &mut cursor);
+            assert_eq!(RESOURCE_DB_MAGIC_NUMBER, magic);
+            let chunk_size = deserialize::<u32>(src, &mut cursor);
+            assert_eq!(CHUNK_SIZE, chunk_size);
+            let texchunk_width = deserialize::<u16>(src, &mut cursor);
+            assert_eq!(TEXTURE_CHUNK_DIMENSIONS.0, texchunk_width);
+            let texchunk_height = deserialize::<u16>(src, &mut cursor);
+            assert_eq!(TEXTURE_CHUNK_DIMENSIONS.1, texchunk_height);
+            let texchunk_format = deserialize::<u8>(src, &mut cursor);
+            assert_eq!(TEXTURE_CHUNK_FORMAT as u8, texchunk_format);
+        }
+
         Self {
             chunks: deserialize::<u32>(src, &mut cursor),
             texture_chunks: deserialize::<u32>(src, &mut cursor),
