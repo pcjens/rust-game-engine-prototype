@@ -30,6 +30,7 @@ fn main() {
         asset: TextureAsset {
             width: 2,
             height: 2,
+            transparent: false,
             texture_chunks: 0..1,
         },
     };

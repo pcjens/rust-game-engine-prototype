@@ -1,21 +1,8 @@
 mod descriptors {
     use core::ops::Range;
 
-    pub const CHUNK_REGION_AUDIO_CLIP_TAG: u8 = 0;
-
-    #[derive(Debug)]
-    pub enum ChunkRegion {
-        AudioClip {
-            start_sample_index: u32,
-            samples: u32,
-        },
-    }
-
     #[derive(Debug)]
     pub struct ChunkDescriptor {
-        /// The region of a resource the chunk contains (e.g. a timespan of an
-        /// audio clip).
-        pub region: ChunkRegion,
         /// The range of bytes in the chunk data portion of the database this
         /// texture chunk can be loaded from.
         pub source_bytes: Range<u64>,
@@ -73,10 +60,10 @@ mod loaded {
     pub struct ChunkStorage<'eng> {
         /// Contains loaded in-memory chunks. Matches the layout of
         /// [`AssetIndex::chunks`].
-        chunks: SparselyPopulatedArray<'eng, LoadedChunk>,
+        pub chunks: SparselyPopulatedArray<'eng, LoadedChunk>,
         /// Contains loaded in-memory texture chunks. Matches the layout of
         /// [`AssetIndex::texture_chunks`].
-        texture_chunks: SparselyPopulatedArray<'eng, LoadedTextureChunk>,
+        pub texture_chunks: SparselyPopulatedArray<'eng, LoadedTextureChunk>,
     }
 
     impl<'eng> ChunkStorage<'eng> {
@@ -157,19 +144,27 @@ mod loaded {
                 }
             }
 
-            /// Inserts the new value into the index if there's space.
-            pub fn insert(&mut self, index: u32, value: T) -> Result<(), T> {
+            /// Allocates space for the index if there's space, returning a
+            /// mutable borrow to fill it with. If reuse is not possible and a
+            /// new T needs to be created, `init_fn` is used. `init_fn` can fail
+            /// by returning None, in which case nothing else happens and None
+            /// is returned.
+            pub fn insert(
+                &mut self,
+                index: u32,
+                init_fn: impl FnOnce() -> Option<T>,
+            ) -> Option<&mut T> {
                 let now_resident_index =
                     if let Some(reused_resident_index) = self.free_indices.pop() {
-                        self.resident_data[reused_resident_index as usize] = value;
                         reused_resident_index
                     } else {
+                        let new_data = init_fn()?;
                         let new_resident_index = self.resident_data.len() as u32;
-                        self.resident_data.push(value)?;
+                        self.resident_data.push(new_data).ok()?;
                         new_resident_index
                     };
                 self.resident_indices[index as usize].set(now_resident_index);
-                Ok(())
+                Some(&mut self.resident_data[now_resident_index as usize])
             }
 
             /// Returns the value at the index if it's been inserted.
@@ -185,6 +180,10 @@ mod loaded {
         /// But can't contain 0xFFFFFFFF.
         #[derive(Zeroable, Clone, Copy)]
         struct OptionalU32 {
+            // TODO: Instead of just index | "is it resident", maybe these index
+            // slots should contain bits for "keep this around forever" and
+            // "this has been requested"? 29 bits for loaded chunks should still
+            // leave plenty of capacity.
             index_plus_one: Option<NonZeroU32>,
         }
 
@@ -207,7 +206,5 @@ mod loaded {
     }
 }
 
-pub use descriptors::{
-    ChunkDescriptor, ChunkRegion, TextureChunkDescriptor, CHUNK_REGION_AUDIO_CLIP_TAG,
-};
+pub use descriptors::{ChunkDescriptor, TextureChunkDescriptor};
 pub use loaded::{ChunkStorage, LoadedChunk, LoadedTextureChunk};

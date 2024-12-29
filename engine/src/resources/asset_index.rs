@@ -89,7 +89,7 @@ impl AssetIndex<'_> {
 
         let mut buffer = alloc_file_buf::<NamedAsset<AudioClipAsset>>(temp_arena, audio_clips)?;
         let audio_clips = platform.begin_file_read(file, cursor as u64, &mut buffer);
-        cursor += textures.read_size();
+        cursor += audio_clips.read_size();
 
         let chunk_data_offset = cursor as u64;
 

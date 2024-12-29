@@ -16,6 +16,7 @@ mod test_platform;
 mod engine;
 mod input;
 mod linear_allocator;
+mod renderer;
 pub mod resources;
 
 pub use engine::Engine;

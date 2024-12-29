@@ -2,12 +2,10 @@ use core::ops::Range;
 
 use arrayvec::ArrayString;
 
-use crate::resources::chunks::CHUNK_REGION_AUDIO_CLIP_TAG;
-
 use super::{
     asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
     assets::{AudioClipAsset, TextureAsset},
-    chunks::{ChunkDescriptor, ChunkRegion, TextureChunkDescriptor},
+    chunks::{ChunkDescriptor, TextureChunkDescriptor},
 };
 
 pub trait Serialize {
@@ -18,35 +16,12 @@ pub trait Serialize {
     fn serialize(&self, dst: &mut [u8]);
 }
 
-impl Serialize for ChunkRegion {
-    const SERIALIZED_SIZE: usize = u32::SERIALIZED_SIZE * 2;
-    fn serialize(&self, dst: &mut [u8]) {
-        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
-        let mut cursor = 0;
-        match self {
-            ChunkRegion::AudioClip {
-                start_sample_index,
-                samples,
-            } => {
-                serialize::<u8>(&CHUNK_REGION_AUDIO_CLIP_TAG, dst, &mut cursor);
-                serialize::<u32>(start_sample_index, dst, &mut cursor);
-                serialize::<u32>(samples, dst, &mut cursor);
-            }
-        }
-    }
-}
-
 impl Serialize for ChunkDescriptor {
-    const SERIALIZED_SIZE: usize =
-        ChunkRegion::SERIALIZED_SIZE + <Range<u64> as Serialize>::SERIALIZED_SIZE;
+    const SERIALIZED_SIZE: usize = <Range<u64> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
-        let ChunkDescriptor {
-            region,
-            source_bytes,
-        } = self;
-        serialize::<ChunkRegion>(region, dst, &mut cursor);
+        let ChunkDescriptor { source_bytes } = self;
         serialize::<Range<u64>>(source_bytes, dst, &mut cursor);
     }
 }
@@ -69,7 +44,7 @@ impl Serialize for TextureChunkDescriptor {
 }
 
 impl Serialize for AssetIndexHeader {
-    const SERIALIZED_SIZE: usize = u32::SERIALIZED_SIZE * 4;
+    const SERIALIZED_SIZE: usize = 13 + u32::SERIALIZED_SIZE * 4;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
@@ -126,18 +101,21 @@ impl Serialize for AudioClipAsset {
 }
 
 impl Serialize for TextureAsset {
-    const SERIALIZED_SIZE: usize =
-        u16::SERIALIZED_SIZE * 2 + <Range<u32> as Serialize>::SERIALIZED_SIZE;
+    const SERIALIZED_SIZE: usize = u16::SERIALIZED_SIZE * 2
+        + bool::SERIALIZED_SIZE
+        + <Range<u32> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
         let TextureAsset {
             width,
             height,
+            transparent,
             texture_chunks,
         } = self;
         serialize::<u16>(width, dst, &mut cursor);
         serialize::<u16>(height, dst, &mut cursor);
+        serialize::<bool>(transparent, dst, &mut cursor);
         serialize::<Range<u32>>(texture_chunks, dst, &mut cursor);
     }
 }
@@ -181,6 +159,17 @@ impl Serialize for Range<u32> {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         self.start.serialize(&mut dst[0..4]);
         self.end.serialize(&mut dst[4..8]);
+    }
+}
+
+impl Serialize for bool {
+    const SERIALIZED_SIZE: usize = 1;
+    #[inline]
+    fn serialize(&self, dst: &mut [u8]) {
+        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
+        let serialized_bool = if *self { 1 } else { 0 };
+        // Safety: all the indexes are covered by the assert above.
+        unsafe { *dst.get_unchecked_mut(0) = serialized_bool };
     }
 }
 

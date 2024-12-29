@@ -2,13 +2,17 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use enum_map::enum_map;
-use platform_abstraction_layer::{
-    ActionCategory, DrawSettings, EngineCallbacks, Event, Pal, Vertex,
-};
+use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
 use crate::{
-    resources::{asset_index::AssetIndex, assets::TextureHandle, chunks::ChunkStorage},
-    Action, ActionKind, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
+    renderer::DrawQueue,
+    resources::{
+        asset_index::AssetIndex,
+        assets::TextureHandle,
+        chunks::{ChunkStorage, LoadedTextureChunk, TextureChunkDescriptor},
+        TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
+    },
+    Action, ActionKind, EventQueue, FixedVec, InputDeviceState, LinearAllocator, QueuedEvent,
 };
 
 #[derive(enum_map::Enum)]
@@ -45,6 +49,8 @@ impl<'eng> Engine<'eng> {
         // TODO: Parameters that should probably be exposed to be tweakable by
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
+        // - Asset index (depends on persistent arena being big enough and the game might want to open the file)
+        // - Chunk storage (depends on persistent arena being big enough and the optimal capacity is game-dependent)
 
         let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
@@ -76,11 +82,15 @@ impl<'eng> Engine<'eng> {
 impl EngineCallbacks for Engine<'_> {
     fn iterate(&mut self, platform: &dyn Pal) {
         let timestamp = platform.elapsed();
-
         self.frame_arena.reset();
-
         self.event_queue
             .retain(|queued| !queued.timed_out(timestamp));
+
+        let mut draw_queue = DrawQueue::new(&self.frame_arena).unwrap();
+
+        // TODO: Some kind of "chunk load queue" instead of this
+        let mut texture_chunk_load_requests =
+            FixedVec::new(&self.frame_arena, self.asset_index.texture_chunks.len()).unwrap();
 
         // Testing area follows, could be considered "game code" for now:
 
@@ -94,20 +104,54 @@ impl EngineCallbacks for Engine<'_> {
         let test_texture = self.asset_index.get_texture(self.test_texture);
         let (w, _) = platform.draw_area();
         let w = if action_test { w / 2. } else { w };
-        platform.draw_triangles(
-            &[
-                Vertex::new(w / 2. - 200., 200., 0.0, 0.0),
-                Vertex::new(w / 2. - 200., 600., 0.0, 1.0),
-                Vertex::new(w / 2. + 200., 600., 1.0, 1.0),
-                Vertex::new(w / 2. + 200., 200., 1.0, 0.0),
-            ],
-            &[0, 1, 2, 0, 2, 3],
-            DrawSettings {
-                // TODO: get the texture from the resource db
-                texture: None,
-                ..Default::default()
-            },
+        test_texture.draw(
+            [w / 2., 200.0, 400.0, 400.0],
+            0,
+            &mut draw_queue,
+            &self.chunk_storage,
+            &mut texture_chunk_load_requests,
         );
+
+        // TODO: move  this somewhere else
+        for requested_chunk_idx in texture_chunk_load_requests.iter() {
+            let TextureChunkDescriptor {
+                region_width,
+                region_height,
+                source_bytes,
+            } = &self.asset_index.texture_chunks[*requested_chunk_idx as usize];
+
+            // Load the pixels from disk
+            let first_byte = self.asset_index.chunk_data_offset + source_bytes.start;
+            let len = (source_bytes.end - source_bytes.start) as usize;
+            let mut buffer = FixedVec::new(&self.frame_arena, len).unwrap();
+            buffer.fill_with_zeroes();
+            let mut read_task =
+                platform.begin_file_read(self.asset_index.chunk_data_file, first_byte, &mut buffer);
+            let pixels = loop {
+                match platform.poll_file_read(read_task) {
+                    Ok(pixels) => break pixels,
+                    Err(Some(task)) => read_task = task,
+                    Err(None) => panic!(),
+                }
+            };
+
+            // Allocate the texture chunk
+            let create_tex = || {
+                let (w, h) = TEXTURE_CHUNK_DIMENSIONS;
+                let texture = platform.create_texture(w, h, TEXTURE_CHUNK_FORMAT)?;
+                Some(LoadedTextureChunk(texture))
+            };
+            if let Some(texture) = self
+                .chunk_storage
+                .texture_chunks
+                .insert(*requested_chunk_idx, create_tex)
+            {
+                // Write the data to the texture chunk
+                platform.update_texture(texture.0, 0, 0, *region_width, *region_height, pixels);
+            }
+        }
+
+        draw_queue.dispatch_draw(&self.frame_arena, platform);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {

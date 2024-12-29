@@ -65,7 +65,7 @@ pub struct DrawSettings {
 }
 
 /// Platform-specific texture reference.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TextureRef(u64);
 
 impl TextureRef {
@@ -82,7 +82,7 @@ impl TextureRef {
 }
 
 /// How drawn pixels are blended with the previously drawn pixels.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BlendMode {
     /// All channels are replaced with the color being drawn, including alpha.
     None,
@@ -102,7 +102,7 @@ pub enum BlendMode {
 }
 
 /// How the texture is filtered when magnified or minified.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TextureFilter {
     NearestNeighbor,
     #[default]

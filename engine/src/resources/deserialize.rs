@@ -2,12 +2,10 @@ use core::{ops::Range, str};
 
 use arrayvec::ArrayString;
 
-use crate::resources::chunks::CHUNK_REGION_AUDIO_CLIP_TAG;
-
 use super::{
     asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
     assets::{AudioClipAsset, TextureAsset},
-    chunks::{ChunkDescriptor, ChunkRegion, TextureChunkDescriptor},
+    chunks::{ChunkDescriptor, TextureChunkDescriptor},
 };
 
 pub trait Deserialize {
@@ -18,34 +16,12 @@ pub trait Deserialize {
     fn deserialize(src: &[u8]) -> Self;
 }
 
-impl Deserialize for ChunkRegion {
-    const SERIALIZED_SIZE: usize = u32::SERIALIZED_SIZE * 2;
-    fn deserialize(src: &[u8]) -> Self {
-        assert_eq!(Self::SERIALIZED_SIZE, src.len());
-        let mut cursor = 0;
-        let enum_variant_tag = deserialize::<u8>(src, &mut cursor);
-        match enum_variant_tag {
-            CHUNK_REGION_AUDIO_CLIP_TAG => {
-                let start_sample_index = deserialize::<u32>(src, &mut cursor);
-                let samples = deserialize::<u32>(src, &mut cursor);
-                ChunkRegion::AudioClip {
-                    start_sample_index,
-                    samples,
-                }
-            }
-            _ => panic!("tried to deserialize non-existent variant of ChunkRegion"),
-        }
-    }
-}
-
 impl Deserialize for ChunkDescriptor {
-    const SERIALIZED_SIZE: usize =
-        ChunkRegion::SERIALIZED_SIZE + <Range<u64> as Deserialize>::SERIALIZED_SIZE;
+    const SERIALIZED_SIZE: usize = <Range<u64> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
         Self {
-            region: deserialize::<ChunkRegion>(src, &mut cursor),
             source_bytes: deserialize::<Range<u64>>(src, &mut cursor),
         }
     }
@@ -122,14 +98,16 @@ impl Deserialize for AudioClipAsset {
 }
 
 impl Deserialize for TextureAsset {
-    const SERIALIZED_SIZE: usize =
-        u16::SERIALIZED_SIZE * 2 + <Range<u32> as Deserialize>::SERIALIZED_SIZE;
+    const SERIALIZED_SIZE: usize = u16::SERIALIZED_SIZE * 2
+        + bool::SERIALIZED_SIZE
+        + <Range<u32> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
         Self {
             width: deserialize::<u16>(src, &mut cursor),
             height: deserialize::<u16>(src, &mut cursor),
+            transparent: deserialize::<bool>(src, &mut cursor),
             texture_chunks: deserialize::<Range<u32>>(src, &mut cursor),
         }
     }
@@ -178,6 +156,16 @@ impl Deserialize for Range<u32> {
         let start = u32::deserialize(&src[0..4]);
         let end = u32::deserialize(&src[4..8]);
         start..end
+    }
+}
+
+impl Deserialize for bool {
+    const SERIALIZED_SIZE: usize = 1;
+    #[inline]
+    fn deserialize(src: &[u8]) -> Self {
+        assert_eq!(Self::SERIALIZED_SIZE, src.len());
+        // Safety: the the index is checked by the assert above.
+        unsafe { *src.get_unchecked(0) != 0 }
     }
 }
 
