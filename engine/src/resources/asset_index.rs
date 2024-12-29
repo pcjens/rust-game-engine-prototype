@@ -1,20 +1,41 @@
-mod handles;
-mod named_asset;
+use core::cmp::Ordering;
 
+use arrayvec::ArrayString;
 use platform_abstraction_layer::{FileHandle, FileReadTask, Pal};
 
-use crate::{
-    resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT},
-    FixedVec, LinearAllocator,
-};
+use crate::{FixedVec, LinearAllocator};
 
 use super::{
-    deserialize, AudioClipAsset, ChunkDescriptor, Deserialize, TextureAsset,
-    TextureChunkDescriptor, RESOURCE_DB_MAGIC_NUMBER,
+    assets::{AudioClipAsset, TextureAsset},
+    chunks::{ChunkDescriptor, TextureChunkDescriptor},
+    deserialize, Deserialize,
 };
 
-pub use handles::*;
-pub use named_asset::{NamedAsset, ASSET_NAME_LENGTH};
+pub const ASSET_NAME_LENGTH: usize = 27;
+
+/// Wrapper for assets with their unique name. Implement equality and comparison
+/// operators purely based on the name, as assets with a specific name should be
+/// unique within a resource database.
+pub struct NamedAsset<T> {
+    pub name: ArrayString<ASSET_NAME_LENGTH>,
+    pub asset: T,
+}
+impl<T> PartialEq for NamedAsset<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+impl<T> Eq for NamedAsset<T> {} // The equality operator just checks the name, and ArrayString is Eq.
+impl<T> PartialOrd for NamedAsset<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl<T> Ord for NamedAsset<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct AssetIndexHeader {

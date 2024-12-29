@@ -3,8 +3,9 @@ use std::{fs, str::FromStr};
 use arrayvec::ArrayString;
 use engine::resources::{
     asset_index::{AssetIndexHeader, NamedAsset},
-    serialize, TextureAsset, TextureChunkDescriptor, CHUNK_SIZE, RESOURCE_DB_MAGIC_NUMBER,
-    TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
+    assets::TextureAsset,
+    chunks::TextureChunkDescriptor,
+    serialize,
 };
 
 fn main() {

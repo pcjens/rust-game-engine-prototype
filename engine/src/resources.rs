@@ -1,28 +1,24 @@
 pub mod asset_index;
-mod assets;
-mod chunks;
+pub mod assets;
+pub mod chunks;
 mod deserialize;
 mod serialize;
 
 use platform_abstraction_layer::PixelFormat;
 
-pub use assets::{AudioClipAsset, TextureAsset};
-pub use chunks::{
-    ChunkDescriptor, ChunkRegion, LoadedChunk, LoadedTextureChunk, TextureChunkDescriptor,
-};
 pub use deserialize::{deserialize, Deserialize};
 pub use serialize::{serialize, Serialize};
 
-/// Magic number to store (and assert) at the start of a resource database file.
-/// Serialize/deserialize using the respective modules (which store this as
-/// little-endian).
+#[allow(unused_imports)] // used in docs
+use asset_index::AssetIndex;
+
+/// Magic number used when de/serializing [`AssetIndex`], to allow easily
+/// marking resource databases as incompatible if breaking changes to the format
+/// are made.
 pub const RESOURCE_DB_MAGIC_NUMBER: u32 = 0xE97E6D00;
-/// Amount of bytes in the regular dynamically allocated chunks. See
-/// [`LoadedChunk`].
+/// Amount of bytes in the regular dynamically allocated chunks.
 pub const CHUNK_SIZE: u32 = 64 * 1024;
-/// Width and height of the dynamically allocated texture chunks. See
-/// [`LoadedTextureChunk`].
+/// Width and height of the dynamically allocated texture chunks.
 pub const TEXTURE_CHUNK_DIMENSIONS: (u16, u16) = (128, 128);
-/// Pixel format of the dynamically allocated texture chunks. See
-/// [`LoadedTextureChunk`].
+/// Pixel format of the dynamically allocated texture chunks.
 pub const TEXTURE_CHUNK_FORMAT: PixelFormat = PixelFormat::Rgba;

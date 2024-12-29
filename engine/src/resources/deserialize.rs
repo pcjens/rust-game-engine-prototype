@@ -6,7 +6,8 @@ use crate::resources::chunks::CHUNK_REGION_AUDIO_CLIP_TAG;
 
 use super::{
     asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
-    AudioClipAsset, ChunkDescriptor, ChunkRegion, TextureAsset, TextureChunkDescriptor,
+    assets::{AudioClipAsset, TextureAsset},
+    chunks::{ChunkDescriptor, ChunkRegion, TextureChunkDescriptor},
 };
 
 pub trait Deserialize {

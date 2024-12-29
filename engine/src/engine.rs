@@ -7,7 +7,7 @@ use platform_abstraction_layer::{
 };
 
 use crate::{
-    resources::asset_index::{AssetIndex, TextureHandle},
+    resources::{asset_index::AssetIndex, assets::TextureHandle, chunks::ChunkStorage},
     Action, ActionKind, EventQueue, InputDeviceState, LinearAllocator, QueuedEvent,
 };
 
@@ -20,6 +20,7 @@ enum TestInput {
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'eng> {
     asset_index: AssetIndex<'eng>,
+    chunk_storage: ChunkStorage<'eng>,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -41,19 +42,28 @@ impl<'eng> Engine<'eng> {
     ///   that engine internals can borrow from it, so it's passed in here
     ///   instead of being created behind the scenes.
     pub fn new(platform: &'eng dyn Pal, persistent_arena: &'eng LinearAllocator) -> Self {
+        // TODO: Parameters that should probably be exposed to be tweakable by
+        // the game, but are hardcoded here:
+        // - Frame arena (or its size)
+
         let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
+
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
         let asset_index =
             AssetIndex::new(platform, persistent_arena, &frame_arena, db_file).unwrap();
+        let chunk_storage = ChunkStorage::new(persistent_arena, &asset_index, 1000, 1000)
+            .expect("persistent arena should have enough memory for asset chunk storage");
+
         frame_arena.reset();
 
         let test_texture = asset_index.find_texture("testing texture").unwrap();
 
         Engine {
             asset_index,
+            chunk_storage,
             frame_arena,
             event_queue: ArrayVec::new(),
 
@@ -81,6 +91,7 @@ impl EngineCallbacks for Engine<'_> {
             action_test = input.actions[TestInput::Act].pressed;
         }
 
+        let test_texture = self.asset_index.get_texture(self.test_texture);
         let (w, _) = platform.draw_area();
         let w = if action_test { w / 2. } else { w };
         platform.draw_triangles(

@@ -1,19 +1,43 @@
-use core::ops::Range;
+mod audio_clip;
+mod texture;
 
-#[derive(Debug)]
-pub struct AudioClipAsset {
-    pub samples_per_second: u32,
-    pub samples: u32,
-    pub chunks: Range<u32>,
+pub use audio_clip::*;
+pub use texture::*;
+
+macro_rules! gen_asset_handle_code {
+    ($asset_type:ident, $handle_name:ident, $find_fn:ident, $get_fn:ident, $field:ident) => {
+        pub use handle_impl::$handle_name;
+        mod handle_impl {
+            #[allow(unused_imports)] // used by docs
+            use $crate::resources::asset_index::AssetIndex;
+
+            use super::*;
+
+            #[doc = "Handle for [`"]
+            #[doc = stringify!($asset_type)]
+            #[doc = "`].\n\nCreated with [`"]
+            #[doc = concat!("AssetIndex::", stringify!($find_fn))]
+            #[doc = "`], and can be resolved into a borrow of the asset itself with [`"]
+            #[doc = concat!("AssetIndex::", stringify!($get_fn))]
+            #[doc = "`]."]
+            #[derive(Clone, Copy)]
+            pub struct $handle_name(usize);
+            impl $crate::resources::asset_index::AssetIndex<'_> {
+                pub fn $find_fn(&self, name: &str) -> Option<$handle_name> {
+                    let Ok(index) = self
+                        .$field
+                        .binary_search_by(|asset| asset.name.as_str().cmp(name))
+                    else {
+                        return None;
+                    };
+                    Some($handle_name(index))
+                }
+                pub fn $get_fn(&self, handle: $handle_name) -> &$asset_type {
+                    &self.$field[handle.0].asset
+                }
+            }
+        }
+    };
 }
 
-#[derive(Debug)]
-pub struct TextureAsset {
-    /// The width of the whole texture.
-    pub width: u16,
-    /// The height of the whole texture.
-    pub height: u16,
-    /// The chunks the texture is made up of. Multi-chunk textures are allocated
-    /// starting from the top-left of the texture, row-major.
-    pub texture_chunks: Range<u32>,
-}
+pub(crate) use gen_asset_handle_code;
