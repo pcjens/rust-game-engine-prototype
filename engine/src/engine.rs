@@ -5,13 +5,15 @@ use enum_map::enum_map;
 use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
 use crate::{
+    allocators::LinearAllocator,
+    collections::FixedVec,
+    input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
     renderer::DrawQueue,
     resources::{
         assets::TextureHandle,
-        chunks::{LoadedTextureChunk, TextureChunkDescriptor},
+        chunks::{TextureChunkData, TextureChunkDescriptor},
         ResourceDatabase, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
     },
-    Action, ActionKind, EventQueue, FixedVec, InputDeviceState, LinearAllocator, QueuedEvent,
 };
 
 #[derive(enum_map::Enum)]
@@ -22,6 +24,7 @@ enum TestInput {
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'eng> {
+    /// Database of the non-code parts of the game, e.g. textures.
     resource_db: ResourceDatabase<'eng>,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
@@ -103,7 +106,7 @@ impl EngineCallbacks for Engine<'_> {
         let (w, _) = platform.draw_area();
         let w = if action_test { w / 2. } else { w };
         test_texture.draw(
-            [w / 2., 200.0, 400.0, 400.0],
+            (w / 2., 200.0, 400.0, 400.0),
             0,
             &mut draw_queue,
             &self.resource_db,
@@ -137,12 +140,12 @@ impl EngineCallbacks for Engine<'_> {
             let create_tex = || {
                 let (w, h) = TEXTURE_CHUNK_DIMENSIONS;
                 let texture = platform.create_texture(w, h, TEXTURE_CHUNK_FORMAT)?;
-                Some(LoadedTextureChunk(texture))
+                Some(TextureChunkData(texture))
             };
             if let Some(texture) = self
                 .resource_db
                 .texture_chunks
-                .insert(*requested_chunk_idx, create_tex)
+                .insert_and_reuse(*requested_chunk_idx, create_tex)
             {
                 // Write the data to the texture chunk
                 platform.update_texture(texture.0, 0, 0, *region_width, *region_height, pixels);
@@ -183,7 +186,7 @@ impl EngineCallbacks for Engine<'_> {
 mod tests {
     use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
-    use crate::{test_platform::TestPlatform, LinearAllocator};
+    use crate::{allocators::LinearAllocator, test_platform::TestPlatform};
 
     use super::Engine;
 

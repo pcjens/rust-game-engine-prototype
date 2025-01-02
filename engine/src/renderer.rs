@@ -1,10 +1,18 @@
 use platform_abstraction_layer::{BlendMode, DrawSettings, Pal, TextureFilter, TextureRef, Vertex};
 
-use crate::{FixedVec, LinearAllocator};
+use crate::{allocators::LinearAllocator, collections::FixedVec};
 
+#[allow(unused_imports)] // used in docs
+use crate::resources::assets::TextureAsset;
+
+/// Parameters for rendering a textured quad.
+///
+/// Generally created by the engine in e.g. [`TextureAsset::draw`].
 pub struct TexQuad {
-    pub xywh: [f32; 4],
-    pub texture_xywh: [f32; 4],
+    pub position_top_left: (f32, f32),
+    pub position_bottom_right: (f32, f32),
+    pub texcoord_top_left: (f32, f32),
+    pub texcoord_bottom_right: (f32, f32),
     pub draw_order: u8,
     pub blend_mode: BlendMode,
     pub texture: TextureRef,
@@ -16,18 +24,27 @@ impl TexQuad {
     }
 }
 
+/// Queue of draw commands to be sorted and shipped off to the platform for
+/// rendering.
+///
+/// Intended to be recreated every frame, but can be reused between frames to
+/// avoid having to queue up the draws again.
 pub struct DrawQueue<'frm> {
+    /// Textured quads to draw.
     pub quads: FixedVec<'frm, TexQuad>,
 }
 
 impl<'frm> DrawQueue<'frm> {
+    /// Creates a new queue of draws.
     pub fn new(allocator: &'frm LinearAllocator) -> Option<DrawQueue<'frm>> {
         Some(DrawQueue {
             quads: FixedVec::new(allocator, 1_000_000)?,
         })
     }
 
-    pub fn dispatch_draw(mut self, allocator: &LinearAllocator, platform: &dyn Pal) {
+    /// Calls the platform draw functions to draw everything queued up until
+    /// this point.
+    pub fn dispatch_draw(&mut self, allocator: &LinearAllocator, platform: &dyn Pal) {
         'draw_quads: {
             if self.quads.is_empty() {
                 break 'draw_quads;
@@ -74,13 +91,15 @@ impl<'frm> DrawQueue<'frm> {
                         break;
                     }
 
-                    let [x, y, w, h] = quad.xywh;
-                    let [u, v, tw, th] = quad.texture_xywh;
+                    let (x0, y0) = quad.position_top_left;
+                    let (x1, y1) = quad.position_bottom_right;
+                    let (u0, v0) = quad.texcoord_top_left;
+                    let (u1, v1) = quad.texcoord_bottom_right;
                     let vert_offset = vertices.len() as u32;
-                    let _ = vertices.push(Vertex::new(x, y, u, v));
-                    let _ = vertices.push(Vertex::new(x, y + h, u, v + th));
-                    let _ = vertices.push(Vertex::new(x + w, y + h, u + tw, v + th));
-                    let _ = vertices.push(Vertex::new(x + w, y, u + tw, v));
+                    let _ = vertices.push(Vertex::new(x0, y0, u0, v0));
+                    let _ = vertices.push(Vertex::new(x0, y1, u0, v1));
+                    let _ = vertices.push(Vertex::new(x1, y1, u1, v1));
+                    let _ = vertices.push(Vertex::new(x1, y0, u1, v0));
                     let _ = indices.push(vert_offset);
                     let _ = indices.push(vert_offset + 1);
                     let _ = indices.push(vert_offset + 2);

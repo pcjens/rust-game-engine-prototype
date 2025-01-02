@@ -8,7 +8,7 @@ use core::{
 use arrayvec::ArrayVec;
 use bytemuck::{fill_zeroes, Zeroable};
 
-use crate::LinearAllocator;
+use crate::allocators::LinearAllocator;
 
 /// A fixed-capacity contiguous growable array type.
 ///
@@ -174,7 +174,7 @@ mod tests {
 
     use arrayvec::ArrayString;
 
-    use crate::{test_platform::TestPlatform, FixedVec, LinearAllocator};
+    use crate::{allocators::LinearAllocator, collections::FixedVec, test_platform::TestPlatform};
 
     #[test]
     fn does_not_leak() {

@@ -6,6 +6,7 @@ use crate::resources::CHUNK_SIZE;
 #[allow(unused_imports)] // used in docs
 use crate::resources::{TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
 
+/// Metadata for loading in a [`ChunkData`].
 #[derive(Debug)]
 pub struct ChunkDescriptor {
     /// The range of bytes in the chunk data portion of the database this
@@ -13,6 +14,7 @@ pub struct ChunkDescriptor {
     pub source_bytes: Range<u64>,
 }
 
+/// Metadata for loading in a [`TextureChunkData`].
 #[derive(Debug)]
 pub struct TextureChunkDescriptor {
     /// The width of the texture the chunk contains.
@@ -26,9 +28,9 @@ pub struct TextureChunkDescriptor {
 
 /// Loaded memory for a single regular chunk. Contains [`CHUNK_SIZE`] bytes.
 #[repr(C, align(64))]
-pub struct LoadedChunk(pub [u8; CHUNK_SIZE as usize]);
+pub struct ChunkData(pub [u8; CHUNK_SIZE as usize]);
 
 /// Loaded (video) memory for a single texture chunk. Contains a reference to a
 /// loaded texture, ready for drawing, with the size and format
 /// [`TEXTURE_CHUNK_DIMENSIONS`] and [`TEXTURE_CHUNK_FORMAT`].
-pub struct LoadedTextureChunk(pub TextureRef);
+pub struct TextureChunkData(pub TextureRef);

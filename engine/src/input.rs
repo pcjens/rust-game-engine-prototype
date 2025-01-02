@@ -6,8 +6,11 @@ use platform_abstraction_layer::{Button, Event, InputDevice};
 
 const EVENT_QUEUE_TIMEOUT: Duration = Duration::from_millis(200);
 
+/// A queue of input events to be processed by [`InputDeviceState::update`].
 pub type EventQueue = ArrayVec<QueuedEvent, 1000>;
 
+/// Input event that happened at some point in the past, waiting to be used as a
+/// trigger for an [`Action`], or to be timed out.
 pub struct QueuedEvent {
     pub event: Event,
     pub timestamp: Duration,
@@ -23,8 +26,19 @@ impl QueuedEvent {
     }
 }
 
+/// The main input interface for the game, created, and maintained in game code.
+///
+/// `K` should be an enum that represents the various actions that can be
+/// triggered by the player to be detected by the game. Every frame,
+/// [`InputDeviceState::update`] should be called to update action states, and
+/// then the [`Action::pressed`] status of the values in
+/// [`InputDeviceState::actions`] should be used to trigger any relevant events
+/// in the game.
 pub struct InputDeviceState<K: EnumArray<Action>> {
+    /// The device this [`InputDeviceState`] tracks.
     pub device: InputDevice,
+    /// Each action's current state, updated based on events in
+    /// [`InputDeviceState::update`].
     pub actions: EnumMap<K, Action>,
 }
 
@@ -74,15 +88,22 @@ impl<K: EnumArray<Action>> InputDeviceState<K> {
 
 /// A rebindable action and its current state.
 pub struct Action {
+    /// How events are used to change the status of [`Action::pressed`].
     pub kind: ActionKind,
-    /// Which button triggers this action
+    /// Button which triggers this action.
     pub mapping: Button,
-    /// If true, events are ignored (but if this gets set to false, events still
-    /// in the queue will trigger the action).
+    /// If true, events are ignored, but unless the events time out, they will
+    /// trigger the action once this is set to false again.
+    ///
+    /// Can be used to e.g. disable jumping while in-air, but still cause a jump
+    /// trigger if the player pressed the button right before landing.
     pub disabled: bool,
+    /// True if the action should be triggered based on input events, parsed
+    /// according to the action's [`ActionKind`].
     pub pressed: bool,
 }
 
+/// The button press pattern to be used to trigger a specific action.
 pub enum ActionKind {
     /// Actions that happen right away when the button is pressed, and stop
     /// happening until the next press.

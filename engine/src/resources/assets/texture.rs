@@ -3,9 +3,9 @@ use core::ops::Range;
 use platform_abstraction_layer::BlendMode;
 
 use crate::{
+    collections::FixedVec,
     renderer::{DrawQueue, TexQuad},
     resources::{ResourceDatabase, TEXTURE_CHUNK_DIMENSIONS},
-    FixedVec,
 };
 
 use super::gen_asset_handle_code;
@@ -18,6 +18,7 @@ gen_asset_handle_code!(
     textures
 );
 
+/// Drawable image.
 #[derive(Debug)]
 pub struct TextureAsset {
     /// The width of the whole texture.
@@ -38,9 +39,10 @@ impl TextureAsset {
     // in one, if we need padding pixels between them, or pretend-wrapping
     // pixels to compensate for not actually being on a texture border, etc.
 
+    /// Draw this texture at coordinates x and y with some width and height.
     pub fn draw(
         &self,
-        xywh: [f32; 4],
+        (x, y, width, height): (f32, f32, f32, f32),
         draw_order: u8,
         draw_queue: &mut DrawQueue,
         resources: &ResourceDatabase,
@@ -51,13 +53,13 @@ impl TextureAsset {
 
         if let Some(chunk) = resources.texture_chunks.get(self.texture_chunks.start) {
             let _ = draw_queue.quads.push(TexQuad {
-                xywh,
-                texture_xywh: [
-                    0.0,
-                    0.0,
+                position_top_left: (x, y),
+                position_bottom_right: (x + width, y + height),
+                texcoord_top_left: (0.0, 0.0),
+                texcoord_bottom_right: (
                     self.width as f32 / TEXTURE_CHUNK_DIMENSIONS.0 as f32,
                     self.height as f32 / TEXTURE_CHUNK_DIMENSIONS.1 as f32,
-                ],
+                ),
                 draw_order,
                 blend_mode: if self.transparent {
                     BlendMode::Blend

@@ -2,7 +2,7 @@ use core::num::NonZeroU32;
 
 use bytemuck::Zeroable;
 
-use crate::{FixedVec, LinearAllocator};
+use crate::{allocators::LinearAllocator, collections::FixedVec};
 
 /// Sparse array of `T`.
 ///
@@ -56,7 +56,11 @@ impl<T> SparseArray<'_, T> {
     /// If reuse is not possible and a new `T` needs to be created, `init_fn` is
     /// used. `init_fn` can fail by returning None, in which case nothing else
     /// happens and None is returned.
-    pub fn insert(&mut self, index: u32, init_fn: impl FnOnce() -> Option<T>) -> Option<&mut T> {
+    pub fn insert_and_reuse(
+        &mut self,
+        index: u32,
+        init_fn: impl FnOnce() -> Option<T>,
+    ) -> Option<&mut T> {
         let now_resident_index = if let Some(reused_resident_index) = self.free_indices.pop() {
             reused_resident_index
         } else {
@@ -71,8 +75,7 @@ impl<T> SparseArray<'_, T> {
 
     /// Returns the value at the index if it's loaded.
     pub fn get(&self, index: u32) -> Option<&T> {
-        let maybe_resident_index = self.index_map.get(index as usize).unwrap();
-        let resident_index = maybe_resident_index.get()?;
+        let resident_index = self.index_map[index as usize].get()?;
         Some(&self.loaded_elements[resident_index as usize])
     }
 }

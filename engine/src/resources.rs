@@ -4,11 +4,16 @@ mod deserialize;
 mod serialize;
 
 use assets::{AudioClipAsset, TextureAsset};
-use chunks::{ChunkDescriptor, LoadedChunk, LoadedTextureChunk, TextureChunkDescriptor};
+use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
 use platform_abstraction_layer::{FileHandle, FileReadTask, Pal, PixelFormat};
 
 pub use deserialize::{deserialize, Deserialize};
 pub use serialize::{serialize, Serialize};
+
+use crate::{
+    allocators::LinearAllocator,
+    collections::{FixedVec, SparseArray},
+};
 
 /// Magic number used when de/serializing [`ResourceDatabaseHeader`].
 pub const RESOURCE_DB_MAGIC_NUMBER: u32 = 0xE97E6D00;
@@ -19,6 +24,8 @@ pub const TEXTURE_CHUNK_DIMENSIONS: (u16, u16) = (128, 128);
 /// Pixel format of the dynamically allocated texture chunks.
 pub const TEXTURE_CHUNK_FORMAT: PixelFormat = PixelFormat::Rgba;
 
+/// Basic info about a [`ResourceDatabase`] used in its initialization and for
+/// de/serializing the db file.
 #[derive(Clone, Copy)]
 pub struct ResourceDatabaseHeader {
     pub chunks: u32,
@@ -27,6 +34,11 @@ pub struct ResourceDatabaseHeader {
     pub audio_clips: u32,
 }
 
+/// The resource database.
+///
+/// The internals are exposed for `import-asset`, but game code should mostly
+/// use this for the `find_*` and `get_*` functions to query for assets, which
+/// implement the relevant logic for each asset type.
 pub struct ResourceDatabase<'eng> {
     // Asset metadata
     pub textures: FixedVec<'eng, NamedAsset<TextureAsset>>,
@@ -37,12 +49,12 @@ pub struct ResourceDatabase<'eng> {
     pub chunk_descriptors: FixedVec<'eng, ChunkDescriptor>,
     pub texture_chunk_descriptors: FixedVec<'eng, TextureChunkDescriptor>,
     // In-memory chunks
-    pub chunks: SparseArray<'eng, LoadedChunk>,
-    pub texture_chunks: SparseArray<'eng, LoadedTextureChunk>,
+    pub chunks: SparseArray<'eng, ChunkData>,
+    pub texture_chunks: SparseArray<'eng, TextureChunkData>,
 }
 
 impl ResourceDatabase<'_> {
-    pub fn new<'eng>(
+    pub(crate) fn new<'eng>(
         platform: &dyn Pal,
         arena: &'eng LinearAllocator,
         temp_arena: &LinearAllocator,
@@ -139,17 +151,19 @@ fn blocking_read_file<'a>(
 }
 
 pub use named_asset::{NamedAsset, ASSET_NAME_LENGTH};
-
-use crate::{FixedVec, LinearAllocator, SparseArray};
 mod named_asset {
     use core::cmp::Ordering;
 
     use arrayvec::ArrayString;
 
+    #[allow(unused_imports)] // used in docs
+    use super::ResourceDatabase;
+
     /// Maximum length for the unique names of assets.
     pub const ASSET_NAME_LENGTH: usize = 27;
 
-    /// Wrapper for assets and their unique name.
+    /// A unique name and a `T`. Used in [`ResourceDatabase`] and when creating
+    /// the db file.
     ///
     /// Implements equality and comparison operators purely based on the name,
     /// as assets with a specific name should be unique within a resource
