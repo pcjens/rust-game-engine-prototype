@@ -4,11 +4,11 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use super::LinearAllocator;
-
 #[allow(unused_imports)] // mentioned in docs
 use arrayvec::ArrayVec;
 use bytemuck::{fill_zeroes, Zeroable};
+
+use crate::LinearAllocator;
 
 /// A fixed-capacity contiguous growable array type.
 ///

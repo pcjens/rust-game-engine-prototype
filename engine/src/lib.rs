@@ -13,12 +13,14 @@
 #[cfg(test)]
 mod test_platform;
 
+mod collections;
 mod engine;
 mod input;
 mod linear_allocator;
 mod renderer;
 pub mod resources;
 
+pub use collections::{FixedVec, SparseArray};
 pub use engine::Engine;
 pub use input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent};
-pub use linear_allocator::{FixedVec, LinearAllocator};
+pub use linear_allocator::LinearAllocator;

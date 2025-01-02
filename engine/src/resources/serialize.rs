@@ -3,9 +3,9 @@ use core::ops::Range;
 use arrayvec::ArrayString;
 
 use super::{
-    asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
     assets::{AudioClipAsset, TextureAsset},
     chunks::{ChunkDescriptor, TextureChunkDescriptor},
+    NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
 
 pub trait Serialize {
@@ -43,7 +43,7 @@ impl Serialize for TextureChunkDescriptor {
     }
 }
 
-impl Serialize for AssetIndexHeader {
+impl Serialize for ResourceDatabaseHeader {
     const SERIALIZED_SIZE: usize = 13 + u32::SERIALIZED_SIZE * 4;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
@@ -58,7 +58,7 @@ impl Serialize for AssetIndexHeader {
             serialize::<u8>(&(TEXTURE_CHUNK_FORMAT as u8), dst, &mut cursor);
         }
 
-        let AssetIndexHeader {
+        let ResourceDatabaseHeader {
             chunks,
             texture_chunks,
             textures,

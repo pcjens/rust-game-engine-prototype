@@ -1,10 +1,6 @@
-mod vec;
-
 use core::{cell::Cell, ffi::c_void, fmt::Debug, mem::MaybeUninit, slice};
 
 use platform_abstraction_layer::Pal;
-
-pub use vec::FixedVec;
 
 /// A linear allocator with a constant capacity. Can allocate memory
 /// regions with any size or alignment (within the capacity) very

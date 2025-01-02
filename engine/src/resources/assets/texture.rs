@@ -1,10 +1,10 @@
 use core::ops::Range;
 
-use platform_abstraction_layer::{BlendMode, TextureRef};
+use platform_abstraction_layer::BlendMode;
 
 use crate::{
     renderer::{DrawQueue, TexQuad},
-    resources::{chunks::ChunkStorage, TEXTURE_CHUNK_DIMENSIONS},
+    resources::{ResourceDatabase, TEXTURE_CHUNK_DIMENSIONS},
     FixedVec,
 };
 
@@ -43,13 +43,13 @@ impl TextureAsset {
         xywh: [f32; 4],
         draw_order: u8,
         draw_queue: &mut DrawQueue,
-        chunk_storage: &ChunkStorage,
+        resources: &ResourceDatabase,
         texture_chunk_load_requests: &mut FixedVec<'_, u32>,
     ) {
         // TODO: implement multi-chunk-texture draws
         assert_eq!(1, self.texture_chunks.end - self.texture_chunks.start);
 
-        if let Some(chunk) = chunk_storage.texture_chunks.get(self.texture_chunks.start) {
+        if let Some(chunk) = resources.texture_chunks.get(self.texture_chunks.start) {
             let _ = draw_queue.quads.push(TexQuad {
                 xywh,
                 texture_xywh: [

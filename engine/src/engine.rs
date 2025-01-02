@@ -7,10 +7,9 @@ use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 use crate::{
     renderer::DrawQueue,
     resources::{
-        asset_index::AssetIndex,
         assets::TextureHandle,
-        chunks::{ChunkStorage, LoadedTextureChunk, TextureChunkDescriptor},
-        TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
+        chunks::{LoadedTextureChunk, TextureChunkDescriptor},
+        ResourceDatabase, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
     },
     Action, ActionKind, EventQueue, FixedVec, InputDeviceState, LinearAllocator, QueuedEvent,
 };
@@ -23,8 +22,7 @@ enum TestInput {
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'eng> {
-    asset_index: AssetIndex<'eng>,
-    chunk_storage: ChunkStorage<'eng>,
+    resource_db: ResourceDatabase<'eng>,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -49,8 +47,7 @@ impl<'eng> Engine<'eng> {
         // TODO: Parameters that should probably be exposed to be tweakable by
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
-        // - Asset index (depends on persistent arena being big enough and the game might want to open the file)
-        // - Chunk storage (depends on persistent arena being big enough and the optimal capacity is game-dependent)
+        // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
 
         let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
@@ -58,18 +55,16 @@ impl<'eng> Engine<'eng> {
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
-        let asset_index =
-            AssetIndex::new(platform, persistent_arena, &frame_arena, db_file).unwrap();
-        let chunk_storage = ChunkStorage::new(persistent_arena, &asset_index, 1000, 1000)
-            .expect("persistent arena should have enough memory for asset chunk storage");
+        let resource_db =
+            ResourceDatabase::new(platform, persistent_arena, &frame_arena, db_file, 16, 128)
+                .expect("persistent arena should have enough memory for asset db");
 
         frame_arena.reset();
 
-        let test_texture = asset_index.find_texture("testing texture").unwrap();
+        let test_texture = resource_db.find_texture("testing texture").unwrap();
 
         Engine {
-            asset_index,
-            chunk_storage,
+            resource_db,
             frame_arena,
             event_queue: ArrayVec::new(),
 
@@ -89,8 +84,11 @@ impl EngineCallbacks for Engine<'_> {
         let mut draw_queue = DrawQueue::new(&self.frame_arena).unwrap();
 
         // TODO: Some kind of "chunk load queue" instead of this
-        let mut texture_chunk_load_requests =
-            FixedVec::new(&self.frame_arena, self.asset_index.texture_chunks.len()).unwrap();
+        let mut texture_chunk_load_requests = FixedVec::new(
+            &self.frame_arena,
+            self.resource_db.texture_chunk_descriptors.len(),
+        )
+        .unwrap();
 
         // Testing area follows, could be considered "game code" for now:
 
@@ -101,14 +99,14 @@ impl EngineCallbacks for Engine<'_> {
             action_test = input.actions[TestInput::Act].pressed;
         }
 
-        let test_texture = self.asset_index.get_texture(self.test_texture);
+        let test_texture = self.resource_db.get_texture(self.test_texture);
         let (w, _) = platform.draw_area();
         let w = if action_test { w / 2. } else { w };
         test_texture.draw(
             [w / 2., 200.0, 400.0, 400.0],
             0,
             &mut draw_queue,
-            &self.chunk_storage,
+            &self.resource_db,
             &mut texture_chunk_load_requests,
         );
 
@@ -118,15 +116,15 @@ impl EngineCallbacks for Engine<'_> {
                 region_width,
                 region_height,
                 source_bytes,
-            } = &self.asset_index.texture_chunks[*requested_chunk_idx as usize];
+            } = &self.resource_db.texture_chunk_descriptors[*requested_chunk_idx as usize];
 
             // Load the pixels from disk
-            let first_byte = self.asset_index.chunk_data_offset + source_bytes.start;
+            let first_byte = self.resource_db.chunk_data_offset + source_bytes.start;
             let len = (source_bytes.end - source_bytes.start) as usize;
             let mut buffer = FixedVec::new(&self.frame_arena, len).unwrap();
             buffer.fill_with_zeroes();
             let mut read_task =
-                platform.begin_file_read(self.asset_index.chunk_data_file, first_byte, &mut buffer);
+                platform.begin_file_read(self.resource_db.chunk_data_file, first_byte, &mut buffer);
             let pixels = loop {
                 match platform.poll_file_read(read_task) {
                     Ok(pixels) => break pixels,
@@ -142,7 +140,7 @@ impl EngineCallbacks for Engine<'_> {
                 Some(LoadedTextureChunk(texture))
             };
             if let Some(texture) = self
-                .chunk_storage
+                .resource_db
                 .texture_chunks
                 .insert(*requested_chunk_idx, create_tex)
             {
@@ -199,7 +197,7 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        let persistent_arena = LinearAllocator::new(&platform, 1_000).unwrap();
+        let persistent_arena = LinearAllocator::new(&platform, 50_000_000).unwrap();
         let mut engine = Engine::new(&platform, &persistent_arena);
 
         let fps = 30;

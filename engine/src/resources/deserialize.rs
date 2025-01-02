@@ -3,9 +3,9 @@ use core::{ops::Range, str};
 use arrayvec::ArrayString;
 
 use super::{
-    asset_index::{AssetIndexHeader, NamedAsset, ASSET_NAME_LENGTH},
     assets::{AudioClipAsset, TextureAsset},
     chunks::{ChunkDescriptor, TextureChunkDescriptor},
+    NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
 
 pub trait Deserialize {
@@ -41,7 +41,7 @@ impl Deserialize for TextureChunkDescriptor {
     }
 }
 
-impl Deserialize for AssetIndexHeader {
+impl Deserialize for ResourceDatabaseHeader {
     const SERIALIZED_SIZE: usize = 13 + u32::SERIALIZED_SIZE * 4;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());

@@ -2,16 +2,14 @@ use std::{fs, str::FromStr};
 
 use arrayvec::ArrayString;
 use engine::resources::{
-    asset_index::{AssetIndexHeader, NamedAsset},
-    assets::TextureAsset,
-    chunks::TextureChunkDescriptor,
-    serialize,
+    assets::TextureAsset, chunks::TextureChunkDescriptor, serialize, NamedAsset,
+    ResourceDatabaseHeader,
 };
 
 fn main() {
     let mut dst = vec![0; 1000];
 
-    let header = AssetIndexHeader {
+    let header = ResourceDatabaseHeader {
         chunks: 0,
         texture_chunks: 1,
         textures: 1,

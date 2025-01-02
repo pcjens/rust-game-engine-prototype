@@ -9,20 +9,20 @@ macro_rules! gen_asset_handle_code {
         pub use handle_impl::$handle_name;
         mod handle_impl {
             #[allow(unused_imports)] // used by docs
-            use $crate::resources::asset_index::AssetIndex;
+            use $crate::resources::ResourceDatabase;
 
             use super::*;
 
             #[doc = "Handle for [`"]
             #[doc = stringify!($asset_type)]
             #[doc = "`].\n\nCreated with [`"]
-            #[doc = concat!("AssetIndex::", stringify!($find_fn))]
+            #[doc = concat!("ResourceDatabase::", stringify!($find_fn))]
             #[doc = "`], and can be resolved into a borrow of the asset itself with [`"]
-            #[doc = concat!("AssetIndex::", stringify!($get_fn))]
+            #[doc = concat!("ResourceDatabase::", stringify!($get_fn))]
             #[doc = "`]."]
             #[derive(Clone, Copy)]
             pub struct $handle_name(usize);
-            impl $crate::resources::asset_index::AssetIndex<'_> {
+            impl $crate::resources::ResourceDatabase<'_> {
                 pub fn $find_fn(&self, name: &str) -> Option<$handle_name> {
                     let Ok(index) = self
                         .$field

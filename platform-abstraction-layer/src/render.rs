@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 ///
 /// Texture coordinates (u, v) should be interpreted as "0, 0" referring to the
 /// top-left corner of the texture and "1, 1" referring to the bottom-right
-/// corner, with "repeat" tiling for coordinates outside of that range.
+/// corner.
 #[derive(Debug, Default, Clone, Copy, Zeroable, Pod)]
 #[repr(C)]
 pub struct Vertex {
