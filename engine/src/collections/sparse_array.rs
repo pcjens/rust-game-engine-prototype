@@ -56,11 +56,7 @@ impl<T> SparseArray<'_, T> {
     /// If reuse is not possible and a new `T` needs to be created, `init_fn` is
     /// used. `init_fn` can fail by returning None, in which case nothing else
     /// happens and None is returned.
-    pub fn insert_and_reuse(
-        &mut self,
-        index: u32,
-        init_fn: impl FnOnce() -> Option<T>,
-    ) -> Option<&mut T> {
+    pub fn insert(&mut self, index: u32, init_fn: impl FnOnce() -> Option<T>) -> Option<&mut T> {
         let now_resident_index = if let Some(reused_resident_index) = self.free_indices.pop() {
             reused_resident_index
         } else {

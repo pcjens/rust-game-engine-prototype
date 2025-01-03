@@ -2,8 +2,7 @@ use std::{fs, str::FromStr};
 
 use arrayvec::ArrayString;
 use engine::resources::{
-    assets::TextureAsset, chunks::TextureChunkDescriptor, serialize, NamedAsset,
-    ResourceDatabaseHeader,
+    assets::TextureAsset, serialize, NamedAsset, ResourceDatabaseHeader, TextureChunkDescriptor,
 };
 
 fn main() {

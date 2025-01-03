@@ -1,13 +1,15 @@
 pub mod assets;
-pub mod chunks;
+mod chunks;
 mod deserialize;
+mod loader;
 mod serialize;
 
 use assets::{AudioClipAsset, TextureAsset};
-use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
 use platform_abstraction_layer::{FileHandle, FileReadTask, Pal, PixelFormat};
 
+pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
 pub use deserialize::{deserialize, Deserialize};
+pub use loader::ResourceLoader;
 pub use serialize::{serialize, Serialize};
 
 use crate::{

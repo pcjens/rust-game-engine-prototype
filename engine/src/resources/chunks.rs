@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use platform_abstraction_layer::TextureRef;
+use platform_abstraction_layer::{Pal, TextureRef};
 
 use crate::resources::CHUNK_SIZE;
 #[allow(unused_imports)] // used in docs
@@ -30,7 +30,42 @@ pub struct TextureChunkDescriptor {
 #[repr(C, align(64))]
 pub struct ChunkData(pub [u8; CHUNK_SIZE as usize]);
 
+impl ChunkData {
+    pub fn empty() -> ChunkData {
+        ChunkData([0; CHUNK_SIZE as usize])
+    }
+
+    pub fn update(&mut self, descriptor: &ChunkDescriptor, buffer: &[u8]) {
+        let len = (descriptor.source_bytes.end - descriptor.source_bytes.start) as usize;
+        self.0[..len].copy_from_slice(buffer);
+    }
+}
+
 /// Loaded (video) memory for a single texture chunk. Contains a reference to a
 /// loaded texture, ready for drawing, with the size and format
 /// [`TEXTURE_CHUNK_DIMENSIONS`] and [`TEXTURE_CHUNK_FORMAT`].
 pub struct TextureChunkData(pub TextureRef);
+
+impl TextureChunkData {
+    pub fn empty(platform: &dyn Pal) -> Option<TextureChunkData> {
+        let (w, h) = TEXTURE_CHUNK_DIMENSIONS;
+        let format = TEXTURE_CHUNK_FORMAT;
+        Some(TextureChunkData(platform.create_texture(w, h, format)?))
+    }
+
+    pub fn update(
+        &mut self,
+        descriptor: &TextureChunkDescriptor,
+        buffer: &[u8],
+        platform: &dyn Pal,
+    ) {
+        platform.update_texture(
+            self.0,
+            0,
+            0,
+            descriptor.region_width,
+            descriptor.region_height,
+            buffer,
+        );
+    }
+}

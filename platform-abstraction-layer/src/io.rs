@@ -24,6 +24,7 @@ impl FileHandle {
 /// *must* be passed to a [`Pal::poll_file_read`] call until they are consumed.
 /// It is not safe to use the buffer contained in the task until the read
 /// operation is finished.
+#[derive(Debug)]
 pub struct FileReadTask<'a> {
     file: FileHandle,
     task_id: u64,

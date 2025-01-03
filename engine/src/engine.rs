@@ -6,14 +6,9 @@ use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
 use crate::{
     allocators::LinearAllocator,
-    collections::FixedVec,
     input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
     renderer::DrawQueue,
-    resources::{
-        assets::TextureHandle,
-        chunks::{TextureChunkData, TextureChunkDescriptor},
-        ResourceDatabase, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
-    },
+    resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
 };
 
 #[derive(enum_map::Enum)]
@@ -26,6 +21,9 @@ enum TestInput {
 pub struct Engine<'eng> {
     /// Database of the non-code parts of the game, e.g. textures.
     resource_db: ResourceDatabase<'eng>,
+    /// Queue of loading tasks which insert loaded chunks into the `resource_db`
+    /// occasionally.
+    resource_loader: ResourceLoader<'eng>,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -60,7 +58,9 @@ impl<'eng> Engine<'eng> {
             .expect("resources.db should exist and be readable");
         let resource_db =
             ResourceDatabase::new(platform, persistent_arena, &frame_arena, db_file, 16, 128)
-                .expect("persistent arena should have enough memory for asset db");
+                .expect("persistent arena should have enough memory for the resource database");
+        let resource_loader = ResourceLoader::new(persistent_arena, 1000, 1)
+            .expect("persistent arena should have enough memory for the resource loader");
 
         frame_arena.reset();
 
@@ -68,6 +68,7 @@ impl<'eng> Engine<'eng> {
 
         Engine {
             resource_db,
+            resource_loader,
             frame_arena,
             event_queue: ArrayVec::new(),
 
@@ -86,13 +87,6 @@ impl EngineCallbacks for Engine<'_> {
 
         let mut draw_queue = DrawQueue::new(&self.frame_arena).unwrap();
 
-        // TODO: Some kind of "chunk load queue" instead of this
-        let mut texture_chunk_load_requests = FixedVec::new(
-            &self.frame_arena,
-            self.resource_db.texture_chunk_descriptors.len(),
-        )
-        .unwrap();
-
         // Testing area follows, could be considered "game code" for now:
 
         let mut action_test = false;
@@ -110,49 +104,13 @@ impl EngineCallbacks for Engine<'_> {
             0,
             &mut draw_queue,
             &self.resource_db,
-            &mut texture_chunk_load_requests,
+            &mut self.resource_loader,
         );
 
-        // TODO: move  this somewhere else
-        for requested_chunk_idx in texture_chunk_load_requests.iter() {
-            let TextureChunkDescriptor {
-                region_width,
-                region_height,
-                source_bytes,
-            } = &self.resource_db.texture_chunk_descriptors[*requested_chunk_idx as usize];
-
-            // Load the pixels from disk
-            let first_byte = self.resource_db.chunk_data_offset + source_bytes.start;
-            let len = (source_bytes.end - source_bytes.start) as usize;
-            let mut buffer = FixedVec::new(&self.frame_arena, len).unwrap();
-            buffer.fill_with_zeroes();
-            let mut read_task =
-                platform.begin_file_read(self.resource_db.chunk_data_file, first_byte, &mut buffer);
-            let pixels = loop {
-                match platform.poll_file_read(read_task) {
-                    Ok(pixels) => break pixels,
-                    Err(Some(task)) => read_task = task,
-                    Err(None) => panic!(),
-                }
-            };
-
-            // Allocate the texture chunk
-            let create_tex = || {
-                let (w, h) = TEXTURE_CHUNK_DIMENSIONS;
-                let texture = platform.create_texture(w, h, TEXTURE_CHUNK_FORMAT)?;
-                Some(TextureChunkData(texture))
-            };
-            if let Some(texture) = self
-                .resource_db
-                .texture_chunks
-                .insert_and_reuse(*requested_chunk_idx, create_tex)
-            {
-                // Write the data to the texture chunk
-                platform.update_texture(texture.0, 0, 0, *region_width, *region_height, pixels);
-            }
-        }
-
         draw_queue.dispatch_draw(&self.frame_arena, platform);
+
+        self.resource_loader
+            .load_queue(&mut self.resource_db, platform, &self.frame_arena);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {

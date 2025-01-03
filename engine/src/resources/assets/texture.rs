@@ -3,9 +3,8 @@ use core::ops::Range;
 use platform_abstraction_layer::BlendMode;
 
 use crate::{
-    collections::FixedVec,
     renderer::{DrawQueue, TexQuad},
-    resources::{ResourceDatabase, TEXTURE_CHUNK_DIMENSIONS},
+    resources::{ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS},
 };
 
 use super::gen_asset_handle_code;
@@ -46,12 +45,13 @@ impl TextureAsset {
         draw_order: u8,
         draw_queue: &mut DrawQueue,
         resources: &ResourceDatabase,
-        texture_chunk_load_requests: &mut FixedVec<'_, u32>,
+        resource_loader: &mut ResourceLoader,
     ) {
         // TODO: implement multi-chunk-texture draws
         assert_eq!(1, self.texture_chunks.end - self.texture_chunks.start);
+        let chunk_index = self.texture_chunks.start;
 
-        if let Some(chunk) = resources.texture_chunks.get(self.texture_chunks.start) {
+        if let Some(chunk) = resources.texture_chunks.get(chunk_index) {
             let _ = draw_queue.quads.push(TexQuad {
                 position_top_left: (x, y),
                 position_bottom_right: (x + width, y + height),
@@ -69,7 +69,7 @@ impl TextureAsset {
                 texture: chunk.0,
             });
         } else {
-            let _ = texture_chunk_load_requests.push(self.texture_chunks.start);
+            resource_loader.queue_texture_chunk(chunk_index, resources);
         }
     }
 }
