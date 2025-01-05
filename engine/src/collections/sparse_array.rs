@@ -74,6 +74,12 @@ impl<T> SparseArray<'_, T> {
         let resident_index = self.index_map[index as usize].get()?;
         Some(&self.loaded_elements[resident_index as usize])
     }
+
+    /// Returns the length of the whole array (not the amount of loaded
+    /// elements).
+    pub fn array_len(&self) -> usize {
+        self.index_map.len()
+    }
 }
 
 /// `Option<u32>` but Zeroable and u32-sized.

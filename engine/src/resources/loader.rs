@@ -2,7 +2,7 @@ use platform_abstraction_layer::{FileReadTask, Pal};
 
 use crate::{
     allocators::LinearAllocator,
-    collections::{FixedVec, RingBuffer, RingSlice},
+    collections::{FixedVec, Queue, RingBuffer, RingSlice},
 };
 
 use super::{ChunkData, ResourceDatabase, TextureChunkData};
@@ -13,62 +13,69 @@ enum LoadCategory {
     TextureChunk,
 }
 
+#[derive(Debug)]
 struct LoadRequest {
     first_byte: u64,
-    index: u32,
-    category: LoadCategory,
-}
-
-#[derive(Debug)]
-struct LoadTask<'a> {
-    file_read_task: Option<FileReadTask<'a>>,
-    index: u32,
+    chunk_index: u32,
     category: LoadCategory,
 }
 
 pub struct ResourceLoader<'eng> {
-    staging_buffer: RingBuffer<'eng, u8>,
-    loading_queue: Option<LoadRequest>, // TODO: make a Queue and use it here
-    staging_slice_queue: Option<RingSlice>, // TODO: make a Queue and use it here
+    staging_buffer: RingBuffer<'eng>,
+    loading_queue: Queue<'eng, LoadRequest>,
+    staging_slice_queue: Queue<'eng, RingSlice>,
 }
 
 impl<'eng> ResourceLoader<'eng> {
     pub fn new(
         allocator: &'eng LinearAllocator,
         staging_buffer_size: usize,
-        queue_len: usize,
+        resource_db: &ResourceDatabase,
     ) -> Option<ResourceLoader<'eng>> {
+        let total_chunks = resource_db.chunks.array_len() + resource_db.texture_chunks.array_len();
         Some(ResourceLoader {
             staging_buffer: RingBuffer::new(allocator, staging_buffer_size)?,
-            loading_queue: None,
-            staging_slice_queue: None,
+            loading_queue: Queue::new(allocator, total_chunks)?,
+            staging_slice_queue: Queue::new(allocator, total_chunks)?,
         })
     }
 
-    pub fn queue_chunk(&mut self, index: u32, resources: &ResourceDatabase) {
-        self.queue_load(index, LoadCategory::Chunk, resources);
+    pub fn queue_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
+        self.queue_load(chunk_index, LoadCategory::Chunk, resources);
     }
 
-    pub fn queue_texture_chunk(&mut self, index: u32, resources: &ResourceDatabase) {
-        self.queue_load(index, LoadCategory::TextureChunk, resources);
+    pub fn queue_texture_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
+        self.queue_load(chunk_index, LoadCategory::TextureChunk, resources);
     }
 
-    fn queue_load(&mut self, index: u32, category: LoadCategory, resources: &ResourceDatabase) {
-        let chunk_source = &resources.texture_chunk_descriptors[index as usize].source_bytes;
+    fn queue_load(
+        &mut self,
+        chunk_index: u32,
+        category: LoadCategory,
+        resources: &ResourceDatabase,
+    ) {
+        let chunk_source = &resources.texture_chunk_descriptors[chunk_index as usize].source_bytes;
         let chunk_size = (chunk_source.end - chunk_source.start) as usize;
-        if !self.staging_buffer.would_fit(chunk_size) || self.loading_queue.is_some() {
+        if !self.staging_buffer.would_fit(chunk_size)
+            || self
+                .loading_queue
+                .iter()
+                .any(|req| req.chunk_index == chunk_index)
+        {
             return;
         }
         let staging_slice = self.staging_buffer.allocate(chunk_size).unwrap();
-        self.loading_queue = Some(LoadRequest {
-            first_byte: chunk_source.start,
-            index,
-            category,
-        });
-        self.staging_slice_queue = Some(staging_slice);
+        self.loading_queue
+            .push_back(LoadRequest {
+                first_byte: resources.chunk_data_offset + chunk_source.start,
+                chunk_index,
+                category,
+            })
+            .unwrap();
+        self.staging_slice_queue.push_back(staging_slice).unwrap();
     }
 
-    /// Loads the currently queued chunks.
+    /// Loads up to `max_chunks_to_load` queued chunks.
     ///
     /// # Panics
     ///
@@ -76,24 +83,39 @@ impl<'eng> ResourceLoader<'eng> {
     /// loading tasks.
     pub fn load_queue(
         &mut self,
+        max_chunks_to_load: usize,
         resources: &mut ResourceDatabase,
         platform: &dyn Pal,
         arena: &LinearAllocator,
     ) {
-        let mut tasks = FixedVec::new(arena, 1 /* TODO: use loading_queue length */).unwrap();
+        #[derive(Debug)]
+        struct LoadTask<'a> {
+            file_read_task: Option<FileReadTask<'a>>,
+            index: u32,
+            category: LoadCategory,
+        }
 
-        // Begin reads
-        // TODO: drain through the loading queue, peek through the staging slice queue
-        if let (
+        let mut tasks = FixedVec::new(arena, max_chunks_to_load).unwrap();
+
+        // Split `self.staging_buffer` into separate mutable slices for the file reads
+        let mut staging_slice_handles = FixedVec::new(arena, max_chunks_to_load).unwrap();
+        for slice_handle in self.staging_slice_queue.iter().take(max_chunks_to_load) {
+            staging_slice_handles.push(slice_handle).unwrap();
+        }
+        let mut staging_slices = Queue::new(arena, max_chunks_to_load).unwrap();
+        self.staging_buffer
+            .get_many_mut(&staging_slice_handles, &mut staging_slices);
+
+        // Begin reads (this pops from loading_queue, matching staging_slice_queue pops are after the reads are done)
+        while let (
             Some(LoadRequest {
                 first_byte,
-                index,
+                chunk_index: index,
                 category,
             }),
-            Some(staging_slice),
-        ) = (self.loading_queue.take(), self.staging_slice_queue.as_ref())
+            Some(buffer),
+        ) = (self.loading_queue.pop_front(), staging_slices.pop_front())
         {
-            let buffer = self.staging_buffer.get_mut(staging_slice);
             let file_read_task =
                 Some(platform.begin_file_read(resources.chunk_data_file, first_byte, buffer));
             tasks
@@ -143,9 +165,13 @@ impl<'eng> ResourceLoader<'eng> {
         assert!(tasks.iter().all(|task| task.file_read_task.is_none()));
         drop(tasks);
 
-        // TODO: drain through the loading queue
-        if let Some(staging_slice) = self.staging_slice_queue.take() {
-            self.staging_buffer.free(staging_slice).unwrap();
+        // Align loading_queue and staging_slice_queue by popping off the slices used
+        let staging_slices_count = staging_slice_handles.len();
+        drop(staging_slice_handles);
+        for _ in 0..staging_slices_count {
+            self.staging_buffer
+                .free(self.staging_slice_queue.pop_front().unwrap())
+                .unwrap();
         }
     }
 }

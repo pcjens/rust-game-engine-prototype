@@ -59,7 +59,7 @@ impl<'eng> Engine<'eng> {
         let resource_db =
             ResourceDatabase::new(platform, persistent_arena, &frame_arena, db_file, 16, 128)
                 .expect("persistent arena should have enough memory for the resource database");
-        let resource_loader = ResourceLoader::new(persistent_arena, 1000, 1)
+        let resource_loader = ResourceLoader::new(persistent_arena, 1000, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
         frame_arena.reset();
@@ -110,7 +110,7 @@ impl EngineCallbacks for Engine<'_> {
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 
         self.resource_loader
-            .load_queue(&mut self.resource_db, platform, &self.frame_arena);
+            .load_queue(1, &mut self.resource_db, platform, &self.frame_arena);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {

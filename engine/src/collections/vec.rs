@@ -52,13 +52,11 @@ impl<T> FixedVec<'_, T> {
     pub fn push(&mut self, value: T) -> Result<(), T> {
         // Pick index, check it fits:
         let i = self.initialized_len;
-        let Some(uninit) = self.uninit_slice.get_mut(i) else {
+        let Some(uninit_at_i) = self.uninit_slice.get_mut(i) else {
             return Err(value);
         };
 
-        // Write the value at the index:
-        uninit.write(value);
-        // Notes:
+        // Notes on this write:
         // - The "existing value" (`uninit`, uninitialized memory) does not get
         //   dropped here. Dropping uninitialized memory would be bad.
         //   - To avoid leaks, we should be sure that `uninit` here is actually
@@ -68,6 +66,7 @@ impl<T> FixedVec<'_, T> {
         //     specifically allocate a slice of uninitialized MaybeUninits. On
         //     the subsequent times, we rely on the fact that all the functions
         //     that remove values from the array also drop the values.
+        uninit_at_i.write(value);
 
         // The value at `i` is now initialized, update length:
         self.initialized_len = i + 1;
