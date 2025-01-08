@@ -7,7 +7,7 @@ use crate::{
 
 use super::{ChunkData, ResourceDatabase, TextureChunkData};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum LoadCategory {
     Chunk,
     TextureChunk,
@@ -60,7 +60,7 @@ impl<'eng> ResourceLoader<'eng> {
             || self
                 .loading_queue
                 .iter()
-                .any(|req| req.chunk_index == chunk_index)
+                .any(|req| req.chunk_index == chunk_index && req.category == category)
         {
             return;
         }
