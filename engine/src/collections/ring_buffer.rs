@@ -143,7 +143,10 @@ impl RingBuffer<'_> {
         fits_at_start || fits_at_end
     }
 
-    /// Returns the slices represented by the [`RingSlice`]s.
+    /// Pushes mutable slices represented by the [`RingSlice`]s into the
+    /// [`Queue`].
+    ///
+    /// `accessors` will be sorted to be in splitting order.
     ///
     /// # Panics
     ///
@@ -151,40 +154,29 @@ impl RingBuffer<'_> {
     /// [`RingBuffer`].
     pub fn get_many_mut<'a>(
         &'a mut self,
-        accessors: &[&RingSlice],
+        accessors: &mut [&RingSlice],
         slices: &mut Queue<'_, &'a mut [u8]>,
     ) {
-        assert!(accessors.len() <= slices.spare_capacity());
+        assert!(
+            accessors.len() <= slices.spare_capacity(),
+            "the result queue cannot fit all of the slices this would split into",
+        );
 
-        for accessor in accessors {
+        for accessor in &*accessors {
             assert_eq!(
                 self.buffer_identifier, accessor.buffer_identifier,
                 "the given ring slice was not allocated from this ring buffer",
             );
         }
 
+        accessors.sort_unstable_by_key(|slice| slice.offset);
+
         let mut splitting_buffer = &mut *self.buffer;
         let mut split_off_so_far = 0;
-        for _ in 0..accessors.len() {
-            let mut smallest_unsplit_offset = self.allocated_len;
-            let mut accessor = None;
-            for acc in accessors {
-                if acc.offset < split_off_so_far {
-                    continue;
-                }
-                if acc.offset <= smallest_unsplit_offset {
-                    smallest_unsplit_offset = acc.offset;
-                    accessor = Some(acc);
-                }
-            }
-
-            let Some(accessor) = accessor else {
-                unreachable!();
-            };
+        for accessor in &*accessors {
             if split_off_so_far < accessor.offset {
                 // `split_off_so_far..accessor.offset` isn't covered by the
-                // given slices (the accessor is the one with the lowest
-                // offset), so split that part off `splitting_buffer`.
+                // given slices, so split that part off `splitting_buffer`.
                 (_, splitting_buffer) =
                     splitting_buffer.split_at_mut(accessor.offset - split_off_so_far);
                 split_off_so_far = accessor.offset;

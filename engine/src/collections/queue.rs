@@ -58,7 +58,7 @@ impl<T> Queue<'_, T> {
         let value = unsafe { self.uninit_slice[self.initialized_offset].assume_init_read() };
 
         // Now that we have an owned version of the value at `self.init_offset`,
-        // splice out the first index of the init slice.
+        // pop out the first index of the init slice.
         self.initialized_offset = (self.initialized_offset + 1) % self.uninit_slice.len();
         self.initialized_len -= 1;
 
@@ -70,6 +70,7 @@ impl<T> Queue<'_, T> {
         self.uninit_slice.len() - self.initialized_len
     }
 
+    /// Returns an iterator of the elements currently in the queue.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         let len = self.uninit_slice.len();
 

@@ -107,7 +107,7 @@ impl<'eng> ResourceLoader<'eng> {
         }
         let mut staging_slices = Queue::new(arena, max_chunks_to_load).unwrap();
         self.staging_buffer
-            .get_many_mut(&staging_slice_handles, &mut staging_slices);
+            .get_many_mut(&mut staging_slice_handles, &mut staging_slices);
 
         // Begin reads (this pops from loading_queue, matching staging_slice_queue pops are after the reads are done)
         while let (
