@@ -88,11 +88,14 @@ impl<'eng> ResourceLoader<'eng> {
         platform: &dyn Pal,
         arena: &LinearAllocator,
     ) {
-        #[derive(Debug)]
         struct LoadTask<'a> {
             file_read_task: Option<FileReadTask<'a>>,
             index: u32,
             category: LoadCategory,
+        }
+
+        if max_chunks_to_load == 0 {
+            return;
         }
 
         let mut tasks = FixedVec::new(arena, max_chunks_to_load).unwrap();
@@ -124,7 +127,11 @@ impl<'eng> ResourceLoader<'eng> {
                     index,
                     category,
                 })
+                .ok()
                 .unwrap();
+            if tasks.is_full() {
+                break;
+            }
         }
 
         // Write the chunks (TODO: this part should be multithreadable, just needs some AoS -> SoA type of refactoring)
@@ -134,29 +141,23 @@ impl<'eng> ResourceLoader<'eng> {
             category,
         } in tasks.iter_mut()
         {
-            while let Some(task) = file_read_task.take() {
-                match platform.poll_file_read(task) {
-                    Ok(buffer) => match category {
-                        LoadCategory::Chunk => {
-                            let desc = &resources.chunk_descriptors[*index as usize];
-                            let init_fn = || Some(ChunkData::empty());
-                            if let Some(dst) = resources.chunks.insert(*index, init_fn) {
-                                dst.update(desc, buffer);
-                            }
+            if let Some(buffer) = file_read_task.take().unwrap().read_to_end() {
+                match category {
+                    LoadCategory::Chunk => {
+                        let desc = &resources.chunk_descriptors[*index as usize];
+                        let init_fn = || Some(ChunkData::empty());
+                        if let Some(dst) = resources.chunks.insert(*index, init_fn) {
+                            dst.update(desc, buffer);
                         }
-
-                        LoadCategory::TextureChunk => {
-                            let desc = &resources.texture_chunk_descriptors[*index as usize];
-                            let init_fn = || TextureChunkData::empty(platform);
-                            if let Some(dst) = resources.texture_chunks.insert(*index, init_fn) {
-                                dst.update(desc, buffer, platform);
-                            }
-                        }
-                    },
-                    Err(Some(task)) => {
-                        *file_read_task = Some(task);
                     }
-                    Err(None) => {}
+
+                    LoadCategory::TextureChunk => {
+                        let desc = &resources.texture_chunk_descriptors[*index as usize];
+                        let init_fn = || TextureChunkData::empty(platform);
+                        if let Some(dst) = resources.texture_chunks.insert(*index, init_fn) {
+                            dst.update(desc, buffer, platform);
+                        }
+                    }
                 }
             }
         }

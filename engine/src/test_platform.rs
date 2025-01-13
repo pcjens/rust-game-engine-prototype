@@ -5,6 +5,7 @@ use platform_abstraction_layer::{
     PixelFormat, TextureRef, Vertex,
 };
 
+#[derive(Debug)]
 pub struct TestPlatform {
     current_time: Cell<Duration>,
 }
@@ -65,27 +66,24 @@ impl Pal for TestPlatform {
     }
 
     fn begin_file_read<'a>(
-        &self,
+        &'a self,
         file: FileHandle,
         first_byte: u64,
         buffer: &'a mut [u8],
     ) -> FileReadTask<'a> {
-        FileReadTask::new(file, first_byte, buffer)
+        FileReadTask::new(file, first_byte, buffer, self)
     }
 
-    fn poll_file_read<'a>(
-        &self,
-        task: FileReadTask<'a>,
-    ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>> {
+    fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]> {
         static RESOURCES_DB: &[u8] = include_bytes!("../../resources.db");
         if task.file().inner() != 4321 {
-            return Err(None);
+            return None;
         }
         let first_byte = task.task_id() as usize;
         // Safety: never shared this buffer.
         let buffer = unsafe { task.into_inner() };
         buffer.copy_from_slice(&RESOURCES_DB[first_byte..first_byte + buffer.len()]);
-        Ok(buffer)
+        Some(buffer)
     }
 
     fn input_devices(&self) -> InputDevices {

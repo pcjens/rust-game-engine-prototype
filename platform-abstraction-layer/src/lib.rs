@@ -79,35 +79,28 @@ pub trait Pal {
     /// Start an asynchronous read operation to fill `buffer` from the `file` at
     /// offset `first_byte`.
     ///
-    /// ## Safety
-    ///
-    /// The returned [`FileReadTask`] must not be dropped, but instead be passed
-    /// to [`Pal::poll_file_read`]. This rule ensures that the `buffer` passed
-    /// into this function is not accessed while it's still being written to, as
-    /// the buffer's mutable borrow would end after dropping the
-    /// [`FileReadTask`], which is unsafe!
+    /// Implementations can assume that `'a` will last until
+    /// [`Pal::finish_file_read`] is called with the task returned from this
+    /// function, since [`FileReadTask`] can't (safely) be dropped without it
+    /// getting called.
     #[must_use]
     fn begin_file_read<'a>(
-        &self,
+        &'a self,
         file: FileHandle,
         first_byte: u64,
         buffer: &'a mut [u8],
     ) -> FileReadTask<'a>;
 
-    /// Poll if a read has completed successfully, returning the buffer
-    /// containing the data if it has. If not, but the read is still being
-    /// processed, the task is returned back, to be polled again later. If the
-    /// read fails, an `Err(None)` is returned.
+    /// Blocks until the read task finishes, returning the slice if the read was
+    /// successful, `None` otherwise.
     ///
-    /// ## Safety
+    /// In any case, this consumes the [`FileReadTask`], so the backing slice
+    /// can be used again.
     ///
-    /// The `Err(Some(task))` result from this function implies that the read is
-    /// still processing. The returned [`FileReadTask`] must be dealt with
-    /// according to the rules explained in [`Pal::begin_file_read`].
-    fn poll_file_read<'a>(
-        &self,
-        task: FileReadTask<'a>,
-    ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>>;
+    /// All implementations of this function must call
+    /// [`FileReadTask::into_inner`] to signal that the task has been finished
+    /// and does not need to be blocked on further in the Drop implementation.
+    fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]>;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

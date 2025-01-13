@@ -405,7 +405,7 @@ impl Pal for Sdl2Pal {
     }
 
     fn begin_file_read<'a>(
-        &self,
+        &'a self,
         file_handle: FileHandle,
         first_byte: u64,
         buffer: &'a mut [u8],
@@ -430,29 +430,23 @@ impl Pal for Sdl2Pal {
             ));
             id
         };
-        FileReadTask::new(file_handle, id, buffer)
+        FileReadTask::new(file_handle, id, buffer, self)
     }
 
-    fn poll_file_read<'a>(
-        &self,
-        task: FileReadTask<'a>,
-    ) -> Result<&'a mut [u8], Option<FileReadTask<'a>>> {
+    fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]> {
         let written_buffer = {
             let mut files = self.files.borrow_mut();
             let file = files
                 .get_mut(task.file().inner() as usize)
                 .expect("invalid FileHandle");
-            let Some(idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
-                return Err(None);
-            };
+            let idx = file
+                .tasks
+                .iter()
+                .position(|(id, _)| *id == task.task_id())?;
 
-            let (id, join_handle) = file.tasks.swap_remove(idx);
-            if !join_handle.is_finished() {
-                file.tasks.push((id, join_handle));
-                return Err(Some(task));
-            }
+            let (_, join_handle) = file.tasks.swap_remove(idx);
 
-            // Safety: this implementation does not share the borrow for perf.
+            // Safety: this implementation does not share the borrow in the first place.
             let buffer = unsafe { task.into_inner() };
 
             match join_handle.join().unwrap() {
@@ -462,11 +456,11 @@ impl Pal for Sdl2Pal {
                 }
                 Err(err) => {
                     println!("[Sdl2Pal::poll_file_read]: could not read file: {err}");
-                    return Err(None);
+                    return None;
                 }
             }
         };
-        Ok(written_buffer)
+        Some(written_buffer)
     }
 
     fn input_devices(&self) -> InputDevices {

@@ -66,7 +66,9 @@ impl ResourceDatabase<'_> {
     ) -> Option<ResourceDatabase<'eng>> {
         let mut header_bytes = [0; <ResourceDatabaseHeader as Deserialize>::SERIALIZED_SIZE];
         let header_read = platform.begin_file_read(file, 0, &mut header_bytes);
-        let header_bytes = blocking_read_file(platform, header_read).ok()?;
+        let header_bytes = header_read
+            .read_to_end()
+            .expect("resource database file's header should be readable");
 
         let mut cursor = 0;
 
@@ -100,10 +102,10 @@ impl ResourceDatabase<'_> {
             chunk_data_offset,
             chunks: SparseArray::new(arena, chunks, max_loaded_chunks)?,
             texture_chunks: SparseArray::new(arena, texture_chunks, max_loaded_texture_chunks)?,
-            chunk_descriptors: deserialize_from_file(platform, arena, chunk_descriptors)?,
-            texture_chunk_descriptors: deserialize_from_file(platform, arena, tex_chunk_descs)?,
-            textures: sorted(deserialize_from_file(platform, arena, textures)?),
-            audio_clips: sorted(deserialize_from_file(platform, arena, audio_clips)?),
+            chunk_descriptors: deserialize_from_file(arena, chunk_descriptors)?,
+            texture_chunk_descriptors: deserialize_from_file(arena, tex_chunk_descs)?,
+            textures: sorted(deserialize_from_file(arena, textures)?),
+            audio_clips: sorted(deserialize_from_file(arena, audio_clips)?),
         })
     }
 }
@@ -114,11 +116,12 @@ fn sorted<T: Ord>(mut input: FixedVec<'_, T>) -> FixedVec<'_, T> {
 }
 
 fn deserialize_from_file<'eng, D: Deserialize>(
-    platform: &dyn Pal,
     alloc: &'eng LinearAllocator,
     file_read: FileReadTask,
 ) -> Option<FixedVec<'eng, D>> {
-    let file_bytes = blocking_read_file(platform, file_read).ok()?;
+    let file_bytes = file_read
+        .read_to_end()
+        .expect("resource database file's index should be readable");
     let count = file_bytes.len() / D::SERIALIZED_SIZE;
     let mut vec = FixedVec::new(alloc, count)?;
     for element_bytes in file_bytes.chunks(D::SERIALIZED_SIZE) {
@@ -137,19 +140,6 @@ fn alloc_file_buf<'a, D: Deserialize>(
     let mut file_bytes = FixedVec::<u8>::new(temp_allocator, file_size)?;
     file_bytes.fill_with_zeroes();
     Some(file_bytes)
-}
-
-fn blocking_read_file<'a>(
-    platform: &dyn Pal,
-    mut task: FileReadTask<'a>,
-) -> Result<&'a mut [u8], ()> {
-    loop {
-        match platform.poll_file_read(task) {
-            Ok(result) => return Ok(result),
-            Err(None) => return Err(()),
-            Err(Some(returned_task)) => task = returned_task,
-        }
-    }
 }
 
 pub use named_asset::{NamedAsset, ASSET_NAME_LENGTH};

@@ -1,5 +1,3 @@
-use core::fmt::Debug;
-
 #[allow(unused_imports)] // used in docs
 use super::Pal;
 
@@ -20,23 +18,29 @@ impl FileHandle {
     }
 }
 
-/// Handle to an asynchronous file reading operation. Instead of dropping, these
-/// *must* be passed to a [`Pal::poll_file_read`] call until they are consumed.
-/// It is not safe to use the buffer contained in the task until the read
+/// Handle to an asynchronous file reading operation.
+///
+/// If dropped, the Drop implementation will block until the file reading
 /// operation is finished.
-#[derive(Debug)]
 pub struct FileReadTask<'a> {
     file: FileHandle,
     task_id: u64,
-    buffer: &'a mut [u8],
+    buffer: Option<&'a mut [u8]>,
+    platform: &'a dyn Pal,
 }
 
 impl<'a> FileReadTask<'a> {
-    pub fn new(file: FileHandle, task_id: u64, buffer: &'a mut [u8]) -> FileReadTask<'a> {
+    pub fn new(
+        file: FileHandle,
+        task_id: u64,
+        buffer: &'a mut [u8],
+        platform: &'a dyn Pal,
+    ) -> FileReadTask<'a> {
         FileReadTask {
             file,
             task_id,
-            buffer,
+            buffer: Some(buffer),
+            platform,
         }
     }
 
@@ -49,14 +53,46 @@ impl<'a> FileReadTask<'a> {
     }
 
     pub fn read_size(&self) -> usize {
-        self.buffer.len()
+        self.buffer.as_ref().unwrap().len()
     }
 
+    /// Blocks until the read operation finishes, returning the slice or `None`
+    /// if the read operation failed for any reason.
+    pub fn read_to_end(self) -> Option<&'a mut [u8]> {
+        self.platform.finish_file_read(self)
+    }
+
+    /// Deconstructs this into the inner buffer. Intended for platform layers
+    /// implementing [`Pal::finish_file_read`].
+    ///
     /// ## Safety
+    ///
     /// The platform may have shared a pointer to this buffer with e.g. the
-    /// kernel for async writing. The caller must ensure that at this point,
-    /// such a shared pointer will not be used anymore.
-    pub unsafe fn into_inner(self) -> &'a mut [u8] {
-        self.buffer
+    /// kernel for async writing. The caller must ensure that when calling this
+    /// fucntion, such a shared pointer will not be used anymore.
+    pub unsafe fn into_inner(mut self) -> &'a mut [u8] {
+        self.buffer.take().unwrap()
+    }
+}
+
+impl Drop for FileReadTask<'_> {
+    fn drop(&mut self) {
+        if let Some(buffer) = self.buffer.take() {
+            // Since the buffer has not been `take`n, `FileReadTask::into_inner`
+            // hasn't been called, which in turn means that the read has not
+            // necessarily finished. So we create a temporary owned version of
+            // this file read task, to finish reading it, after which we can be
+            // sure that `buffer` isn't being used anymore, so we can let this
+            // task drop.
+            let temp = FileReadTask {
+                file: self.file,
+                task_id: self.task_id,
+                buffer: Some(buffer),
+                platform: self.platform,
+            };
+            temp.read_to_end();
+            // This drop impl will not recurse because `read_to_end` will call
+            // `into_inner`, after which this branch won't be taken.
+        }
     }
 }

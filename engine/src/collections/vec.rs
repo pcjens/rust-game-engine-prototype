@@ -115,6 +115,11 @@ impl<T> FixedVec<'_, T> {
 
         self.initialized_len = new_len;
     }
+
+    /// Returns `true` if there's no more capacity for additional elements.
+    pub fn is_full(&self) -> bool {
+        self.initialized_len == self.uninit_slice.len()
+    }
 }
 
 impl<T: Zeroable> FixedVec<'_, T> {
