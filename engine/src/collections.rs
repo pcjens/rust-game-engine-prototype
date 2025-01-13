@@ -1,3 +1,4 @@
+pub mod channel;
 mod queue;
 mod ring_buffer;
 mod sparse_array;
