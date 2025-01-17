@@ -1,17 +1,99 @@
-use core::{cell::Cell, ffi::c_void, fmt::Debug, mem::MaybeUninit, slice};
+use core::{
+    ffi::c_void,
+    fmt::Debug,
+    mem::MaybeUninit,
+    ops::{Deref, DerefMut},
+    slice,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use platform_abstraction_layer::Pal;
 
-/// A linear allocator with a constant capacity. Can allocate memory
-/// regions with any size or alignment (within the capacity) very
-/// fast, but individual allocations can't be freed to make more
-/// space while there's still other allocations in use.
+/// [`LinearAllocator`] but shareable between threads.
+pub struct AtomicLinearAllocator {
+    inner: LinearAllocator<'static>,
+}
+
+impl AtomicLinearAllocator {
+    /// Creates a new [`LinearAllocator`] with as many bytes of backing memory
+    /// as there are in the given slice.
+    ///
+    /// Only the first [`isize::MAX`] bytes of the slice are used if it's longer
+    /// than that.
+    ///
+    /// # Safety
+    ///
+    /// The `backing_slice` pointer must not be shared, nor the memory behind
+    /// it, and it must live for as long as this allocator and any allocations
+    /// from it live. Consider this function as taking ownership of the memory
+    /// pointed to by it for 'static. This sort of pattern should be useful:
+    ///
+    /// ```
+    /// # use engine::allocators::AtomicLinearAllocator;
+    /// static ALLOC: AtomicLinearAllocator = {
+    ///     static mut MEM: [u8; 1_000_000] = [0; 1_000_000];
+    ///     // Safety: MEM is only accessible in this scope, and this scope
+    ///     // only creates one allocator from it (since this is a const
+    ///     // scope initializing a static variable).
+    ///     unsafe { AtomicLinearAllocator::from_static_slice(&raw mut MEM) }
+    /// };
+    /// ```
+    pub const unsafe fn from_static_slice(backing_slice: *mut [u8]) -> AtomicLinearAllocator {
+        AtomicLinearAllocator {
+            inner: LinearAllocator {
+                backing_mem_ptr: (*backing_slice).as_mut_ptr() as *mut c_void,
+                backing_mem_size: if backing_slice.len() > isize::MAX as usize {
+                    isize::MAX as usize
+                } else {
+                    backing_slice.len()
+                },
+                platform: None,
+                allocated: AtomicUsize::new(0),
+            },
+        }
+    }
+}
+
+impl Deref for AtomicLinearAllocator {
+    type Target = LinearAllocator<'static>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for AtomicLinearAllocator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+/// Safety: the parts of [`LinearAllocator`] which are not Sync already are the
+/// backing memory pointer and the platform borrow.
+/// - The backing memory pointer is fine to share between threads, because the
+///   whole logic of the allocator makes sure to not create aliasing mutable
+///   borrows to the memory it points to. The *mut pointer may not have safety
+///   guards, but LinearAllocator does.
+/// - &dyn Pal is not necessarily sync, which is the reason
+///   AtomicLinearAllocator doesn't provide an API that would make a
+///   LinearAllocator that has access to one. Since the platform is always None,
+///   dyn Pal not being Sync shouldn't be an issue.
+unsafe impl Sync for AtomicLinearAllocator {}
+
+/// A linear allocator with a constant capacity. Can allocate memory regions
+/// with any size or alignment (within the capacity) very fast, but individual
+/// allocations can't be freed to make more space while there's still other
+/// allocations in use.
 pub struct LinearAllocator<'eng> {
     backing_mem_ptr: *mut c_void,
     backing_mem_size: usize,
-    platform: &'eng dyn Pal,
-
-    allocated: Cell<usize>,
+    /// The platform where the memory was allocated from. If `None`, the backing
+    /// memory is leaked.
+    platform: Option<&'eng dyn Pal>,
+    /// The amount of bytes allocated starting from `backing_mem_ptr`. Can
+    /// overflow `backing_mem_size` when the allocator reaches capacity, but in
+    /// such a case, we don't even create a reference to the out-of-bounds area
+    /// of memory.
+    allocated: AtomicUsize,
 }
 
 impl Debug for LinearAllocator<'_> {
@@ -27,10 +109,14 @@ impl Debug for LinearAllocator<'_> {
 impl Drop for LinearAllocator<'_> {
     fn drop(&mut self) {
         self.reset();
-        // Safety: reset "frees" everything, so we can be sure that there's no
-        // pointers to the memory backed by this pointer anymore, so it's safe
-        // to free. See further safety explanation in the reset implementation.
-        unsafe { self.platform.free(self.backing_mem_ptr) };
+        if let Some(platform) = self.platform {
+            // Safety: since we have an exclusive borrow of self, and within
+            // this scope, we've "freed" all the allocations, we can be sure
+            // that there's no pointers to the memory backed by this pointer
+            // anymore, so it's safe to free. See further safety explanation in
+            // the reset implementation.
+            unsafe { platform.free(self.backing_mem_ptr) };
+        }
     }
 }
 
@@ -45,6 +131,8 @@ impl LinearAllocator<'_> {
             return None;
         }
 
+        // The pointer returned by malloc should be shareable between threads,
+        // see the impl notes in the doc.
         let backing_mem_ptr = platform.malloc(capacity);
         if backing_mem_ptr.is_null() {
             return None;
@@ -53,15 +141,24 @@ impl LinearAllocator<'_> {
         Some(LinearAllocator {
             backing_mem_ptr,
             backing_mem_size: capacity,
-            platform,
+            platform: Some(platform),
 
-            allocated: Cell::new(0),
+            allocated: AtomicUsize::new(0),
         })
     }
 
-    /// Returns the amount of allocated memory currently, in bytes.
+    /// Returns an estimate of the amount of allocated memory currently, in
+    /// bytes.
+    ///
+    /// An "estimate" since the value returned is from an [`Ordering::Relaxed`]
+    /// atomic operation, which technically may return the wrong value even when
+    /// using the allocator on a single thread due to funky out-of-order
+    /// computing details. Still, the value can be considered accurate for some
+    /// point in time.
     pub fn allocated(&self) -> usize {
-        self.allocated.get()
+        self.allocated
+            .load(Ordering::Relaxed)
+            .min(self.backing_mem_size)
     }
 
     /// Returns the total (free and allocated) amount of memory owned by this
@@ -73,51 +170,55 @@ impl LinearAllocator<'_> {
     /// Allocates memory for a slice of `MaybeUninit<T>`, leaving the contents
     /// of the slice uninitialized, returning None if there's not enough free
     /// memory.
+    ///
+    /// Note regardless of if the allocation is successful, `len` bytes are
+    /// "allocated" from the allocation offset. This means that once this
+    /// returns `None`, subsequent allocations will always fail until
+    /// [`LinearAllocator::reset`].
     pub fn try_alloc_uninit_slice<'a, T>(&'a self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
-        // Safety:
-        // - The computed offset does not overflow `isize`: any value stored in
-        //   `self.allocated` is checked to be no larger than
-        //   `self.backing_mem_size` which in turn is no larger than
-        //   `isize::MAX`.
-        // - `self.backing_mem_ptr` is a pointer to an allocated object (it's
-        //   from a successful `malloc`), and `self.allocated` is checked to be
-        //   less than the amount of memory we asked for before it's set. So the
-        //   memory range between `self.backing_mem_ptr` and the result is
-        //   within the bounds of the allocated object.
-        let previously_allocated_ptr =
-            unsafe { self.backing_mem_ptr.byte_add(self.allocated.get()) };
+        let reserved_bytes = len * size_of::<T>() + align_of::<T>() - 1;
+        // This is a relaxed fetch_add since we don't really care about the
+        // order of allocations, we don't have any other atomic operations to
+        // order, all we care about is that we get distinct allocation offsets
+        // between different calls to try_alloc_uninit_slice. `self.allocated`
+        // may overflow, but that's simply taken as a signal that the allocator
+        // is full.
+        let allocation_unaligned_offset =
+            self.allocated.fetch_add(reserved_bytes, Ordering::Relaxed);
 
-        // Figure out the properly aligned offset of the new allocation.
-        let extra_offset_for_alignment = previously_allocated_ptr.align_offset(align_of::<T>());
-        let offset_into_allocation = self.allocated.get() + extra_offset_for_alignment;
-
-        // Check that this allocation fits.
-        let new_allocated = offset_into_allocation + len * size_of::<T>();
-        if new_allocated > self.backing_mem_size {
+        // Make sure the entire allocation fits in the backing memory.
+        if allocation_unaligned_offset + reserved_bytes > self.backing_mem_size {
             return None;
         }
 
-        // Advance the `allocated` offset by the size. Note that `allocated` is
-        // in a Cell, which guarantees that nobody else is reading `allocated`
-        // in between the `get()` above and the `set()` here. Also note that
-        // this value only goes up, which ensures that allocations don't
-        // overlap. The reset function does reset this, see the safety
-        // explanation in its body.
-        self.allocated.set(new_allocated);
-
         // Safety:
-        // - The computed offset does not overflow `isize`: `offset + len *
-        //   size`) is guaranteed to not be larger than `self.backing_mem_size`,
-        //   which in turn is guaranteed to not be larger than `isize::MAX` in
-        //   the constructor.
-        // - `self.backing_mem_ptr` is a pointer to an allocated object (it's
-        //   from a successful `malloc`), and `offset` is less than the amount
-        //   of memory we asked for (checked above). So the memory range between
-        //   `self.backing_mem_ptr` and the result is within the bounds of the
-        //   allocated object.
-        let now_allocated_ptr = unsafe { self.backing_mem_ptr.byte_add(offset_into_allocation) };
+        // - Due to the check above, we know the offset is less than
+        //   `self.backing_mem_size`, which in turn is clamped to `isize::MAX`
+        //   in the allocator constructor.
+        // - Due to the same check above, we know the offset version of the
+        //   pointer is still within the bounds of the allocated object.
+        let unaligned_allocation_ptr =
+            unsafe { self.backing_mem_ptr.byte_add(allocation_unaligned_offset) };
 
-        let uninit_t_ptr = now_allocated_ptr as *mut MaybeUninit<T>;
+        // Figure out the properly aligned offset of the new allocation.
+        let extra_offset_for_alignment = unaligned_allocation_ptr.align_offset(align_of::<T>());
+        let allocation_aligned_offset =
+            allocation_unaligned_offset.saturating_add(extra_offset_for_alignment);
+
+        // Make sure the *aligned* allocation fits in the backing memory.
+        if allocation_aligned_offset + len * size_of::<T>() > self.backing_mem_size {
+            return None;
+        }
+
+        // Safety: exactly the same pattern and reasoning used for
+        // `unaligned_allocation_ptr`, see the safety explanation for that. As a
+        // slight addendum, note how the bounds check above takes into account
+        // `the aligned offset + length * the size of T`, as that is the area of
+        // memory we'll be creating a reference to.
+        let aligned_allocation_ptr =
+            unsafe { unaligned_allocation_ptr.byte_add(extra_offset_for_alignment) };
+
+        let uninit_t_ptr = aligned_allocation_ptr as *mut MaybeUninit<T>;
 
         // Safety:
         // - `uninit_t_ptr` is non-null and valid for both reads and writes
@@ -156,6 +257,10 @@ impl LinearAllocator<'_> {
         // There's no other borrows of self. => There's no pointers to the
         // backing memory. (All previous allocations have lifetimes that cannot
         // outlive the related immutable borrow of this allocator.)
-        self.allocated = Cell::new(0);
+        //
+        // Additionally, any atomic shenanigans between threads don't need to be
+        // accounted for because we have an exclusive borrow of self, thus self
+        // can't be shared between threads currently.
+        self.allocated.store(0, Ordering::Release);
     }
 }

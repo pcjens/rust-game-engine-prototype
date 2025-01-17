@@ -206,7 +206,11 @@ mod tests {
         }
 
         let platform = TestPlatform::new();
-        let alloc = LinearAllocator::new(&platform, size_of::<Element>() * COUNT).unwrap();
+        let alloc = LinearAllocator::new(
+            &platform,
+            size_of::<Element>() * COUNT + align_of::<Element>() - 1,
+        )
+        .unwrap();
         let mut vec: FixedVec<Element> = FixedVec::new(&alloc, COUNT).unwrap();
 
         // Fill once:

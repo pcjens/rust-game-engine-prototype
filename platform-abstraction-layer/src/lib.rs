@@ -129,6 +129,9 @@ pub trait Pal {
     /// Allocate the given amount of bytes (returning a null pointer on error).
     /// Not called often from the engine, memory is allocated in big chunks, so
     /// this can be slow and defensively implemented.
+    ///
+    /// The implementation should make sure the pointer is shareable between
+    /// threads.
     fn malloc(&self, size: usize) -> *mut c_void;
 
     /// Free the memory allocated by [`Pal::malloc`]. Not called often from the

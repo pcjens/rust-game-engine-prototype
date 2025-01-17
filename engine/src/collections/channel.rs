@@ -1,27 +1,68 @@
+// FIXME: Replace with core::cell::SyncUnsafeCell when it's stable.
+mod sync_unsafe_cell {
+    #![allow(dead_code)]
+    #[repr(transparent)]
+    pub struct SyncUnsafeCell<T: ?Sized>(core::cell::UnsafeCell<T>);
+    unsafe impl<T: ?Sized + Sync> Sync for SyncUnsafeCell<T> {}
+    impl<T> SyncUnsafeCell<T> {
+        #[inline]
+        pub const fn new(value: T) -> Self {
+            SyncUnsafeCell(core::cell::UnsafeCell::new(value))
+        }
+        #[inline]
+        pub const fn get(&self) -> *mut T {
+            self.0.get()
+        }
+    }
+}
+
 use core::{
-    cell::UnsafeCell,
-    mem::MaybeUninit,
+    mem::{transmute, MaybeUninit},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-struct SharedChannelState<T: 'static> {
+use sync_unsafe_cell::SyncUnsafeCell;
+
+use crate::allocators::LinearAllocator;
+
+struct SharedChannelState<T: 'static + Sync> {
     /// The slice containing the actual elements.
-    queue: &'static [UnsafeCell<MaybeUninit<T>>],
+    queue: &'static [SyncUnsafeCell<Option<T>>],
     /// The index to `queue` where the oldest pushed element is. Only mutated by
-    /// the [`Receiver::pop_front`]. If `read_offset == write_offset`, the queue
+    /// [`Receiver::try_recv`]. If `read_offset == write_offset`, the queue
     /// should be considered empty.
     read_offset: &'static AtomicUsize,
     /// The index to `queue` where the next element is pushed. Only mutated by
-    /// [`Sender::push_back`].
+    /// [`Sender::send`]. If `write_offset + 1 == read_offset`, the queue is
+    /// considered full. Since writes need to happen before reads, this happens
+    /// when the writes wrap around to the start and reach the read offset.
     write_offset: &'static AtomicUsize,
 }
 
 /// Creates a single-producer single-consumer channel.
-pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
-    static TEST: AtomicUsize = AtomicUsize::new(0);
-    let queue = &[];
-    let read_offset = &TEST;
-    let write_offset = &TEST;
+pub fn channel<T: Sync>(
+    allocator: &'static LinearAllocator,
+    capacity: usize,
+) -> Option<(Sender<T>, Receiver<T>)> {
+    // +1 to capacity since we're using the last slot as the difference between empty and full.
+    let queue = allocator.try_alloc_uninit_slice::<SyncUnsafeCell<Option<T>>>(capacity + 1)?;
+    for slot in &mut *queue {
+        slot.write(SyncUnsafeCell::new(None));
+    }
+    // Safety: all the values are initialized above.
+    let queue = unsafe {
+        transmute::<&[MaybeUninit<SyncUnsafeCell<Option<T>>>], &[SyncUnsafeCell<Option<T>>]>(queue)
+    };
+
+    let offsets = allocator.try_alloc_uninit_slice::<AtomicUsize>(2)?;
+    for offset in &mut *offsets {
+        offset.write(AtomicUsize::new(0));
+    }
+    // Safety: all the values are initialized above.
+    let offsets = unsafe { transmute::<&[MaybeUninit<AtomicUsize>], &[AtomicUsize]>(offsets) };
+
+    let read_offset = &offsets[0];
+    let write_offset = &offsets[1];
     let sender = Sender {
         ch: SharedChannelState {
             queue,
@@ -36,16 +77,21 @@ pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
             write_offset,
         },
     };
-    (sender, receiver)
+    Some((sender, receiver))
 }
 
-pub struct Sender<T: 'static> {
+pub struct Sender<T: 'static + Sync> {
     ch: SharedChannelState<T>,
 }
 
-impl<T> Sender<T> {
+impl<T: Sync> Sender<T> {
     /// Sends the value into the channel if there's room.
     pub fn send(&mut self, value: T) -> Result<(), T> {
+        if self.ch.queue.is_empty() {
+            // This channel does not have any capacity, always fail.
+            return Err(value);
+        }
+
         // 1. Acquire-load the read offset, so we know the offset is either what
         //    we get here or something higher (if the other side `pop`s during
         //    this function). In either case, we're good as long as we don't
@@ -89,10 +135,8 @@ impl<T> Sender<T> {
             //   one Sender per write_offset, so we're definitely the only
             //   Sender trying to access this queue.
             let slot = unsafe { &mut *slot_ptr };
-            // Leak safety: since we've already checked that write_offset hasn't
-            // "lapped" the read_offset, we know this is not an initialized
-            // value.
-            slot.write(value);
+            assert!(slot.is_none(), "slot should not be populated since the write offset should never go past the read offset");
+            *slot = Some(value);
         }
 
         // 4. Update the write offset, making the written value visible to the
@@ -105,13 +149,18 @@ impl<T> Sender<T> {
     }
 }
 
-pub struct Receiver<T: 'static> {
+pub struct Receiver<T: 'static + Sync> {
     ch: SharedChannelState<T>,
 }
 
-impl<T> Receiver<T> {
+impl<T: Sync> Receiver<T> {
     /// Returns the oldest sent value on this channel if there are any.
     pub fn try_recv(&mut self) -> Option<T> {
+        if self.ch.queue.is_empty() {
+            // This channel does not have any capacity, nothing to receive.
+            return None;
+        }
+
         // 1. Acquire-load the write offset, so we know the offset is either
         //    what we get here or something higher (if the other side `push`es
         //    during this function). In either case, we're good as long as we
@@ -151,15 +200,8 @@ impl<T> Receiver<T> {
             //   exists for a given channel, so there's definitely no other
             //   Receiver reading any index, including this one.
             let slot = unsafe { &mut *slot_ptr };
-            // Safety:
-            // - Why slot is definitely initialized: since read_offset !=
-            //   write_offset, this index has been written to by
-            //   Sender::push_back.
-            // - Why this is not a double-read: this same MaybeUninit won't be
-            //   read again since we have exclusive access to this value of
-            //   read_offset (and thus this slot), and we increment it by one in
-            //   step 4 right after this.
-            unsafe { slot.assume_init_read() }
+            slot.take()
+                .expect("slot should be populated due to the write offset having passed this index")
         };
 
         // 4. Update the read offset, making room for the sender to push one
@@ -176,8 +218,11 @@ impl<T> Receiver<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::allocators::AtomicLinearAllocator;
+
     use super::channel;
 
+    /// A dummy function that matches the signature of `std::thread::spawn`.
     fn spawn<F, T>(f: F)
     where
         F: FnOnce() -> T + Send + 'static,
@@ -188,8 +233,15 @@ mod tests {
 
     #[test]
     fn sender_and_receiver_are_send() {
-        let (tx, mut rx) = channel::<u32>();
-        spawn(move || tx.send(123));
+        static ALLOC: AtomicLinearAllocator = {
+            static mut MEM: [u8; 1_000_000] = [0; 1_000_000];
+            // Safety: MEM is only accessible from this scope, and this scope is
+            // only "ran" (it's const) once, so the `&raw mut MEM` won't be
+            // shared.
+            unsafe { AtomicLinearAllocator::from_static_slice(&raw mut MEM) }
+        };
+        let (mut tx, mut rx) = channel::<u32>(&ALLOC, 1).unwrap();
+        spawn(move || tx.send(123).unwrap());
         assert_eq!(123, rx.try_recv().unwrap());
     }
 }
