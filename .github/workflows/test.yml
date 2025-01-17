@@ -32,11 +32,11 @@ jobs:
   test-web:
     runs-on: ubuntu-latest
     steps:
-    - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: wasm32-unknown-emscripten
     - uses: actions/setup-node@v4
+    - uses: mymindstorm/setup-emsdk@v14
     - uses: actions/checkout@v3
     - run: cargo test  --target=wasm32-unknown-emscripten
       env:
