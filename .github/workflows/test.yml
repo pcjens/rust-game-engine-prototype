@@ -10,14 +10,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test-stable:
+  test-linux:
     runs-on: ubuntu-latest
     steps:
     - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
     - run: cargo test --all-features
-  test-nightly-miri:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - run: vcpkg.exe install sdl2:x64-windows
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/checkout@v3
+    - run: cargo test --all-features
+  test-macos:
+    runs-on: macos-latest
+    steps:
+    - run: brew install SDL2
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/checkout@v3
+    - run: cargo test --all-features
+  test-miri:
     runs-on: ubuntu-latest
     steps:
     - uses: dtolnay/rust-toolchain@nightly
