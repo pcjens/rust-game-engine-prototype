@@ -36,9 +36,9 @@ pub struct DrawQueue<'frm> {
 
 impl<'frm> DrawQueue<'frm> {
     /// Creates a new queue of draws.
-    pub fn new(allocator: &'frm LinearAllocator) -> Option<DrawQueue<'frm>> {
+    pub fn new(allocator: &'frm LinearAllocator, max_quads: usize) -> Option<DrawQueue<'frm>> {
         Some(DrawQueue {
-            quads: FixedVec::new(allocator, 1_000_000)?,
+            quads: FixedVec::new(allocator, max_quads)?,
         })
     }
 

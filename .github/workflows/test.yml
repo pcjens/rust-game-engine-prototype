@@ -16,19 +16,30 @@ jobs:
     - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --all-features
+    - run: cargo test
   test-windows:
     runs-on: windows-latest
     steps:
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --all-features
+    - run: cargo test --features=static-sdl2
   test-macos:
     runs-on: macos-latest
     steps:
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --all-features
+    - run: cargo test --features=static-sdl2
+  test-web:
+    runs-on: ubuntu-latest
+    steps:
+    - run: sudo apt-get install -y libsdl2-dev
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v3
+    - run: cargo test  --target=wasm32-unknown-emscripten
+      env:
+        CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
+        RUSTFLAGS: -C link-arg=-sUSE_SDL=2 -C link-arg=-sSTACK_SIZE=1000000
   test-miri:
     runs-on: ubuntu-latest
     steps:

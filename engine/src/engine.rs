@@ -50,16 +50,16 @@ impl<'eng> Engine<'eng> {
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
 
-        let mut frame_arena = LinearAllocator::new(platform, 1024 * 1024 * 1024)
+        let mut frame_arena = LinearAllocator::new(platform, 1000)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
         let resource_db =
-            ResourceDatabase::new(platform, persistent_arena, &frame_arena, db_file, 16, 128)
+            ResourceDatabase::new(platform, persistent_arena, &frame_arena, db_file, 1, 1)
                 .expect("persistent arena should have enough memory for the resource database");
-        let resource_loader = ResourceLoader::new(persistent_arena, 1000, &resource_db)
+        let resource_loader = ResourceLoader::new(persistent_arena, 20, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
         frame_arena.reset();
@@ -85,7 +85,7 @@ impl EngineCallbacks for Engine<'_> {
         self.event_queue
             .retain(|queued| !queued.timed_out(timestamp));
 
-        let mut draw_queue = DrawQueue::new(&self.frame_arena).unwrap();
+        let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
 
         // Testing area follows, could be considered "game code" for now:
 
@@ -158,7 +158,7 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        let persistent_arena = LinearAllocator::new(&platform, 50_000_000).unwrap();
+        let persistent_arena = LinearAllocator::new(&platform, 100_000).unwrap();
         let mut engine = Engine::new(&platform, &persistent_arena);
 
         let fps = 30;
