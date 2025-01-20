@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod channel;
 mod input;
 mod io;
 mod render;
@@ -101,6 +102,10 @@ pub trait Pal {
     /// [`FileReadTask::into_inner`] to signal that the task has been finished
     /// and does not need to be blocked on further in the Drop implementation.
     fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]>;
+
+    /// Get the amount of threads that can efficiently process tasks in parallel
+    /// on this platform.
+    fn available_parallellism(&self) -> usize;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

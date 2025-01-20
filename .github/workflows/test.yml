@@ -38,7 +38,7 @@ jobs:
     - uses: actions/setup-node@v4
     - uses: mymindstorm/setup-emsdk@v14
     - uses: actions/checkout@v3
-    - run: cargo test  --target=wasm32-unknown-emscripten
+    - run: cargo test --target=wasm32-unknown-emscripten
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
         RUSTFLAGS: -C link-arg=-sUSE_SDL=2 -C link-arg=-sSTACK_SIZE=1000000
@@ -49,4 +49,8 @@ jobs:
       with:
         components: miri
     - uses: actions/checkout@v3
-    - run: cargo miri test --all-features
+    - run: cargo miri test --all-features --workspace --exclude platform-abstraction-layer
+    - run: cargo miri test --all-features --package platform-abstraction-layer
+      env:
+        # Ignoring leaks since a very intentional Box::leak is reported as such. At least it's just this package.
+        MIRIFLAGS: -Zmiri-ignore-leaks

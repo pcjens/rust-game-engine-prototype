@@ -86,6 +86,10 @@ impl Pal for TestPlatform {
         Some(buffer)
     }
 
+    fn available_parallellism(&self) -> usize {
+        1
+    }
+
     fn input_devices(&self) -> InputDevices {
         let mut devices = InputDevices::new();
         devices.push(InputDevice::new(1234));

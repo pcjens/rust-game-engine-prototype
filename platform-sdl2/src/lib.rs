@@ -7,7 +7,7 @@ use std::{
     process::exit,
     ptr::{addr_of, null_mut},
     str::FromStr,
-    thread::JoinHandle,
+    thread::{self, JoinHandle},
     time::Duration,
 };
 
@@ -461,6 +461,10 @@ impl Pal for Sdl2Pal {
             }
         };
         Some(written_buffer)
+    }
+
+    fn available_parallellism(&self) -> usize {
+        thread::available_parallelism().unwrap().get()
     }
 
     fn input_devices(&self) -> InputDevices {
