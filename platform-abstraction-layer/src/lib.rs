@@ -7,7 +7,7 @@ mod render;
 
 use arrayvec::ArrayVec;
 
-use core::{ffi::c_void, time::Duration};
+use core::{ffi::c_void, fmt::Arguments, time::Duration};
 
 pub use input::*;
 pub use io::*;
@@ -122,7 +122,7 @@ pub trait Pal {
     fn elapsed(&self) -> Duration;
 
     /// Print out a string. For very crude debugging.
-    fn println(&self, message: &str);
+    fn println(&self, message: Arguments);
 
     /// Request the process to exit, with `clean: false` if intending to signal
     /// failure. On a clean exit, the exit may be delayed until a moment later,

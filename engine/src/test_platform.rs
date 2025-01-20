@@ -1,4 +1,4 @@
-use core::{cell::Cell, ffi::c_void, time::Duration};
+use core::{cell::Cell, ffi::c_void, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
     ActionCategory, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices, Pal,
@@ -111,7 +111,7 @@ impl Pal for TestPlatform {
         self.current_time.get()
     }
 
-    fn println(&self, _message: &str) {}
+    fn println(&self, _message: Arguments) {}
 
     fn exit(&self, clean: bool) {
         if !clean {

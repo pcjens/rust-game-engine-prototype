@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     ffi::{c_int, c_void},
+    fmt::Arguments,
     fs::File,
     io::{self, Read, Seek, SeekFrom},
     path::PathBuf,
@@ -543,7 +544,7 @@ impl Pal for Sdl2Pal {
         Duration::from_millis(self.time.ticks64())
     }
 
-    fn println(&self, message: &str) {
+    fn println(&self, message: Arguments) {
         println!("[Sdl2Pal::println]: {message}");
     }
 
