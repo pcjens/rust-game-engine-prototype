@@ -74,6 +74,10 @@ impl Pal for TestPlatform {
         FileReadTask::new(file, first_byte, buffer)
     }
 
+    fn is_file_read_finished(&self, _task: &FileReadTask) -> bool {
+        true
+    }
+
     fn finish_file_read(&self, task: FileReadTask) -> Result<Box<[u8]>, Box<[u8]>> {
         static RESOURCES_DB: &[u8] = include_bytes!("../../resources.db");
         if task.file().inner() != 4321 {

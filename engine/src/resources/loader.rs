@@ -1,7 +1,7 @@
 use platform_abstraction_layer::{FileReadTask, Pal};
 
 use crate::{
-    allocators::{LinearAllocator, StaticAllocator},
+    allocators::StaticAllocator,
     collections::{Queue, RingBuffer, RingSlice, RingSliceMetadata},
 };
 
@@ -16,14 +16,22 @@ enum LoadCategory {
 #[derive(Debug)]
 struct LoadRequest {
     first_byte: u64,
+    size: usize,
+    chunk_index: u32,
+    category: LoadCategory,
+}
+
+struct LoadTask {
+    file_read_task: FileReadTask,
+    read_buffer_metadata: RingSliceMetadata,
     chunk_index: u32,
     category: LoadCategory,
 }
 
 pub struct ResourceLoader {
     staging_buffer: RingBuffer,
-    loading_queue: Queue<'static, LoadRequest>,
-    staging_slice_queue: Queue<'static, RingSlice>,
+    to_load_queue: Queue<'static, LoadRequest>,
+    in_flight_queue: Queue<'static, LoadTask>,
 }
 
 impl ResourceLoader {
@@ -35,8 +43,8 @@ impl ResourceLoader {
         let total_chunks = resource_db.chunks.array_len() + resource_db.texture_chunks.array_len();
         Some(ResourceLoader {
             staging_buffer: RingBuffer::new(arena, staging_buffer_size)?,
-            loading_queue: Queue::new(arena, total_chunks)?,
-            staging_slice_queue: Queue::new(arena, total_chunks)?,
+            to_load_queue: Queue::new(arena, total_chunks)?,
+            in_flight_queue: Queue::new(arena, total_chunks)?,
         })
     }
 
@@ -56,88 +64,69 @@ impl ResourceLoader {
     ) {
         let chunk_source = &resources.texture_chunk_descriptors[chunk_index as usize].source_bytes;
         let chunk_size = (chunk_source.end - chunk_source.start) as usize;
-        if !self.staging_buffer.would_fit(chunk_size)
-            || self
-                .loading_queue
-                .iter()
+        if (self.to_load_queue.iter())
+            .any(|req| req.chunk_index == chunk_index && req.category == category)
+            || (self.in_flight_queue.iter())
                 .any(|req| req.chunk_index == chunk_index && req.category == category)
         {
+            // Already in the queue or being read from the file.
             return;
         }
-        let staging_slice = self.staging_buffer.allocate(chunk_size).unwrap();
-        self.loading_queue
+        self.to_load_queue
             .push_back(LoadRequest {
                 first_byte: resources.chunk_data_offset + chunk_source.start,
+                size: chunk_size,
                 chunk_index,
                 category,
             })
             .unwrap();
-        self.staging_slice_queue.push_back(staging_slice).unwrap();
     }
 
-    /// Loads up to `max_chunks_to_load` queued chunks.
-    ///
-    /// ### Panics
-    ///
-    /// Panics if `arena` doesn't have enough memory for the
-    /// loading tasks.
-    pub fn load_queue(
-        &mut self,
-        max_chunks_to_load: usize,
-        resources: &mut ResourceDatabase,
-        platform: &dyn Pal,
-        arena: &LinearAllocator,
-    ) {
-        struct LoadTask {
-            file_read_task: FileReadTask,
-            read_buffer_metadata: RingSliceMetadata,
-            index: u32,
-            category: LoadCategory,
-        }
+    /// Starts file read operations for the queued up chunk loading requests.
+    pub fn dispatch_reads(&mut self, resources: &ResourceDatabase, platform: &dyn Pal) {
+        while let Some(LoadRequest { size, .. }) = self.to_load_queue.peek_front() {
+            let Some(staging_slice) = self.staging_buffer.allocate(*size) else {
+                break;
+            };
+            let (buffer, read_buffer_metadata) = staging_slice.into_parts();
 
-        if max_chunks_to_load == 0 {
-            return;
-        }
-
-        let mut tasks = Queue::new(arena, max_chunks_to_load).unwrap();
-
-        // Begin reads (this pops from loading_queue, matching staging_slice_queue pops are after the reads are done)
-        while let (
-            Some(LoadRequest {
+            let LoadRequest {
                 first_byte,
-                chunk_index: index,
+                size: _,
+                chunk_index,
                 category,
-            }),
-            Some(buffer),
-        ) = (
-            self.loading_queue.pop_front(),
-            self.staging_slice_queue.pop_front(),
-        ) {
-            let (buffer, read_buffer_metadata) = buffer.into_parts();
+            } = self.to_load_queue.pop_front().unwrap();
+
             let file_read_task =
                 platform.begin_file_read(resources.chunk_data_file, first_byte, buffer);
-            tasks
+
+            self.in_flight_queue
                 .push_back(LoadTask {
                     file_read_task,
                     read_buffer_metadata,
-                    index,
+                    chunk_index,
                     category,
                 })
                 .ok()
                 .unwrap();
-            if tasks.is_full() {
+        }
+    }
+
+    /// Checks for finished file read requests and writes their results into the
+    /// resource database.
+    pub fn finish_reads(&mut self, resources: &mut ResourceDatabase, platform: &dyn Pal) {
+        while let Some(LoadTask { file_read_task, .. }) = self.in_flight_queue.peek_front() {
+            if !platform.is_file_read_finished(file_read_task) {
                 break;
             }
-        }
 
-        // Write the chunks
-        while let Some(LoadTask {
-            file_read_task,
-            read_buffer_metadata,
-            index,
-            category,
-        }) = tasks.pop_front()
-        {
+            let LoadTask {
+                file_read_task,
+                read_buffer_metadata,
+                chunk_index,
+                category,
+            } = self.in_flight_queue.pop_front().unwrap();
+
             let (buffer, read_success) = match platform.finish_file_read(file_read_task) {
                 Ok(buffer) => (buffer, true),
                 Err(buffer) => (buffer, false),
@@ -146,23 +135,23 @@ impl ResourceLoader {
             if read_success {
                 match category {
                     LoadCategory::Chunk => {
-                        let desc = &resources.chunk_descriptors[index as usize];
+                        let desc = &resources.chunk_descriptors[chunk_index as usize];
                         let init_fn = || Some(ChunkData::empty());
-                        if let Some(dst) = resources.chunks.insert(index, init_fn) {
+                        if let Some(dst) = resources.chunks.insert(chunk_index, init_fn) {
                             dst.update(desc, &buffer);
                         }
                     }
 
                     LoadCategory::TextureChunk => {
-                        let desc = &resources.texture_chunk_descriptors[index as usize];
+                        let desc = &resources.texture_chunk_descriptors[chunk_index as usize];
                         let init_fn = || TextureChunkData::empty(platform);
-                        if let Some(dst) = resources.texture_chunks.insert(index, init_fn) {
+                        if let Some(dst) = resources.texture_chunks.insert(chunk_index, init_fn) {
                             dst.update(desc, &buffer, platform);
                         }
                     }
                 }
             } else {
-                platform.println(format_args!("failed to read {category:?} #{index}"));
+                platform.println(format_args!("failed to read {category:?} #{chunk_index}"));
             }
 
             // Safety: each LoadTask gets its parts from one RingSlice, and

@@ -90,6 +90,10 @@ pub trait Pal {
     fn begin_file_read(&self, file: FileHandle, first_byte: u64, buffer: Box<[u8]>)
         -> FileReadTask;
 
+    /// Returns true if the read task has finished (in success or failure),
+    /// false if it's still pending.
+    fn is_file_read_finished(&self, task: &FileReadTask) -> bool;
+
     /// Blocks until the read task finishes, and returns the buffer which the
     /// file contents were written into, if successful. If the read fails, the
     /// memory is returned wrapped in an `Err`, and the buffer contents are not

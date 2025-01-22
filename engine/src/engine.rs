@@ -82,6 +82,9 @@ impl EngineCallbacks for Engine<'_> {
         self.event_queue
             .retain(|queued| !queued.timed_out(timestamp));
 
+        self.resource_loader
+            .finish_reads(&mut self.resource_db, platform);
+
         let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
 
         // Testing area follows, could be considered "game code" for now:
@@ -107,7 +110,7 @@ impl EngineCallbacks for Engine<'_> {
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 
         self.resource_loader
-            .load_queue(1, &mut self.resource_db, platform, &self.frame_arena);
+            .dispatch_reads(&self.resource_db, platform);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {

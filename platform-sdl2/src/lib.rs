@@ -434,6 +434,17 @@ impl Pal for Sdl2Pal {
         FileReadTask::new(file, id, buffer)
     }
 
+    fn is_file_read_finished(&self, task: &FileReadTask) -> bool {
+        let files = self.files.borrow();
+        let file = files
+            .get(task.file().inner() as usize)
+            .expect("invalid FileHandle");
+        let Some(idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
+            panic!("tried to poll a read task with an invalid task id?");
+        };
+        file.tasks[idx].1.is_finished()
+    }
+
     fn finish_file_read(&self, task: FileReadTask) -> Result<pal::Box<[u8]>, pal::Box<[u8]>> {
         let written_buffer = {
             let mut files = self.files.borrow_mut();

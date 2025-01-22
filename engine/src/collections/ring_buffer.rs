@@ -160,13 +160,6 @@ impl RingBuffer {
             Err(slice)
         }
     }
-
-    /// Returns true if `allocate(len)` would succeed if called after this.
-    pub fn would_fit(&mut self, len: usize) -> bool {
-        let fits_at_end = self.allocated_offset + self.allocated_len + len <= self.buffer_len;
-        let fits_at_start = len <= self.allocated_offset;
-        fits_at_start || fits_at_end
-    }
 }
 
 #[cfg(test)]
