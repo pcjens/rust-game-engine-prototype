@@ -1,6 +1,7 @@
 use core::{
     mem::{transmute, MaybeUninit},
     ops::{Deref, DerefMut},
+    slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -67,7 +68,8 @@ impl DerefMut for RingSlice {
 /// contiguous and can't span across the end of the backing buffer. These gaps
 /// could be prevented with memory mapping trickery in the future.
 pub struct RingBuffer {
-    buffer: *mut [u8],
+    buffer_ptr: *mut u8,
+    buffer_len: usize,
     allocated_offset: usize,
     allocated_len: usize,
     buffer_identifier: usize,
@@ -87,12 +89,12 @@ impl RingBuffer {
         // Safety: `fill_zeroes` initializes the whole slice, and transmuting a
         // `&mut [MaybeUninit<u8>]` to `&mut [u8]` is safe if it's initialized.
         let buffer = unsafe { transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(buffer) };
-
         Some(RingBuffer {
+            buffer_ptr: buffer.as_mut_ptr(),
+            buffer_len: buffer.len(),
             allocated_offset: 0,
             allocated_len: 0,
             buffer_identifier: make_buffer_id(),
-            buffer,
         })
     }
 
@@ -103,27 +105,30 @@ impl RingBuffer {
     /// contents may not be zeroed.
     pub fn allocate(&mut self, len: usize) -> Option<RingSlice> {
         let allocated_end = self.allocated_offset + self.allocated_len;
-        let padding_to_end = self.buffer.len() - (allocated_end % self.buffer.len());
-        let (offset, len) = if allocated_end + len <= self.buffer.len() {
+        let padding_to_end = self.buffer_len - (allocated_end % self.buffer_len);
+        let offset = if allocated_end + len <= self.buffer_len {
             // The allocation fits between the current allocated slice's end and
             // the end of the buffer
             self.allocated_len += len;
-            (allocated_end, len)
-        } else if self.allocated_len + padding_to_end + len <= self.buffer.len() {
+            allocated_end
+        } else if self.allocated_len + padding_to_end + len <= self.buffer_len {
             // The slice fits even with padding added to the end so that the
             // allocated slice starts at the beginning
             self.allocated_len += padding_to_end + len;
-            (0, len)
+            0
         } else {
             return None;
         };
 
-        // Safety: `self.buffer` is definitely not null, as it's created from a
-        // slice in the constructors. The particular slice we take a mutable
-        // borrow of is the only borrow of that area due to the allocation logic
-        // above, which ensures that we pick an offset and a length which does
-        // not overlap with previously allocated slices.
-        let slice = unsafe { &mut (*self.buffer)[offset..offset + len] };
+        // Safety: The offset is smaller than the length of the backing slice,
+        // so it's definitely safe to offset by.
+        let ptr = unsafe { self.buffer_ptr.byte_add(offset) };
+        // Safety: The above allocation logic ensures that we create distinct
+        // slices, so the slice created here does not alias with any other
+        // slice. The pointer is not null since it's from a slice in the
+        // constructor. The borrow is also valid for &'static since the buffer
+        // is specifically allocated for 'static in the constructor.
+        let slice: &'static mut [u8] = unsafe { slice::from_raw_parts_mut(ptr, len) };
         Some(RingSlice {
             slice: Box::from_mut(slice),
             metadata: RingSliceMetadata {
@@ -147,8 +152,9 @@ impl RingBuffer {
             "the given ring slice was not allocated from this ring buffer",
         );
         if slice.metadata.offset == self.allocated_offset {
-            self.allocated_offset += slice.len();
-            self.allocated_len -= slice.len();
+            let freed_len = slice.len();
+            self.allocated_offset += freed_len;
+            self.allocated_len -= freed_len;
             Ok(())
         } else {
             Err(slice)
@@ -157,7 +163,7 @@ impl RingBuffer {
 
     /// Returns true if `allocate(len)` would succeed if called after this.
     pub fn would_fit(&mut self, len: usize) -> bool {
-        let fits_at_end = self.allocated_offset + self.allocated_len + len <= self.buffer.len();
+        let fits_at_end = self.allocated_offset + self.allocated_len + len <= self.buffer_len;
         let fits_at_start = len <= self.allocated_offset;
         fits_at_start || fits_at_end
     }
