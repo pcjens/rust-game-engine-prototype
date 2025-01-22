@@ -22,7 +22,7 @@ macro_rules! gen_asset_handle_code {
             #[doc = "`]."]
             #[derive(Clone, Copy)]
             pub struct $handle_name(usize);
-            impl $crate::resources::ResourceDatabase<'_> {
+            impl $crate::resources::ResourceDatabase {
                 pub fn $find_fn(&self, name: &str) -> Option<$handle_name> {
                     let Ok(index) = self
                         .$field

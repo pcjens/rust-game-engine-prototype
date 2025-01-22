@@ -5,7 +5,7 @@ use enum_map::enum_map;
 use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
 use crate::{
-    allocators::LinearAllocator,
+    allocators::{LinearAllocator, StaticAllocator},
     input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
     renderer::DrawQueue,
     resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
@@ -20,10 +20,10 @@ enum TestInput {
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'eng> {
     /// Database of the non-code parts of the game, e.g. textures.
-    resource_db: ResourceDatabase<'eng>,
+    resource_db: ResourceDatabase,
     /// Queue of loading tasks which insert loaded chunks into the `resource_db`
     /// occasionally.
-    resource_loader: ResourceLoader<'eng>,
+    resource_loader: ResourceLoader,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -44,25 +44,22 @@ impl<'eng> Engine<'eng> {
     ///   requires, e.g. the resource database. Needs to outlive the engine so
     ///   that engine internals can borrow from it, so it's passed in here
     ///   instead of being created behind the scenes.
-    pub fn new(platform: &'eng dyn Pal, persistent_arena: &'eng LinearAllocator) -> Self {
+    pub fn new(platform: &'eng dyn Pal, persistent_arena: &'static StaticAllocator) -> Self {
         // TODO: Parameters that should probably be exposed to be tweakable by
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
 
-        let mut frame_arena = LinearAllocator::new(platform, 1000)
+        let frame_arena = LinearAllocator::new(platform, 1000)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
-        let resource_db =
-            ResourceDatabase::new(platform, persistent_arena, &frame_arena, db_file, 1, 1)
-                .expect("persistent arena should have enough memory for the resource database");
+        let resource_db = ResourceDatabase::new(platform, persistent_arena, db_file, 1, 1)
+            .expect("persistent arena should have enough memory for the resource database");
         let resource_loader = ResourceLoader::new(persistent_arena, 20, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
-
-        frame_arena.reset();
 
         let test_texture = resource_db.find_texture("testing texture").unwrap();
 
@@ -144,7 +141,7 @@ impl EngineCallbacks for Engine<'_> {
 mod tests {
     use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
-    use crate::{allocators::LinearAllocator, test_platform::TestPlatform};
+    use crate::{allocators::StaticAllocator, static_allocator_new, test_platform::TestPlatform};
 
     use super::Engine;
 
@@ -158,8 +155,8 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        let persistent_arena = LinearAllocator::new(&platform, 100_000).unwrap();
-        let mut engine = Engine::new(&platform, &persistent_arena);
+        static PERSISTENT_ARENA: StaticAllocator = static_allocator_new!(100_000);
+        let mut engine = Engine::new(&platform, &PERSISTENT_ARENA);
 
         let fps = 30;
         for current_frame in 0..(10 * fps) {

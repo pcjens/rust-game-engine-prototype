@@ -1,8 +1,8 @@
 use platform_abstraction_layer::{FileReadTask, Pal};
 
 use crate::{
-    allocators::LinearAllocator,
-    collections::{FixedVec, Queue, RingBuffer, RingSlice},
+    allocators::{LinearAllocator, StaticAllocator},
+    collections::{Queue, RingBuffer, RingSlice, RingSliceMetadata},
 };
 
 use super::{ChunkData, ResourceDatabase, TextureChunkData};
@@ -20,23 +20,23 @@ struct LoadRequest {
     category: LoadCategory,
 }
 
-pub struct ResourceLoader<'eng> {
-    staging_buffer: RingBuffer<'eng>,
-    loading_queue: Queue<'eng, LoadRequest>,
-    staging_slice_queue: Queue<'eng, RingSlice>,
+pub struct ResourceLoader {
+    staging_buffer: RingBuffer,
+    loading_queue: Queue<'static, LoadRequest>,
+    staging_slice_queue: Queue<'static, RingSlice>,
 }
 
-impl<'eng> ResourceLoader<'eng> {
+impl ResourceLoader {
     pub fn new(
-        allocator: &'eng LinearAllocator,
+        arena: &'static StaticAllocator,
         staging_buffer_size: usize,
         resource_db: &ResourceDatabase,
-    ) -> Option<ResourceLoader<'eng>> {
+    ) -> Option<ResourceLoader> {
         let total_chunks = resource_db.chunks.array_len() + resource_db.texture_chunks.array_len();
         Some(ResourceLoader {
-            staging_buffer: RingBuffer::new(allocator, staging_buffer_size)?,
-            loading_queue: Queue::new(allocator, total_chunks)?,
-            staging_slice_queue: Queue::new(allocator, total_chunks)?,
+            staging_buffer: RingBuffer::new(arena, staging_buffer_size)?,
+            loading_queue: Queue::new(arena, total_chunks)?,
+            staging_slice_queue: Queue::new(arena, total_chunks)?,
         })
     }
 
@@ -88,8 +88,9 @@ impl<'eng> ResourceLoader<'eng> {
         platform: &dyn Pal,
         arena: &LinearAllocator,
     ) {
-        struct LoadTask<'a> {
-            file_read_task: Option<FileReadTask<'a>>,
+        struct LoadTask {
+            file_read_task: FileReadTask,
+            read_buffer_metadata: RingSliceMetadata,
             index: u32,
             category: LoadCategory,
         }
@@ -98,16 +99,7 @@ impl<'eng> ResourceLoader<'eng> {
             return;
         }
 
-        let mut tasks = FixedVec::new(arena, max_chunks_to_load).unwrap();
-
-        // Split `self.staging_buffer` into separate mutable slices for the file reads
-        let mut staging_slice_handles = FixedVec::new(arena, max_chunks_to_load).unwrap();
-        for slice_handle in self.staging_slice_queue.iter().take(max_chunks_to_load) {
-            staging_slice_handles.push(slice_handle).unwrap();
-        }
-        let mut staging_slices = Queue::new(arena, max_chunks_to_load).unwrap();
-        self.staging_buffer
-            .get_many_mut(&mut staging_slice_handles, &mut staging_slices);
+        let mut tasks = Queue::new(arena, max_chunks_to_load).unwrap();
 
         // Begin reads (this pops from loading_queue, matching staging_slice_queue pops are after the reads are done)
         while let (
@@ -117,13 +109,17 @@ impl<'eng> ResourceLoader<'eng> {
                 category,
             }),
             Some(buffer),
-        ) = (self.loading_queue.pop_front(), staging_slices.pop_front())
-        {
+        ) = (
+            self.loading_queue.pop_front(),
+            self.staging_slice_queue.pop_front(),
+        ) {
+            let (buffer, read_buffer_metadata) = buffer.into_parts();
             let file_read_task =
-                Some(platform.begin_file_read(resources.chunk_data_file, first_byte, buffer));
+                platform.begin_file_read(resources.chunk_data_file, first_byte, buffer);
             tasks
-                .push(LoadTask {
+                .push_back(LoadTask {
                     file_read_task,
+                    read_buffer_metadata,
                     index,
                     category,
                 })
@@ -134,45 +130,45 @@ impl<'eng> ResourceLoader<'eng> {
             }
         }
 
-        // Write the chunks (TODO: this part should be multithreadable, just needs some AoS -> SoA type of refactoring)
-        for LoadTask {
+        // Write the chunks
+        while let Some(LoadTask {
             file_read_task,
+            read_buffer_metadata,
             index,
             category,
-        } in tasks.iter_mut()
+        }) = tasks.pop_front()
         {
-            if let Some(buffer) = file_read_task.take().unwrap().read_to_end() {
+            let (buffer, read_success) = match platform.finish_file_read(file_read_task) {
+                Ok(buffer) => (buffer, true),
+                Err(buffer) => (buffer, false),
+            };
+
+            if read_success {
                 match category {
                     LoadCategory::Chunk => {
-                        let desc = &resources.chunk_descriptors[*index as usize];
+                        let desc = &resources.chunk_descriptors[index as usize];
                         let init_fn = || Some(ChunkData::empty());
-                        if let Some(dst) = resources.chunks.insert(*index, init_fn) {
-                            dst.update(desc, buffer);
+                        if let Some(dst) = resources.chunks.insert(index, init_fn) {
+                            dst.update(desc, &buffer);
                         }
                     }
 
                     LoadCategory::TextureChunk => {
-                        let desc = &resources.texture_chunk_descriptors[*index as usize];
+                        let desc = &resources.texture_chunk_descriptors[index as usize];
                         let init_fn = || TextureChunkData::empty(platform);
-                        if let Some(dst) = resources.texture_chunks.insert(*index, init_fn) {
-                            dst.update(desc, buffer, platform);
+                        if let Some(dst) = resources.texture_chunks.insert(index, init_fn) {
+                            dst.update(desc, &buffer, platform);
                         }
                     }
                 }
+            } else {
+                platform.println(format_args!("failed to read {category:?} #{index}"));
             }
-        }
 
-        // Free up self.staging_buffer for mutation again:
-        assert!(tasks.iter().all(|task| task.file_read_task.is_none()));
-        drop(tasks);
-
-        // Align loading_queue and staging_slice_queue by popping off the slices used
-        let staging_slices_count = staging_slice_handles.len();
-        drop(staging_slice_handles);
-        for _ in 0..staging_slices_count {
-            self.staging_buffer
-                .free(self.staging_slice_queue.pop_front().unwrap())
-                .unwrap();
+            // Safety: each LoadTask gets its parts from one RingSlice, and
+            // these are from this specific LoadTask, so these are a pair.
+            let slice = unsafe { RingSlice::from_parts(buffer, read_buffer_metadata) };
+            self.staging_buffer.free(slice).unwrap();
         }
     }
 }

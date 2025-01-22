@@ -1,5 +1,6 @@
 #![no_std]
 
+mod boxed;
 pub mod channel;
 mod input;
 mod io;
@@ -9,6 +10,7 @@ use arrayvec::ArrayVec;
 
 use core::{ffi::c_void, fmt::Arguments, time::Duration};
 
+pub use boxed::*;
 pub use input::*;
 pub use io::*;
 pub use render::*;
@@ -85,23 +87,14 @@ pub trait Pal {
     /// function, since [`FileReadTask`] can't (safely) be dropped without it
     /// getting called.
     #[must_use]
-    fn begin_file_read<'a>(
-        &'a self,
-        file: FileHandle,
-        first_byte: u64,
-        buffer: &'a mut [u8],
-    ) -> FileReadTask<'a>;
+    fn begin_file_read(&self, file: FileHandle, first_byte: u64, buffer: Box<[u8]>)
+        -> FileReadTask;
 
-    /// Blocks until the read task finishes, returning the slice if the read was
-    /// successful, `None` otherwise.
-    ///
-    /// In any case, this consumes the [`FileReadTask`], so the backing slice
-    /// can be used again.
-    ///
-    /// All implementations of this function must call
-    /// [`FileReadTask::into_inner`] to signal that the task has been finished
-    /// and does not need to be blocked on further in the Drop implementation.
-    fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]>;
+    /// Blocks until the read task finishes, and returns the buffer which the
+    /// file contents were written into, if successful. If the read fails, the
+    /// memory is returned wrapped in an `Err`, and the buffer contents are not
+    /// guaranteed.
+    fn finish_file_read(&self, task: FileReadTask) -> Result<Box<[u8]>, Box<[u8]>>;
 
     /// Get the amount of threads that can efficiently process tasks in parallel
     /// on this platform.

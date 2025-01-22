@@ -5,6 +5,6 @@ mod sparse_array;
 mod vec;
 
 pub use queue::Queue;
-pub use ring_buffer::{RingBuffer, RingSlice};
+pub use ring_buffer::{RingBuffer, RingSlice, RingSliceMetadata};
 pub use sparse_array::SparseArray;
 pub use vec::FixedVec;

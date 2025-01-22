@@ -5,7 +5,7 @@ mod loader;
 mod serialize;
 
 use assets::{AudioClipAsset, TextureAsset};
-use platform_abstraction_layer::{FileHandle, FileReadTask, Pal, PixelFormat};
+use platform_abstraction_layer::{Box, FileHandle, FileReadTask, Pal, PixelFormat};
 
 pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
 pub use deserialize::{deserialize, Deserialize};
@@ -13,7 +13,7 @@ pub use loader::ResourceLoader;
 pub use serialize::{serialize, Serialize};
 
 use crate::{
-    allocators::LinearAllocator,
+    allocators::{LinearAllocator, StaticAllocator},
     collections::{FixedVec, SparseArray},
 };
 
@@ -41,33 +41,37 @@ pub struct ResourceDatabaseHeader {
 /// The internals are exposed for `import-asset`, but game code should mostly
 /// use this for the `find_*` and `get_*` functions to query for assets, which
 /// implement the relevant logic for each asset type.
-pub struct ResourceDatabase<'eng> {
+pub struct ResourceDatabase {
     // Asset metadata
-    pub textures: FixedVec<'eng, NamedAsset<TextureAsset>>,
-    pub audio_clips: FixedVec<'eng, NamedAsset<AudioClipAsset>>,
+    pub textures: FixedVec<'static, NamedAsset<TextureAsset>>,
+    pub audio_clips: FixedVec<'static, NamedAsset<AudioClipAsset>>,
     // Chunk loading metadata
     pub chunk_data_file: FileHandle,
     pub chunk_data_offset: u64,
-    pub chunk_descriptors: FixedVec<'eng, ChunkDescriptor>,
-    pub texture_chunk_descriptors: FixedVec<'eng, TextureChunkDescriptor>,
+    pub chunk_descriptors: FixedVec<'static, ChunkDescriptor>,
+    pub texture_chunk_descriptors: FixedVec<'static, TextureChunkDescriptor>,
     // In-memory chunks
-    pub chunks: SparseArray<'eng, ChunkData>,
-    pub texture_chunks: SparseArray<'eng, TextureChunkData>,
+    pub chunks: SparseArray<'static, ChunkData>,
+    pub texture_chunks: SparseArray<'static, TextureChunkData>,
 }
 
-impl ResourceDatabase<'_> {
-    pub(crate) fn new<'eng>(
+impl ResourceDatabase {
+    pub(crate) fn new(
         platform: &dyn Pal,
-        arena: &'eng LinearAllocator,
-        temp_arena: &LinearAllocator,
+        arena: &'static StaticAllocator,
         file: FileHandle,
         max_loaded_chunks: u32,
         max_loaded_texture_chunks: u32,
-    ) -> Option<ResourceDatabase<'eng>> {
-        let mut header_bytes = [0; <ResourceDatabaseHeader as Deserialize>::SERIALIZED_SIZE];
-        let header_read = platform.begin_file_read(file, 0, &mut header_bytes);
-        let header_bytes = header_read
-            .read_to_end()
+    ) -> Option<ResourceDatabase> {
+        // TODO: replace all these memory-leaky persistent allocations with some
+        // file reading utility that uses a ring buffer to allocate the Boxes
+        // and reclaims memory.
+        let header_bytes = arena
+            .try_alloc_boxed_slice(<ResourceDatabaseHeader as Deserialize>::SERIALIZED_SIZE)
+            .expect("arena should have enough space for resource db header");
+        let header_read = platform.begin_file_read(file, 0, header_bytes);
+        let header_bytes = platform
+            .finish_file_read(header_read)
             .expect("resource database file's header should be readable");
 
         let mut cursor = 0;
@@ -77,22 +81,23 @@ impl ResourceDatabase<'_> {
             texture_chunks,
             textures,
             audio_clips,
-        } = deserialize::<ResourceDatabaseHeader>(header_bytes, &mut cursor);
+        } = deserialize::<ResourceDatabaseHeader>(&header_bytes, &mut cursor);
+        // FIXME: header_bytes is leaked here
 
-        let mut buffer = alloc_file_buf::<ChunkDescriptor>(temp_arena, chunks)?;
-        let chunk_descriptors = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        let buffer = alloc_file_buf::<ChunkDescriptor>(arena, chunks)?;
+        let chunk_descriptors = platform.begin_file_read(file, cursor as u64, buffer);
         cursor += chunk_descriptors.read_size();
 
-        let mut buffer = alloc_file_buf::<TextureChunkDescriptor>(temp_arena, texture_chunks)?;
-        let tex_chunk_descs = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        let buffer = alloc_file_buf::<TextureChunkDescriptor>(arena, texture_chunks)?;
+        let tex_chunk_descs = platform.begin_file_read(file, cursor as u64, buffer);
         cursor += tex_chunk_descs.read_size();
 
-        let mut buffer = alloc_file_buf::<NamedAsset<TextureAsset>>(temp_arena, textures)?;
-        let textures = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        let buffer = alloc_file_buf::<NamedAsset<TextureAsset>>(arena, textures)?;
+        let textures = platform.begin_file_read(file, cursor as u64, buffer);
         cursor += textures.read_size();
 
-        let mut buffer = alloc_file_buf::<NamedAsset<AudioClipAsset>>(temp_arena, audio_clips)?;
-        let audio_clips = platform.begin_file_read(file, cursor as u64, &mut buffer);
+        let buffer = alloc_file_buf::<NamedAsset<AudioClipAsset>>(arena, audio_clips)?;
+        let audio_clips = platform.begin_file_read(file, cursor as u64, buffer);
         cursor += audio_clips.read_size();
 
         let chunk_data_offset = cursor as u64;
@@ -102,10 +107,10 @@ impl ResourceDatabase<'_> {
             chunk_data_offset,
             chunks: SparseArray::new(arena, chunks, max_loaded_chunks)?,
             texture_chunks: SparseArray::new(arena, texture_chunks, max_loaded_texture_chunks)?,
-            chunk_descriptors: deserialize_from_file(arena, chunk_descriptors)?,
-            texture_chunk_descriptors: deserialize_from_file(arena, tex_chunk_descs)?,
-            textures: sorted(deserialize_from_file(arena, textures)?),
-            audio_clips: sorted(deserialize_from_file(arena, audio_clips)?),
+            chunk_descriptors: deserialize_from_file(arena, chunk_descriptors, platform)?,
+            texture_chunk_descriptors: deserialize_from_file(arena, tex_chunk_descs, platform)?,
+            textures: sorted(deserialize_from_file(arena, textures, platform)?),
+            audio_clips: sorted(deserialize_from_file(arena, audio_clips, platform)?),
         })
     }
 }
@@ -118,9 +123,10 @@ fn sorted<T: Ord>(mut input: FixedVec<'_, T>) -> FixedVec<'_, T> {
 fn deserialize_from_file<'eng, D: Deserialize>(
     alloc: &'eng LinearAllocator,
     file_read: FileReadTask,
+    platform: &dyn Pal,
 ) -> Option<FixedVec<'eng, D>> {
-    let file_bytes = file_read
-        .read_to_end()
+    let file_bytes = platform
+        .finish_file_read(file_read)
         .expect("resource database file's index should be readable");
     let count = file_bytes.len() / D::SERIALIZED_SIZE;
     let mut vec = FixedVec::new(alloc, count)?;
@@ -129,17 +135,16 @@ fn deserialize_from_file<'eng, D: Deserialize>(
             unreachable!()
         };
     }
+    // FIXME: file_bytes is leaked here
     Some(vec)
 }
 
-fn alloc_file_buf<'a, D: Deserialize>(
-    temp_allocator: &'a LinearAllocator,
+fn alloc_file_buf<D: Deserialize>(
+    arena: &'static StaticAllocator,
     count: u32,
-) -> Option<FixedVec<'a, u8>> {
+) -> Option<Box<[u8]>> {
     let file_size = count as usize * D::SERIALIZED_SIZE;
-    let mut file_bytes = FixedVec::<u8>::new(temp_allocator, file_size)?;
-    file_bytes.fill_with_zeroes();
-    Some(file_bytes)
+    arena.try_alloc_boxed_slice(file_size)
 }
 
 pub use named_asset::{NamedAsset, ASSET_NAME_LENGTH};

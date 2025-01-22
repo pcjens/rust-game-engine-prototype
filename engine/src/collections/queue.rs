@@ -65,9 +65,24 @@ impl<T> Queue<'_, T> {
         Some(value)
     }
 
+    pub fn peek_front(&mut self) -> Option<&mut T> {
+        if self.initialized_len == 0 {
+            return None;
+        }
+        // Safety: due to the invariant these functions maintain, explained in
+        // the documentation of `self.uninit_slice`, we know that the value at
+        // `self.init_offset` is initialized.
+        Some(unsafe { self.uninit_slice[self.initialized_offset].assume_init_mut() })
+    }
+
     /// The amount of elements that could be pushed before the array is full.
     pub fn spare_capacity(&self) -> usize {
         self.uninit_slice.len() - self.initialized_len
+    }
+
+    /// Returns `true` if there's no more capacity for additional elements.
+    pub fn is_full(&self) -> bool {
+        self.initialized_len == self.uninit_slice.len()
     }
 
     /// Returns an iterator of the elements currently in the queue.

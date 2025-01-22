@@ -405,17 +405,17 @@ impl Pal for Sdl2Pal {
         Some(handle)
     }
 
-    fn begin_file_read<'a>(
-        &'a self,
-        file_handle: FileHandle,
+    fn begin_file_read(
+        &self,
+        file: FileHandle,
         first_byte: u64,
-        buffer: &'a mut [u8],
-    ) -> FileReadTask<'a> {
+        buffer: pal::Box<[u8]>,
+    ) -> FileReadTask {
         // This is not an efficient implementation, it's a proof of concept.
         let id = {
             let mut files = self.files.borrow_mut();
             let file = files
-                .get_mut(file_handle.inner() as usize)
+                .get_mut(file.inner() as usize)
                 .expect("invalid FileHandle");
             let id = file.tasks.len() as u64;
             let path = file.path.clone();
@@ -431,24 +431,23 @@ impl Pal for Sdl2Pal {
             ));
             id
         };
-        FileReadTask::new(file_handle, id, buffer, self)
+        FileReadTask::new(file, id, buffer)
     }
 
-    fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]> {
+    fn finish_file_read(&self, task: FileReadTask) -> Result<pal::Box<[u8]>, pal::Box<[u8]>> {
         let written_buffer = {
             let mut files = self.files.borrow_mut();
             let file = files
                 .get_mut(task.file().inner() as usize)
                 .expect("invalid FileHandle");
-            let idx = file
-                .tasks
-                .iter()
-                .position(|(id, _)| *id == task.task_id())?;
+            let Some(idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
+                panic!("tried to finish a read task with an invalid task id?");
+            };
 
             let (_, join_handle) = file.tasks.swap_remove(idx);
 
             // Safety: this implementation does not share the borrow in the first place.
-            let buffer = unsafe { task.into_inner() };
+            let mut buffer = unsafe { task.into_inner() };
 
             match join_handle.join().unwrap() {
                 Ok(read_bytes) => {
@@ -457,11 +456,11 @@ impl Pal for Sdl2Pal {
                 }
                 Err(err) => {
                     println!("[Sdl2Pal::poll_file_read]: could not read file: {err}");
-                    return None;
+                    return Err(buffer);
                 }
             }
         };
-        Some(written_buffer)
+        Ok(written_buffer)
     }
 
     fn available_parallellism(&self) -> usize {

@@ -1,12 +1,13 @@
 use core::{
     ffi::c_void,
     fmt::Debug,
-    mem::MaybeUninit,
+    mem::{transmute, MaybeUninit},
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use platform_abstraction_layer::Pal;
+use bytemuck::{fill_zeroes, Zeroable};
+use platform_abstraction_layer::{Box, Pal};
 
 #[allow(unused_imports)] // used in docs
 use crate::allocators::{static_allocator_new, StaticAllocator};
@@ -126,6 +127,24 @@ impl LinearAllocator<'_> {
     /// allocator, in bytes.
     pub fn total(&self) -> usize {
         self.backing_mem_size
+    }
+
+    /// Allocates memory for a `T` and returns a boxed version of it.
+    pub fn try_alloc_box<T>(&'static self, value: T) -> Option<Box<T>> {
+        let slice = self.try_alloc_uninit_slice(1)?;
+        let (allocation, _) = slice.split_first_mut().unwrap();
+        let allocation = allocation.write(value);
+        Some(Box::from_mut(allocation))
+    }
+
+    /// Allocates memory for a `[T]` with `len` elements, zeroes it out, and
+    /// returns a boxed version of it.
+    pub fn try_alloc_boxed_slice<T: Zeroable>(&'static self, len: usize) -> Option<Box<[T]>> {
+        let slice = self.try_alloc_uninit_slice::<T>(len)?;
+        fill_zeroes(slice);
+        // Safety: the whole slice is initialized by the fill_zeroes above.
+        let slice = unsafe { transmute::<&mut [MaybeUninit<T>], &mut [T]>(slice) };
+        Some(Box::from_mut(slice))
     }
 
     /// Allocates memory for a slice of `MaybeUninit<T>`, leaving the contents

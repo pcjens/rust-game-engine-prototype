@@ -1,8 +1,8 @@
 use core::{cell::Cell, ffi::c_void, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
-    ActionCategory, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices, Pal,
-    PixelFormat, TextureRef, Vertex,
+    ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
+    Pal, PixelFormat, TextureRef, Vertex,
 };
 
 #[derive(Debug)]
@@ -65,25 +65,27 @@ impl Pal for TestPlatform {
         }
     }
 
-    fn begin_file_read<'a>(
-        &'a self,
+    fn begin_file_read(
+        &self,
         file: FileHandle,
         first_byte: u64,
-        buffer: &'a mut [u8],
-    ) -> FileReadTask<'a> {
-        FileReadTask::new(file, first_byte, buffer, self)
+        buffer: Box<[u8]>,
+    ) -> FileReadTask {
+        FileReadTask::new(file, first_byte, buffer)
     }
 
-    fn finish_file_read<'a>(&self, task: FileReadTask<'a>) -> Option<&'a mut [u8]> {
+    fn finish_file_read(&self, task: FileReadTask) -> Result<Box<[u8]>, Box<[u8]>> {
         static RESOURCES_DB: &[u8] = include_bytes!("../../resources.db");
         if task.file().inner() != 4321 {
-            return None;
+            // Safety: this impl never shares the buffer anywhere.
+            return Err(unsafe { task.into_inner() });
         }
         let first_byte = task.task_id() as usize;
         // Safety: never shared this buffer.
-        let buffer = unsafe { task.into_inner() };
-        buffer.copy_from_slice(&RESOURCES_DB[first_byte..first_byte + buffer.len()]);
-        Some(buffer)
+        let mut buffer = unsafe { task.into_inner() };
+        let len = buffer.len();
+        buffer.copy_from_slice(&RESOURCES_DB[first_byte..first_byte + len]);
+        Ok(buffer)
     }
 
     fn available_parallellism(&self) -> usize {
