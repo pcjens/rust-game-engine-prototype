@@ -77,7 +77,7 @@ impl<'eng> ResourceLoader<'eng> {
 
     /// Loads up to `max_chunks_to_load` queued chunks.
     ///
-    /// # Panics
+    /// ### Panics
     ///
     /// Panics if `arena` doesn't have enough memory for the
     /// loading tasks.

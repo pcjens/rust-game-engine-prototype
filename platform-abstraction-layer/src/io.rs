@@ -65,7 +65,7 @@ impl<'a> FileReadTask<'a> {
     /// Deconstructs this into the inner buffer. Intended for platform layers
     /// implementing [`Pal::finish_file_read`].
     ///
-    /// ## Safety
+    /// ### Safety
     ///
     /// The platform may have shared a pointer to this buffer with e.g. the
     /// kernel for async writing. The caller must ensure that when calling this

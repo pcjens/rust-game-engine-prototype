@@ -55,7 +55,7 @@ pub trait Pal {
     /// large, out of vram, etc.). See [`Vertex`] and [`DrawSettings`] for
     /// sampler details.
     ///
-    /// ## Implementation note
+    /// ### Implementation note
     ///
     /// These are never freed during the lifetime of the engine, which could be
     /// exploited for performance benefits. Internally, individual textures are
@@ -143,7 +143,7 @@ pub trait Pal {
     /// engine, memory is allocated in big chunks, so this can be slow and
     /// defensively implemented.
     ///
-    /// ## Safety
+    /// ### Safety
     ///
     /// - Since the implementation is free to free the memory, the memory
     ///   pointed at by the given pointer shouldn't be accessed after calling

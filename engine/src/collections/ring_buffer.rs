@@ -104,7 +104,7 @@ impl RingBuffer<'_> {
     /// in an `Err` if the slice isn't the current head of the allocated span,
     /// and the memory is not reclaimed.
     ///
-    /// # Panics
+    /// ### Panics
     ///
     /// Panics if the [`RingSlice`] was allocated from a different
     /// [`RingBuffer`].
@@ -124,7 +124,7 @@ impl RingBuffer<'_> {
 
     /// Returns the slice represented by the [`RingSlice`].
     ///
-    /// # Panics
+    /// ### Panics
     ///
     /// Panics if the [`RingSlice`] was allocated from a different
     /// [`RingBuffer`].
@@ -148,7 +148,7 @@ impl RingBuffer<'_> {
     ///
     /// `accessors` will be sorted to be in splitting order.
     ///
-    /// # Panics
+    /// ### Panics
     ///
     /// Panics if any of the [`RingSlice`]s were allocated from a different
     /// [`RingBuffer`].
