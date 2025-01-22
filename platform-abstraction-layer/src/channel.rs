@@ -132,7 +132,11 @@ impl<T: Sync> Receiver<T> {
         // 1. Acquire-load the write offset, so we know the offset is either
         //    what we get here or something higher (if the other side `push`es
         //    during this function). In either case, we're good as long as we
-        //    only read elements before this offset.
+        //    only read elements before this offset. Also, if we're really
+        //    racing against the writes, this should ensure that their write to
+        //    the slot before this one (the "freshest" slot we might read) is
+        //    visible to us as well, since they store this value with release
+        //    ordering.
         let write_offset = self.ch.write_offset.load(Ordering::Acquire);
 
         // 2. Since this is a single-consumer channel (and thus we have a mut
@@ -175,7 +179,7 @@ impl<T: Sync> Receiver<T> {
         // 4. Update the read offset, making room for the sender to push one
         //    more value into the queue. This also signals that the MaybeUninit
         //    value we read before should be interpreted as uninitialized.
-        let next_read_offset = read_offset + 1;
+        let next_read_offset = (read_offset + 1) % self.ch.queue.len();
         self.ch
             .read_offset
             .store(next_read_offset, Ordering::Release);
@@ -184,7 +188,9 @@ impl<T: Sync> Receiver<T> {
     }
 }
 
-// FIXME: Use core::cell::SyncUnsafeCell instead when it's stabilized.
+/// FIXME: Use core::cell::SyncUnsafeCell instead when it's stabilized. Tracked
+/// in the rust-lang issue
+/// [#95439](https://github.com/rust-lang/rust/issues/95439).
 mod sync_unsafe_cell {
     #![allow(dead_code)]
     #[repr(transparent)]
@@ -229,5 +235,45 @@ mod tests {
         let (mut tx, mut rx) = channel_from_parts::<u32>(buf, read_offset, write_offset);
         spawn(move || tx.send(123).unwrap());
         assert_eq!(123, rx.try_recv().unwrap());
+    }
+
+    #[test]
+    fn handles_full_queue() {
+        const CAP: usize = 6;
+        let buf = Box::leak(Box::new([const { SyncUnsafeCell::new(None) }; CAP + 1]));
+        let read_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+        let write_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+
+        let (mut tx, mut rx) = channel_from_parts::<usize>(buf, read_offset, write_offset);
+        for i in 0..CAP {
+            tx.send(123 + i).unwrap();
+        }
+        assert_eq!(Err(123), tx.send(123));
+        for i in 0..CAP {
+            assert_eq!(123 + i, rx.try_recv().unwrap());
+        }
+        assert_eq!(None, rx.try_recv());
+    }
+
+    #[test]
+    fn wraps_around() {
+        let buf = Box::leak(Box::new([const { SyncUnsafeCell::new(None) }; 3]));
+        let read_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+        let write_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+
+        let (mut tx, mut rx) = channel_from_parts::<u32>(buf, read_offset, write_offset);
+        tx.send(12).unwrap();
+        assert_eq!(12, rx.try_recv().unwrap());
+        tx.send(34).unwrap();
+        assert_eq!(34, rx.try_recv().unwrap());
+        tx.send(56).unwrap();
+        assert_eq!(56, rx.try_recv().unwrap());
+        tx.send(78).unwrap();
+        assert_eq!(78, rx.try_recv().unwrap());
+
+        tx.send(21).unwrap();
+        tx.send(43).unwrap();
+        assert_eq!(21, rx.try_recv().unwrap());
+        assert_eq!(43, rx.try_recv().unwrap());
     }
 }
