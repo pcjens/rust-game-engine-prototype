@@ -2,7 +2,7 @@ use core::{cell::Cell, ffi::c_void, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
-    Pal, PixelFormat, TextureRef, Vertex,
+    Pal, PixelFormat, Semaphore, TextureRef, Vertex,
 };
 
 #[derive(Debug)]
@@ -92,8 +92,8 @@ impl Pal for TestPlatform {
         Ok(buffer)
     }
 
-    fn available_parallellism(&self) -> usize {
-        1
+    fn create_semaphore(&self) -> Semaphore {
+        Semaphore::single_threaded()
     }
 
     fn input_devices(&self) -> InputDevices {

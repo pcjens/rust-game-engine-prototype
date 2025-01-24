@@ -3,12 +3,16 @@ use core::{
     sync::atomic::AtomicUsize,
 };
 
-use platform_abstraction_layer::channel::{channel_from_parts, Receiver, Sender, SyncUnsafeCell};
+use platform_abstraction_layer::{
+    channel::{channel_from_parts, Receiver, Sender, SyncUnsafeCell},
+    Pal,
+};
 
 use crate::allocators::LinearAllocator;
 
 /// Creates a single-producer single-consumer channel.
 pub fn channel<T: Sync>(
+    platform: &dyn Pal,
     allocator: &'static LinearAllocator,
     capacity: usize,
 ) -> Option<(Sender<T>, Receiver<T>)> {
@@ -33,5 +37,13 @@ pub fn channel<T: Sync>(
         unsafe { transmute::<&mut [MaybeUninit<AtomicUsize>], &mut [AtomicUsize]>(offsets) };
     let (read, write) = offsets.split_at_mut(1);
 
-    Some(channel_from_parts(queue, &mut read[0], &mut write[0]))
+    let semaphore = allocator.try_alloc_uninit_slice(1)?;
+    let semaphore = semaphore[0].write(platform.create_semaphore());
+
+    Some(channel_from_parts(
+        queue,
+        &mut read[0],
+        &mut write[0],
+        semaphore,
+    ))
 }

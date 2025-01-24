@@ -5,6 +5,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 pub use sync_unsafe_cell::SyncUnsafeCell;
 
+use crate::Semaphore;
+
 struct SharedChannelState<T: 'static + Sync> {
     /// The slice containing the actual elements.
     queue: &'static [SyncUnsafeCell<Option<T>>],
@@ -17,7 +19,12 @@ struct SharedChannelState<T: 'static + Sync> {
     /// considered full. Since writes need to happen before reads, this happens
     /// when the writes wrap around to the start and reach the read offset.
     write_offset: &'static AtomicUsize,
+    /// Incremented on every [`Sender::send`], decrement on in every
+    /// [`Receiver::recv`] and [`Receiver::try_recv`].
+    write_semaphore: &'static Semaphore,
 }
+
+pub type Channel<T> = (Sender<T>, Receiver<T>);
 
 /// Creates a new channel from its raw parts.
 ///
@@ -28,7 +35,8 @@ pub fn channel_from_parts<T: Sync>(
     queue: &'static mut [SyncUnsafeCell<Option<T>>],
     write_offset: &'static mut AtomicUsize,
     read_offset: &'static mut AtomicUsize,
-) -> (Sender<T>, Receiver<T>) {
+    write_semaphore: &'static mut Semaphore,
+) -> Channel<T> {
     read_offset.store(0, Ordering::Release);
     write_offset.store(0, Ordering::Release);
     let sender = Sender {
@@ -36,6 +44,7 @@ pub fn channel_from_parts<T: Sync>(
             queue,
             read_offset,
             write_offset,
+            write_semaphore,
         },
     };
     let receiver = Receiver {
@@ -43,6 +52,7 @@ pub fn channel_from_parts<T: Sync>(
             queue,
             read_offset,
             write_offset,
+            write_semaphore,
         },
     };
     (sender, receiver)
@@ -107,6 +117,8 @@ impl<T: Sync> Sender<T> {
             *slot = Some(value);
         }
 
+        self.ch.write_semaphore.increment();
+
         // 4. Update the write offset, making the written value visible to the
         //    receiver.
         self.ch
@@ -122,8 +134,22 @@ pub struct Receiver<T: 'static + Sync> {
 }
 
 impl<T: Sync> Receiver<T> {
+    /// Blocks until the sender sends something, and then returns that value.
+    #[track_caller]
+    pub fn recv(&mut self) -> T {
+        self.ch.write_semaphore.decrement();
+        self.recv_impl()
+            .expect("send should've been called before this receive")
+    }
+
     /// Returns the oldest sent value on this channel if there are any.
     pub fn try_recv(&mut self) -> Option<T> {
+        let value = self.recv_impl()?;
+        self.ch.write_semaphore.decrement();
+        Some(value)
+    }
+
+    fn recv_impl(&mut self) -> Option<T> {
         if self.ch.queue.len() <= 1 {
             // This channel does not have any capacity, nothing to receive.
             return None;
@@ -208,14 +234,32 @@ mod sync_unsafe_cell {
     }
 }
 
+/// Allocates the memory for a channel with the given capacity using `alloc` and
+/// leaks the memory to create a channel.
+///
+/// Just for tests, since the engine proper doesn't use `alloc`.
+#[cfg(test)]
+pub fn leak_channel<T: Sync>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+    extern crate alloc;
+    use alloc::boxed::Box;
+    use alloc::vec::Vec;
+
+    let mut queue_vec = Vec::with_capacity(capacity + 1);
+    for _ in 0..capacity + 1 {
+        queue_vec.push(SyncUnsafeCell::new(None));
+    }
+    let queue = Box::leak(queue_vec.into_boxed_slice());
+    assert_eq!(capacity + 1, queue.len());
+    let read_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+    let write_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+    let write_semaphore = Box::leak(Box::new(Semaphore::single_threaded()));
+
+    channel_from_parts(queue, write_offset, read_offset, write_semaphore)
+}
+
 #[cfg(test)]
 mod tests {
-    extern crate alloc;
-
-    use alloc::boxed::Box;
-    use core::sync::atomic::AtomicUsize;
-
-    use crate::channel::{channel_from_parts, sync_unsafe_cell::SyncUnsafeCell};
+    use crate::channel::leak_channel;
 
     /// A dummy function that matches the signature of `std::thread::spawn`.
     fn spawn<F, T>(f: F)
@@ -228,23 +272,31 @@ mod tests {
 
     #[test]
     fn sender_and_receiver_are_send() {
-        let buf = Box::leak(Box::new([const { SyncUnsafeCell::new(None) }; 2]));
-        let read_offset = Box::leak(Box::new(AtomicUsize::new(0)));
-        let write_offset = Box::leak(Box::new(AtomicUsize::new(0)));
-
-        let (mut tx, mut rx) = channel_from_parts::<u32>(buf, read_offset, write_offset);
+        let (mut tx, mut rx) = leak_channel::<u32>(1);
         spawn(move || tx.send(123).unwrap());
         assert_eq!(123, rx.try_recv().unwrap());
     }
 
     #[test]
+    fn waiting_recv_works() {
+        let (mut tx, mut rx) = leak_channel::<u32>(1);
+        tx.send(123).unwrap();
+        assert_eq!(123, rx.recv());
+    }
+
+    #[test]
+    #[should_panic]
+    fn panics_on_single_threaded_recv_without_a_preceding_send() {
+        let (_, mut rx) = leak_channel::<u32>(1);
+        // Should panic due to SingleThreadedSemaphore being a no-op impl of
+        // Semaphore, and there being no matching send() call.
+        let _ = rx.recv();
+    }
+
+    #[test]
     fn handles_full_queue() {
         const CAP: usize = 6;
-        let buf = Box::leak(Box::new([const { SyncUnsafeCell::new(None) }; CAP + 1]));
-        let read_offset = Box::leak(Box::new(AtomicUsize::new(0)));
-        let write_offset = Box::leak(Box::new(AtomicUsize::new(0)));
-
-        let (mut tx, mut rx) = channel_from_parts::<usize>(buf, read_offset, write_offset);
+        let (mut tx, mut rx) = leak_channel::<usize>(CAP);
         for i in 0..CAP {
             tx.send(123 + i).unwrap();
         }
@@ -257,11 +309,8 @@ mod tests {
 
     #[test]
     fn wraps_around() {
-        let buf = Box::leak(Box::new([const { SyncUnsafeCell::new(None) }; 3]));
-        let read_offset = Box::leak(Box::new(AtomicUsize::new(0)));
-        let write_offset = Box::leak(Box::new(AtomicUsize::new(0)));
+        let (mut tx, mut rx) = leak_channel::<u32>(2);
 
-        let (mut tx, mut rx) = channel_from_parts::<u32>(buf, read_offset, write_offset);
         tx.send(12).unwrap();
         assert_eq!(12, rx.try_recv().unwrap());
         tx.send(34).unwrap();

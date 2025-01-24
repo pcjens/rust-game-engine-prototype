@@ -8,7 +8,8 @@ use std::{
     process::exit,
     ptr::{addr_of, null_mut},
     str::FromStr,
-    thread::{self, JoinHandle},
+    sync::{Condvar, Mutex},
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -474,8 +475,47 @@ impl Pal for Sdl2Pal {
         Ok(written_buffer)
     }
 
-    fn available_parallellism(&self) -> usize {
-        thread::available_parallelism().unwrap().get()
+    fn create_semaphore(&self) -> pal::Semaphore {
+        type SemaphoreType = (Mutex<u32>, Condvar);
+
+        let mutex = Mutex::new(0);
+        let condvar = Condvar::new();
+        let semaphore = (mutex, condvar);
+        let semaphore_mut: &'static mut SemaphoreType = Box::leak(Box::new(semaphore));
+        let semaphore_ptr: *mut SemaphoreType = &raw mut *semaphore_mut;
+        let semaphore_ptr = semaphore_ptr as *const ();
+
+        fn get_semaphore(ptr: *const ()) -> &'static SemaphoreType {
+            let semaphore_ptr = ptr as *const SemaphoreType;
+            // Safety: it's the same one we pass into Semaphore::new, which is
+            // not null, and is a valid SemaphoreType pointer.
+            unsafe { &*semaphore_ptr }
+        }
+
+        fn increment(ptr: *const ()) {
+            let (mutex, condvar) = get_semaphore(ptr);
+            let mut lock = mutex.lock().unwrap();
+            *lock += 1;
+            condvar.notify_one();
+        }
+
+        fn decrement(ptr: *const ()) {
+            let (mutex, condvar) = get_semaphore(ptr);
+            let mut lock = mutex.lock().unwrap();
+            while *lock == 0 {
+                lock = condvar.wait(lock).unwrap();
+            }
+            *lock -= 1;
+        }
+
+        let increment_fn = Some(increment as fn(*const ()));
+        let decrement_fn = Some(decrement as fn(*const ()));
+        let drop_fn = None;
+
+        // Safety: the semaphore pointer points to a condvar and a mutex, so
+        // it's all thread-safe, and they won't get dropped/freed because
+        // they've been leaked with Box::leak.
+        unsafe { pal::Semaphore::new(semaphore_ptr, increment_fn, decrement_fn, drop_fn) }
     }
 
     fn input_devices(&self) -> InputDevices {

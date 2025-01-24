@@ -5,6 +5,8 @@ pub mod channel;
 mod input;
 mod io;
 mod render;
+mod semaphore;
+mod thread_pool;
 
 use arrayvec::ArrayVec;
 
@@ -14,6 +16,8 @@ pub use boxed::*;
 pub use input::*;
 pub use io::*;
 pub use render::*;
+pub use semaphore::*;
+pub use thread_pool::*;
 
 pub type InputDevices = ArrayVec<InputDevice, 15>;
 
@@ -100,9 +104,12 @@ pub trait Pal {
     /// guaranteed.
     fn finish_file_read(&self, task: FileReadTask) -> Result<Box<[u8]>, Box<[u8]>>;
 
-    /// Get the amount of threads that can efficiently process tasks in parallel
-    /// on this platform.
-    fn available_parallellism(&self) -> usize;
+    /// Creates a semaphore.
+    ///
+    /// Multi-threaded platforms should use [`Semaphore::new`] and implement the
+    /// functions so that they make use of OS synchronization primitives.
+    /// Single-threaded platforms can use [`Semaphore::single_threaded`].
+    fn create_semaphore(&self) -> Semaphore;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;
