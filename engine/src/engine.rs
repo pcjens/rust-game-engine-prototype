@@ -144,7 +144,7 @@ impl EngineCallbacks for Engine<'_> {
 mod tests {
     use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
 
-    use crate::{allocators::StaticAllocator, static_allocator_new, test_platform::TestPlatform};
+    use crate::{allocators::StaticAllocator, static_allocator, test_platform::TestPlatform};
 
     use super::Engine;
 
@@ -158,8 +158,8 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        static PERSISTENT_ARENA: StaticAllocator = static_allocator_new!(100_000);
-        let mut engine = Engine::new(&platform, &PERSISTENT_ARENA);
+        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(100_000);
+        let mut engine = Engine::new(&platform, PERSISTENT_ARENA);
 
         let fps = 30;
         for current_frame in 0..(10 * fps) {

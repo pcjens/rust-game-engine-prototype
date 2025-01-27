@@ -10,7 +10,7 @@ use bytemuck::{fill_zeroes, Zeroable};
 use platform_abstraction_layer::{Box, Pal};
 
 #[allow(unused_imports)] // used in docs
-use crate::allocators::{static_allocator_new, StaticAllocator};
+use crate::allocators::{static_allocator, StaticAllocator};
 
 /// A linear allocator with a constant capacity. Can allocate memory regions
 /// with any size or alignment (within the capacity) very fast, but individual
@@ -83,9 +83,8 @@ impl LinearAllocator<'_> {
     /// Creates  a new [`LinearAllocator`] with as many bytes of backing memory
     /// as there are in the given slice.
     ///
-    /// This is the unsafe machinery behind [`static_allocator_new`], and as
-    /// such it fulfills the safety requirements of
-    /// [`StaticAllocator::from_allocator`].
+    /// This is the unsafe machinery behind [`static_allocator`], and as such it
+    /// fulfills the safety requirements of [`StaticAllocator::from_allocator`].
     ///
     /// Only the first [`isize::MAX`] bytes of the slice are used if it's longer
     /// than that.

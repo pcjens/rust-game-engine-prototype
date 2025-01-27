@@ -164,14 +164,14 @@ impl RingBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{allocators::StaticAllocator, static_allocator_new};
+    use crate::{allocators::StaticAllocator, static_allocator};
 
     use super::RingBuffer;
 
     #[test]
     fn works_at_all() {
-        static ALLOC: StaticAllocator = static_allocator_new!(1);
-        let mut ring = RingBuffer::new(&ALLOC, 1).unwrap();
+        static ALLOC: &StaticAllocator = static_allocator!(1);
+        let mut ring = RingBuffer::new(ALLOC, 1).unwrap();
         let mut slice = ring.allocate(1).unwrap();
         slice[0] = 123;
         ring.free(slice).unwrap();
@@ -179,8 +179,8 @@ mod tests {
 
     #[test]
     fn wraps_when_full() {
-        static ALLOC: StaticAllocator = static_allocator_new!(10);
-        let mut ring = RingBuffer::new(&ALLOC, 10).unwrap();
+        static ALLOC: &StaticAllocator = static_allocator!(10);
+        let mut ring = RingBuffer::new(ALLOC, 10).unwrap();
 
         let first_half = ring.allocate(4).unwrap();
         let _second_half = ring.allocate(4).unwrap();
@@ -196,11 +196,11 @@ mod tests {
     #[test]
     #[should_panic]
     fn panics_on_free_with_wrong_buffer_identity() {
-        static ALLOC_0: StaticAllocator = static_allocator_new!(1);
-        static ALLOC_1: StaticAllocator = static_allocator_new!(1);
+        static ALLOC_0: &StaticAllocator = static_allocator!(1);
+        static ALLOC_1: &StaticAllocator = static_allocator!(1);
 
-        let mut ring0 = RingBuffer::new(&ALLOC_0, 1).unwrap();
-        let mut ring1 = RingBuffer::new(&ALLOC_1, 1).unwrap();
+        let mut ring0 = RingBuffer::new(ALLOC_0, 1).unwrap();
+        let mut ring1 = RingBuffer::new(ALLOC_1, 1).unwrap();
 
         let foo0 = ring0.allocate(1).unwrap();
         let _ = ring1.free(foo0); // should panic
