@@ -17,6 +17,7 @@ pub use input::*;
 pub use io::*;
 pub use render::*;
 pub use semaphore::*;
+pub use thread_pool::{TaskChannel, ThreadState};
 
 /// Shorthand for an [`ArrayVec`] of [`InputDevice`].
 ///
@@ -113,6 +114,15 @@ pub trait Pal {
     /// functions so that they make use of OS synchronization primitives.
     /// Single-threaded platforms can use [`Semaphore::single_threaded`].
     fn create_semaphore(&self) -> Semaphore;
+
+    /// Returns how many threads the system could process in parallel
+    /// efficiently in addition to the main thread, or `None` for
+    /// single-threaded platforms.
+    fn thread_pool_size(&self) -> Option<usize>;
+
+    /// Spawns a thread for a thread pool, using the given channels to pass
+    /// tasks back and forth.
+    fn spawn_pool_thread(&self, channels: [TaskChannel; 2]) -> ThreadState;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

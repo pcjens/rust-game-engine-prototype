@@ -138,10 +138,33 @@ impl LinearAllocator<'_> {
 
     /// Allocates memory for a `[T]` with `len` elements, zeroes it out, and
     /// returns a boxed version of it.
-    pub fn try_alloc_boxed_slice<T: Zeroable>(&'static self, len: usize) -> Option<Box<[T]>> {
+    pub fn try_alloc_boxed_slice_zeroed<T: Zeroable>(
+        &'static self,
+        len: usize,
+    ) -> Option<Box<[T]>> {
         let slice = self.try_alloc_uninit_slice::<T>(len)?;
         fill_zeroes(slice);
         // Safety: the whole slice is initialized by the fill_zeroes above.
+        let slice = unsafe { transmute::<&mut [MaybeUninit<T>], &mut [T]>(slice) };
+        Some(Box::from_mut(slice))
+    }
+
+    /// Allocates memory for a `[T]` with `len` elements, fills it by calling
+    /// `init`, and returns a boxed version of it.
+    ///
+    /// If `init` returns None for any invocation, this also returns None. Note
+    /// that the already allocated memory isn't freed up in this case (due to
+    /// [`LinearAllocator`] being strictly growing for thread-safety reasons).
+    pub fn try_alloc_boxed_slice_with<T, F: FnMut() -> Option<T>>(
+        &'static self,
+        mut init: F,
+        len: usize,
+    ) -> Option<Box<[T]>> {
+        let slice = self.try_alloc_uninit_slice::<T>(len)?;
+        for uninit in &mut *slice {
+            uninit.write(init()?);
+        }
+        // Safety: the whole slice is initialized by the loop above.
         let slice = unsafe { transmute::<&mut [MaybeUninit<T>], &mut [T]>(slice) };
         Some(Box::from_mut(slice))
     }

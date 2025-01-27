@@ -2,7 +2,7 @@ use core::{cell::Cell, ffi::c_void, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
-    Pal, PixelFormat, Semaphore, TextureRef, Vertex,
+    Pal, PixelFormat, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex,
 };
 
 #[derive(Debug)]
@@ -94,6 +94,14 @@ impl Pal for TestPlatform {
 
     fn create_semaphore(&self) -> Semaphore {
         Semaphore::single_threaded()
+    }
+
+    fn thread_pool_size(&self) -> Option<usize> {
+        None
+    }
+
+    fn spawn_pool_thread(&self, _channels: [TaskChannel; 2]) -> ThreadState {
+        unimplemented!("TestPlatform is single-threaded")
     }
 
     fn input_devices(&self) -> InputDevices {

@@ -16,6 +16,9 @@ use crate::{
     Box,
 };
 
+#[allow(unused_imports)] // used by docs
+use crate::Pal;
+
 /// Handle to a running or waiting task on a [`ThreadPool`].
 ///
 /// These should be passed into [`ThreadPool::join_task`] in the same order as
@@ -73,13 +76,26 @@ impl TaskInFlight {
 // Box<T: Sync>.
 unsafe impl Sync for TaskInFlight {}
 
+/// The sending half of a [`TaskChannel`].
+pub type TaskSender = Sender<TaskInFlight>;
+/// The receiving half of a [`TaskChannel`].
+pub type TaskReceiver = Receiver<TaskInFlight>;
+/// Channel used by [`ThreadPool`] for communicating with the processing
+/// threads.
+///
+/// Passed into [`Pal::spawn_pool_thread`].
+pub type TaskChannel = (TaskSender, TaskReceiver);
+
 /// State held by [`ThreadPool`] for sending and receiving [`TaskInFlight`]s
 /// between it and a thread.
+///
+/// Returned from [`Pal::spawn_pool_thread`], multiple of these are used to
+/// create a [`ThreadPool`].
 pub struct ThreadState {
     /// For sending tasks to the thread.
-    sender: Sender<TaskInFlight>,
+    sender: TaskSender,
     /// For getting tasks results back from the thread.
-    receiver: Receiver<TaskInFlight>,
+    receiver: TaskReceiver,
     /// The amount of tasks sent via `sender`. (Used for picking
     /// [`TaskHandle::task_position`] for send).
     sent_count: u64,
@@ -99,10 +115,7 @@ impl ThreadState {
     /// receiver of just one channel could be passed here, in which case
     /// [`ThreadPool`] will run the task when joining that task in
     /// [`ThreadPool::join_task`].
-    pub fn new(
-        sender_to_thread: Sender<TaskInFlight>,
-        receiver_from_thread: Receiver<TaskInFlight>,
-    ) -> ThreadState {
+    pub fn new(sender_to_thread: TaskSender, receiver_from_thread: TaskReceiver) -> ThreadState {
         ThreadState {
             sender: sender_to_thread,
             receiver: receiver_from_thread,
@@ -119,12 +132,12 @@ impl ThreadState {
 /// tasks from running.
 pub struct ThreadPool {
     next_thread_index: usize,
-    threads: &'static mut [ThreadState],
+    threads: Box<[ThreadState]>,
 }
 
 impl ThreadPool {
     /// Creates a new [`ThreadPool`].
-    pub fn new(threads: &'static mut [ThreadState]) -> ThreadPool {
+    pub fn new(threads: Box<[ThreadState]>) -> ThreadPool {
         ThreadPool {
             next_thread_index: 0,
             threads,
@@ -132,16 +145,16 @@ impl ThreadPool {
     }
 
     /// Returns the amount of threads in this thread pool.
-    pub fn thread_count(&mut self) -> usize {
+    pub fn thread_count(&self) -> usize {
         self.threads.len()
     }
 
     /// Schedules the function to be ran on a thread in this pool, passing in
-    /// the data as an argument.
+    /// the data as an argument, if they fit in the task queue.
     ///
-    /// The function is only ever ran once. In a single-threaded environment, it
-    /// is ran when `join_task` is called for this task, otherwise it's ran
-    /// whenever the thread gets to it.
+    /// The function passed in is only ever ran once. In a single-threaded
+    /// environment, it is ran when `join_task` is called for this task,
+    /// otherwise it's ran whenever the thread gets to it.
     ///
     /// The threads are not load-balanced, the assigned thread is simply rotated
     /// on each call of this function.
@@ -259,12 +272,12 @@ mod tests {
         let (tx, rx) = leak_channel::<TaskInFlight>(1);
         let mut thread_pool: ThreadPool = ThreadPool {
             next_thread_index: 0,
-            threads: Box::leak(Box::new([ThreadState {
+            threads: pal::Box::from_mut(Box::leak(Box::new([ThreadState {
                 sender: tx,
                 receiver: rx,
                 sent_count: 0,
                 recv_count: 0,
-            }])),
+            }]))),
         };
 
         let mut data = ExampleData(0);

@@ -2,7 +2,7 @@
 fn main() {
     let platform = platform_sdl2::Sdl2Pal::new();
     static PERSISTENT_ARENA: &engine::allocators::StaticAllocator =
-        engine::allocators::static_allocator!(100_000);
+        engine::allocators::static_allocator!(1_000_000);
     let mut engine = engine::Engine::new(&platform, PERSISTENT_ARENA);
     platform.run_game_loop(&mut engine);
 }

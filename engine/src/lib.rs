@@ -12,13 +12,16 @@ pub mod allocators;
 /// Collection types for varying memory access patterns. Backing memory provided
 /// by allocators in the [allocators] module.
 pub mod collections;
-mod engine;
 /// Input events and their translation into game-specific actions.
 pub mod input;
+/// Utilities for splitting work to be processed in parallel.
+pub mod multithreading;
 /// Low-level graphics-related data structures and functionality.
 pub mod renderer;
 /// The resource database and everything related to querying, loading, and using
 /// assets from it.
 pub mod resources;
+
+mod engine;
 
 pub use engine::Engine;

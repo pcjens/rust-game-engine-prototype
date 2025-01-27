@@ -2,11 +2,14 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use enum_map::enum_map;
-use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
+use platform_abstraction_layer::{
+    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Pal,
+};
 
 use crate::{
     allocators::{LinearAllocator, StaticAllocator},
     input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
+    multithreading,
     renderer::DrawQueue,
     resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
 };
@@ -26,6 +29,9 @@ pub struct Engine<'eng> {
     resource_loader: ResourceLoader,
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
+    /// Thread pool for splitting compute-heavy workloads to multiple threads.
+    #[allow(unused)]
+    thread_pool: ThreadPool,
     /// Queued up events from the platform layer. Discarded after being used by
     /// the game to trigger an action via [`InputDeviceState`], or after a
     /// timeout if not.
@@ -50,6 +56,9 @@ impl<'eng> Engine<'eng> {
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
 
+        let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 4)
+            .expect("persistent arena should have enough memory for the thread pool");
+
         let frame_arena = LinearAllocator::new(platform, 1000)
             .expect("should have enough memory for the frame arena");
 
@@ -67,6 +76,7 @@ impl<'eng> Engine<'eng> {
             resource_db,
             resource_loader,
             frame_arena,
+            thread_pool,
             event_queue: ArrayVec::new(),
 
             test_input: None,

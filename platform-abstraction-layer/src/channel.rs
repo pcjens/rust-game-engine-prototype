@@ -3,13 +3,14 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+pub use crossbeam_utils::CachePadded;
 pub use sync_unsafe_cell::SyncUnsafeCell;
 
 use crate::Semaphore;
 
 struct SharedChannelState<T: 'static + Sync> {
     /// The slice containing the actual elements.
-    queue: &'static [SyncUnsafeCell<Option<T>>],
+    queue: &'static [SyncUnsafeCell<CachePadded<Option<T>>>],
     /// The index to `queue` where the oldest pushed element is. Only mutated by
     /// [`Receiver::try_recv`]. If `read_offset == write_offset`, the queue
     /// should be considered empty.
@@ -33,7 +34,7 @@ pub type Channel<T> = (Sender<T>, Receiver<T>);
 /// channel with room for 3 buffered elements should have a slice of length 4 as
 /// the `queue`.
 pub fn channel_from_parts<T: Sync>(
-    queue: &'static mut [SyncUnsafeCell<Option<T>>],
+    queue: &'static mut [SyncUnsafeCell<CachePadded<Option<T>>>],
     write_offset: &'static mut AtomicUsize,
     read_offset: &'static mut AtomicUsize,
     write_semaphore: &'static mut Semaphore,
@@ -117,7 +118,7 @@ impl<T: Sync> Sender<T> {
             //   Sender trying to access this queue.
             let slot = unsafe { &mut *slot_ptr };
             assert!(slot.is_none(), "slot should not be populated since the write offset should never go past the read offset");
-            *slot = Some(value);
+            *slot = CachePadded::new(Some(value));
         }
 
         self.ch.write_semaphore.increment();
@@ -261,7 +262,7 @@ pub fn leak_channel<T: Sync>(capacity: usize) -> (Sender<T>, Receiver<T>) {
 
     let mut queue_vec = Vec::with_capacity(capacity + 1);
     for _ in 0..capacity + 1 {
-        queue_vec.push(SyncUnsafeCell::new(None));
+        queue_vec.push(SyncUnsafeCell::new(CachePadded::new(None)));
     }
     let queue = Box::leak(queue_vec.into_boxed_slice());
     assert_eq!(capacity + 1, queue.len());

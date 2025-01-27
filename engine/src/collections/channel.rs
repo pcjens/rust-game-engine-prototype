@@ -4,7 +4,7 @@ use core::{
 };
 
 use platform_abstraction_layer::{
-    channel::{channel_from_parts, Receiver, Sender, SyncUnsafeCell},
+    channel::{channel_from_parts, CachePadded, Receiver, Sender, SyncUnsafeCell},
     Pal,
 };
 
@@ -16,17 +16,16 @@ pub fn channel<T: Sync>(
     allocator: &'static LinearAllocator,
     capacity: usize,
 ) -> Option<(Sender<T>, Receiver<T>)> {
+    type ChannelSlot<T> = SyncUnsafeCell<CachePadded<Option<T>>>;
+
     // +1 to capacity since we're using the last slot as the difference between empty and full.
-    let queue = allocator.try_alloc_uninit_slice::<SyncUnsafeCell<Option<T>>>(capacity + 1)?;
+    let queue = allocator.try_alloc_uninit_slice::<ChannelSlot<T>>(capacity + 1)?;
     for slot in &mut *queue {
-        slot.write(SyncUnsafeCell::new(None));
+        slot.write(SyncUnsafeCell::new(CachePadded::new(None)));
     }
     // Safety: all the values are initialized above.
-    let queue = unsafe {
-        transmute::<&mut [MaybeUninit<SyncUnsafeCell<Option<T>>>], &mut [SyncUnsafeCell<Option<T>>]>(
-            queue,
-        )
-    };
+    let queue =
+        unsafe { transmute::<&mut [MaybeUninit<ChannelSlot<T>>], &mut [ChannelSlot<T>]>(queue) };
 
     let offsets = allocator.try_alloc_uninit_slice::<AtomicUsize>(2)?;
     for offset in &mut *offsets {

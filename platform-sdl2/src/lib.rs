@@ -9,7 +9,7 @@ use std::{
     ptr::{addr_of, null_mut},
     str::FromStr,
     sync::{Condvar, Mutex},
-    thread::JoinHandle,
+    thread::{self, JoinHandle},
     time::Duration,
 };
 
@@ -516,6 +516,37 @@ impl Pal for Sdl2Pal {
         // it's all thread-safe, and they won't get dropped/freed because
         // they've been leaked with Box::leak.
         unsafe { pal::Semaphore::new(semaphore_ptr, increment_fn, decrement_fn, drop_fn) }
+    }
+
+    fn thread_pool_size(&self) -> Option<usize> {
+        let parallellism = thread::available_parallelism().map(|u| u.get()).ok()?;
+        if parallellism > 1 {
+            // Leave one thread for the main thread
+            Some(parallellism - 1)
+        } else {
+            None
+        }
+    }
+
+    fn spawn_pool_thread(&self, channels: [pal::TaskChannel; 2]) -> pal::ThreadState {
+        let [(task_sender, mut task_receiver), (mut result_sender, result_receiver)] = channels;
+        thread::Builder::new()
+            .name("threadpool".to_string())
+            .spawn(move || loop {
+                let mut task = task_receiver.recv();
+                task.run();
+                'send_result: loop {
+                    match result_sender.send(task) {
+                        Ok(()) => break 'send_result,
+                        Err(task_) => {
+                            thread::sleep(Duration::from_millis(1));
+                            task = task_;
+                        }
+                    }
+                }
+            })
+            .unwrap();
+        pal::ThreadState::new(task_sender, result_receiver)
     }
 
     fn input_devices(&self) -> InputDevices {

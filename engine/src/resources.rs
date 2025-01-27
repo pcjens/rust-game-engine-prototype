@@ -67,7 +67,7 @@ impl ResourceDatabase {
         // file reading utility that uses a ring buffer to allocate the Boxes
         // and reclaims memory.
         let header_bytes = arena
-            .try_alloc_boxed_slice(<ResourceDatabaseHeader as Deserialize>::SERIALIZED_SIZE)
+            .try_alloc_boxed_slice_zeroed(<ResourceDatabaseHeader as Deserialize>::SERIALIZED_SIZE)
             .expect("arena should have enough space for resource db header");
         let header_read = platform.begin_file_read(file, 0, header_bytes);
         let header_bytes = platform
@@ -144,7 +144,7 @@ fn alloc_file_buf<D: Deserialize>(
     count: u32,
 ) -> Option<Box<[u8]>> {
     let file_size = count as usize * D::SERIALIZED_SIZE;
-    arena.try_alloc_boxed_slice(file_size)
+    arena.try_alloc_boxed_slice_zeroed(file_size)
 }
 
 pub use named_asset::{NamedAsset, ASSET_NAME_LENGTH};

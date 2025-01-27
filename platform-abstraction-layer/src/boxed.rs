@@ -1,5 +1,5 @@
 use core::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     ops::{Deref, DerefMut},
 };
 
@@ -75,7 +75,15 @@ impl<T: ?Sized> DerefMut for Box<T> {
 
 impl<T: ?Sized + Debug> Debug for Box<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("Box").field(&self.inner).finish()
+        let inner: &T = self;
+        f.debug_tuple("Box").field(&inner).finish()
+    }
+}
+
+impl<T: ?Sized + Display> Display for Box<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let inner: &T = self;
+        write!(f, "{}", inner)
     }
 }
 
