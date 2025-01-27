@@ -24,6 +24,7 @@ struct SharedChannelState<T: 'static + Sync> {
     write_semaphore: &'static Semaphore,
 }
 
+/// Return type of [`channel_from_parts`].
 pub type Channel<T> = (Sender<T>, Receiver<T>);
 
 /// Creates a new channel from its raw parts.
@@ -58,6 +59,8 @@ pub fn channel_from_parts<T: Sync>(
     (sender, receiver)
 }
 
+/// One endpoint of a channel, which can be used to send [`Sync`] and `'static`
+/// values to another thread.
 pub struct Sender<T: 'static + Sync> {
     ch: SharedChannelState<T>,
 }
@@ -129,6 +132,8 @@ impl<T: Sync> Sender<T> {
     }
 }
 
+/// One endpoint of a channel, which can be used to receive [`Sync`] and
+/// `'static` values from another thread.
 pub struct Receiver<T: 'static + Sync> {
     ch: SharedChannelState<T>,
 }
@@ -219,13 +224,23 @@ impl<T: Sync> Receiver<T> {
 /// [#95439](https://github.com/rust-lang/rust/issues/95439).
 mod sync_unsafe_cell {
     #![allow(dead_code)]
+    use core::cell::UnsafeCell;
+    /// A [`Sync`] [`UnsafeCell`] when `T` is [`Sync`]. "Manually stabilized"
+    /// from rustc feature gate `sync_unsafe_cell`.
+    ///
+    /// Should be replaced with `core::cell::SyncUnsafeCell` instead when it's
+    /// stabilized. Tracked in the rust-lang issue
+    /// [#95439](https://github.com/rust-lang/rust/issues/95439). The open
+    /// questions don't seem to imply any issues with the type as it's
+    /// implemented here (this type requires `T` to be [`Sync`], and the naming
+    /// question is irrelevant for safety).
     #[repr(transparent)]
-    pub struct SyncUnsafeCell<T: ?Sized>(core::cell::UnsafeCell<T>);
+    pub struct SyncUnsafeCell<T: ?Sized>(UnsafeCell<T>);
     unsafe impl<T: ?Sized + Sync> Sync for SyncUnsafeCell<T> {}
     impl<T> SyncUnsafeCell<T> {
         #[inline]
         pub const fn new(value: T) -> Self {
-            SyncUnsafeCell(core::cell::UnsafeCell::new(value))
+            SyncUnsafeCell(UnsafeCell::new(value))
         }
         #[inline]
         pub const fn get(&self) -> *mut T {

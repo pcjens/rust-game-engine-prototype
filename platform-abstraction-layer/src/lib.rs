@@ -6,7 +6,7 @@ mod input;
 mod io;
 mod render;
 mod semaphore;
-mod thread_pool;
+pub mod thread_pool;
 
 use arrayvec::ArrayVec;
 
@@ -17,8 +17,11 @@ pub use input::*;
 pub use io::*;
 pub use render::*;
 pub use semaphore::*;
-pub use thread_pool::*;
 
+/// Shorthand for an [`ArrayVec`] of [`InputDevice`].
+///
+/// Exported so that platforms don't need to explicitly depend on [`arrayvec`]
+/// just for the [`Pal::input_devices`] typing.
 pub type InputDevices = ArrayVec<InputDevice, 15>;
 
 /// The "engine side" of [Pal], for passing the engine to the platform layer

@@ -1,3 +1,14 @@
+//! Thread pool for running tasks on other threads.
+//!
+//! [`ThreadPool`] implements a FIFO task queue where the tasks are executed on
+//! other threads, the amount of threads depending on how the [`ThreadPool`] is
+//! constructed. As a fallback, single-threaded platforms are supported by
+//! simply running the task in [`ThreadPool::join_task`].
+//!
+//! This module doesn't do any allocation, and isn't very usable on its own,
+//! it's intended to be used  alongsideplatform-provided threading functions, by
+//! the engine, to construct multithreading utilities.
+
 use core::{marker::PhantomData, mem::transmute};
 
 use crate::{
@@ -5,6 +16,10 @@ use crate::{
     Box,
 };
 
+/// Handle to a running or waiting task on a [`ThreadPool`].
+///
+/// These should be passed into [`ThreadPool::join_task`] in the same order as
+/// they were created with [`ThreadPool::spawn_task`].
 #[derive(Debug)]
 pub struct TaskHandle<T: 'static> {
     thread_index: usize,
@@ -12,7 +27,8 @@ pub struct TaskHandle<T: 'static> {
     _type_holder: PhantomData<&'static T>,
 }
 
-struct TaskInFlight {
+/// Packets sent between threads to coordinate a [`ThreadPool`].
+pub struct TaskInFlight {
     /// Whether or not [`Task::run`] has been run for this task.
     finished: bool,
     /// Extracted from: `Box<T>`.
@@ -25,8 +41,16 @@ struct TaskInFlight {
 }
 
 impl TaskInFlight {
-    fn run(&mut self) {
-        (self.func_proxy)(self.func, self.data);
+    /// Process the task in this container. Returns false if the task has
+    /// already been ran, in which case this function does nothing.
+    pub fn run(&mut self) -> bool {
+        if !self.finished {
+            (self.func_proxy)(self.func, self.data);
+            self.finished = true;
+            true
+        } else {
+            false
+        }
     }
 
     /// ### Safety
@@ -49,7 +73,9 @@ impl TaskInFlight {
 // Box<T: Sync>.
 unsafe impl Sync for TaskInFlight {}
 
-struct ThreadState {
+/// State held by [`ThreadPool`] for sending and receiving [`TaskInFlight`]s
+/// between it and a thread.
+pub struct ThreadState {
     /// For sending tasks to the thread.
     sender: Sender<TaskInFlight>,
     /// For getting tasks results back from the thread.
@@ -60,6 +86,30 @@ struct ThreadState {
     /// The amount of tasks received via `receiver`. (Used for checking
     /// [`TaskHandle::task_position`] on recv).
     recv_count: u64,
+}
+
+impl ThreadState {
+    /// Creates a new [`ThreadState`] from the relevant channel endpoints.
+    ///
+    /// `sender_to_thread` is used to send tasks to the thread, while
+    /// `receiver_from_thread` is used to receive finished tasks, so there
+    /// should be two channels for each thread.
+    ///
+    /// To implement a simple single-threaded [`ThreadPool`], the sender and
+    /// receiver of just one channel could be passed here, in which case
+    /// [`ThreadPool`] will run the task when joining that task in
+    /// [`ThreadPool::join_task`].
+    pub fn new(
+        sender_to_thread: Sender<TaskInFlight>,
+        receiver_from_thread: Receiver<TaskInFlight>,
+    ) -> ThreadState {
+        ThreadState {
+            sender: sender_to_thread,
+            receiver: receiver_from_thread,
+            sent_count: 0,
+            recv_count: 0,
+        }
+    }
 }
 
 /// Thread pool for running compute-intensive tasks in parallel.
@@ -73,10 +123,35 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
+    /// Creates a new [`ThreadPool`].
+    pub fn new(threads: &'static mut [ThreadState]) -> ThreadPool {
+        ThreadPool {
+            next_thread_index: 0,
+            threads,
+        }
+    }
+
+    /// Returns the amount of threads in this thread pool.
     pub fn thread_count(&mut self) -> usize {
         self.threads.len()
     }
 
+    /// Schedules the function to be ran on a thread in this pool, passing in
+    /// the data as an argument.
+    ///
+    /// The function is only ever ran once. In a single-threaded environment, it
+    /// is ran when `join_task` is called for this task, otherwise it's ran
+    /// whenever the thread gets to it.
+    ///
+    /// The threads are not load-balanced, the assigned thread is simply rotated
+    /// on each call of this function.
+    ///
+    /// Tasks should be joined ([`ThreadPool::join_task`]) in the same order as
+    /// they were spawned, as the results need to be received in sending order
+    /// for each thread. However, this ordering requirement only applies
+    /// per-thread, so [`ThreadPool::thread_count`] subsequent spawns can be
+    /// joined in any order amongst themselves — whether this is useful or not,
+    /// is up to the joiner.
     pub fn spawn_task<T>(
         &mut self,
         data: Box<T>,
@@ -142,23 +217,22 @@ impl ThreadPool {
     /// joined before this one. When spawning and joining tasks in FIFO order,
     /// this never returns an `Err`.
     ///
-    /// Depending on the platform, this could either call the function, or wait
-    /// until another thread has finished calling it.
+    /// Depending on the [`ThreadState`]s passed into the constructor, this
+    /// could either call the function (if it's a one-channel state), or wait
+    /// until another thread has finished calling it (if it's a two-channel
+    /// state that actually has a corresponding parallel thread).
     pub fn join_task<T>(&mut self, handle: TaskHandle<T>) -> Result<Box<T>, TaskHandle<T>> {
         let current_recv_count = self.threads[handle.thread_index].recv_count;
         if handle.task_position == current_recv_count {
-            loop {
-                if let Some(task) = self.threads[handle.thread_index].receiver.try_recv() {
-                    // Safety: the TaskHandle returned from the spawn function
-                    // has the correct T for this, and since we've already
-                    // checked the thread index and task position, we know this
-                    // matches the original spawn call (and thus its type
-                    // parameter) for this data.
-                    let data = unsafe { task.join::<T>(true) };
-                    self.threads[handle.thread_index].recv_count += 1;
-                    return Ok(data);
-                }
-            }
+            let task = self.threads[handle.thread_index].receiver.recv();
+            // Safety: the TaskHandle returned from the spawn function
+            // has the correct T for this, and since we've already
+            // checked the thread index and task position, we know this
+            // matches the original spawn call (and thus its type
+            // parameter) for this data.
+            let data = unsafe { task.join::<T>(true) };
+            self.threads[handle.thread_index].recv_count += 1;
+            return Ok(data);
         }
         Err(handle)
     }
@@ -170,12 +244,9 @@ mod tests {
 
     use alloc::boxed::Box;
 
-    use crate::{
-        self as pal,
-        channel::leak_channel,
-        thread_pool::{TaskInFlight, ThreadState},
-        ThreadPool,
-    };
+    use crate::{self as pal, channel::leak_channel};
+
+    use super::{TaskInFlight, ThreadPool, ThreadState};
 
     #[derive(Debug)]
     struct ExampleData(u32);
