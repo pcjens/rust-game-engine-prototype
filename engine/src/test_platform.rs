@@ -96,6 +96,8 @@ impl Pal for TestPlatform {
         Semaphore::single_threaded()
     }
 
+    // TODO: make TestPlatform multithreaded if the std feature is in use, so that any multithreaded code paths get tested as well
+
     fn thread_pool_size(&self) -> Option<usize> {
         None
     }

@@ -9,6 +9,7 @@ use core::ptr;
 /// the semaphore should expect this and probably panic if this happens.
 #[derive(Clone)]
 pub struct Semaphore {
+    // TODO: replace with a *const dyn SemaphoreTrait + Sync or similar?
     semaphore_ptr: *const (),
     increment_fn: Option<fn(*const ())>,
     decrement_fn: Option<fn(*const ())>,

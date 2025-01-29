@@ -49,8 +49,12 @@ jobs:
       with:
         components: miri
     - uses: actions/checkout@v3
-    - run: cargo miri test --all-features --workspace --exclude platform-abstraction-layer
-    - run: cargo miri test --all-features --package platform-abstraction-layer
+    # Main test (leaks are ignored because Box::leak is reported as such, and
+    # they're not applicable anyway, the engine doesn't malloc outside of initialization)
+    - run: cargo miri test --all-features
       env:
-        # Ignoring leaks since a very intentional Box::leak is reported as such. At least it's just this package.
+        MIRIFLAGS: -Zmiri-ignore-leaks
+    # Just engine without any features, i.e. tests the no_std specific parts
+    - run: cargo miri test --features="" --package engine
+      env:
         MIRIFLAGS: -Zmiri-ignore-leaks

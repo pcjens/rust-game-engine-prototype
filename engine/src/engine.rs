@@ -9,7 +9,7 @@ use platform_abstraction_layer::{
 use crate::{
     allocators::{LinearAllocator, StaticAllocator},
     input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
-    multithreading,
+    multithreading::{self, thread_pool_scope},
     renderer::DrawQueue,
     resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
 };
@@ -59,7 +59,7 @@ impl<'eng> Engine<'eng> {
         let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 4)
             .expect("persistent arena should have enough memory for the thread pool");
 
-        let frame_arena = LinearAllocator::new(platform, 1000)
+        let frame_arena = LinearAllocator::new(platform, 10_000)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
@@ -89,38 +89,54 @@ impl EngineCallbacks for Engine<'_> {
     fn iterate(&mut self, platform: &dyn Pal) {
         let timestamp = platform.elapsed();
         self.frame_arena.reset();
-        self.event_queue
-            .retain(|queued| !queued.timed_out(timestamp));
 
-        self.resource_loader
-            .finish_reads(&mut self.resource_db, platform);
+        let mut test_numbers = [1i32; 100];
+        thread_pool_scope(&mut self.thread_pool, &self.frame_arena, |thread_pool| {
+            let test_numbers = thread_pool
+                .scatter(&mut test_numbers, |numbers| {
+                    for number in numbers {
+                        *number *= 2;
+                    }
+                })
+                .unwrap();
 
-        let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
+            self.event_queue
+                .retain(|queued| !queued.timed_out(timestamp));
 
-        // Testing area follows, could be considered "game code" for now:
+            self.resource_loader
+                .finish_reads(&mut self.resource_db, platform);
 
-        let mut action_test = false;
+            let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
 
-        if let Some(input) = &mut self.test_input {
-            input.update(&mut self.event_queue);
-            action_test = input.actions[TestInput::Act].pressed;
-        }
+            // Testing area follows, could be considered "game code" for now:
 
-        let test_texture = self.resource_db.get_texture(self.test_texture);
-        let (w, _) = platform.draw_area();
-        let w = if action_test { w / 2. } else { w };
-        test_texture.draw(
-            (w / 2., 200.0, 400.0, 400.0),
-            0,
-            &mut draw_queue,
-            &self.resource_db,
-            &mut self.resource_loader,
-        );
+            let mut action_test = false;
 
-        draw_queue.dispatch_draw(&self.frame_arena, platform);
+            if let Some(input) = &mut self.test_input {
+                input.update(&mut self.event_queue);
+                action_test = input.actions[TestInput::Act].pressed;
+            }
 
-        self.resource_loader
-            .dispatch_reads(&self.resource_db, platform);
+            let test_texture = self.resource_db.get_texture(self.test_texture);
+            let (w, _) = platform.draw_area();
+            let w = if action_test { w / 2. } else { w };
+            test_texture.draw(
+                (w / 2., 200.0, 400.0, 400.0),
+                0,
+                &mut draw_queue,
+                &self.resource_db,
+                &mut self.resource_loader,
+            );
+
+            draw_queue.dispatch_draw(&self.frame_arena, platform);
+
+            self.resource_loader
+                .dispatch_reads(&self.resource_db, platform);
+
+            let test_numbers = thread_pool.gather(test_numbers).unwrap();
+            assert!(test_numbers.iter().all(|i| *i == 2));
+        })
+        .unwrap();
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {

@@ -2,7 +2,7 @@ use platform_abstraction_layer::{FileReadTask, Pal};
 
 use crate::{
     allocators::StaticAllocator,
-    collections::{Queue, RingBuffer, RingSlice, RingSliceMetadata},
+    collections::{Queue, RingAllocationMetadata, RingBuffer, RingSlice},
 };
 
 use super::{ChunkData, ResourceDatabase, TextureChunkData};
@@ -23,13 +23,13 @@ struct LoadRequest {
 
 struct LoadTask {
     file_read_task: FileReadTask,
-    read_buffer_metadata: RingSliceMetadata,
+    read_buffer_metadata: RingAllocationMetadata,
     chunk_index: u32,
     category: LoadCategory,
 }
 
 pub struct ResourceLoader {
-    staging_buffer: RingBuffer,
+    staging_buffer: RingBuffer<u8>,
     to_load_queue: Queue<'static, LoadRequest>,
     in_flight_queue: Queue<'static, LoadTask>,
 }

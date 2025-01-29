@@ -5,53 +5,75 @@ use core::{
 
 /// Owned pointer to a `T`.
 ///
-/// Intended for similar use cases as the standard library `Box`, but this one's
-/// simpler and does not add a dependency on `alloc`. Using `alloc::boxed::Box`
-/// would've been possible otherwise, but the allocator API is still unstable.
+/// Intended for similar use cases as the standard library `Box`, but this one
+/// does not free the memory on drop (though it does drop the `T`). Used
+/// sparingly in cases where we really need to own a dynamically allocated `T`
+/// instead of borrowing it, and using a static borrow would be too verbose.
 pub struct Box<T: 'static + ?Sized> {
     inner: *mut T,
+    should_drop: bool,
 }
 
 impl<T: ?Sized> Box<T> {
     /// Creates a [`Box`] from a leaked borrow of the boxed value.
     pub fn from_mut(value: &'static mut T) -> Box<T> {
-        Box { inner: value }
+        Box {
+            inner: value,
+            should_drop: true,
+        }
     }
 
     /// Creates a [`Box`] from a raw pointer to the boxed value.
     ///
     /// ### Safety
     ///
-    /// The caller must ensure that the pointer meets all requirements to be
-    /// turned into a static mutable borrow, that memory behind the pointer is
-    /// never freed while this `Box` exists, and that the T pointed to by this
-    /// pointer is never accessed after this call, because [`Box`]'s Drop
-    /// implementation drops `T`.
+    /// The caller must ensure that the memory behind the pointer is never read,
+    /// written, or freed while this `Box` exists, and that the T pointed to by
+    /// this pointer is never accessed after this call, unless it's after
+    /// deconstructing this box with [`Box::into_ptr`].
     pub unsafe fn from_ptr(ptr: *mut T) -> Box<T> {
-        Box { inner: ptr }
+        Box {
+            inner: ptr,
+            should_drop: true,
+        }
     }
 
-    /// Deconstructs into the internal pointer.
-    pub fn into_ptr(self) -> *mut T {
+    /// Consumes the [`Box<T>`] without dropping the internal value and returns
+    /// the internal pointer.
+    pub fn into_ptr(mut self) -> *mut T {
+        self.should_drop = false; // avoid dropping the value
         self.inner
+    }
+
+    /// Forgets the type of the [`Box`].
+    ///
+    /// Useful in cases where we're only interested in ownership of the pointer
+    /// rather than the value behind it.
+    pub fn anonymize(self) -> Box<()> {
+        Box {
+            inner: self.inner as *mut (),
+            should_drop: self.should_drop,
+        }
     }
 }
 
 impl<T: ?Sized> Drop for Box<T> {
     fn drop(&mut self) {
-        // Safety:
-        // - self.inner is valid for reads and writes because the constructors
-        //   require it.
-        // - self.inner is properly aligned because the constructors require it.
-        // - self.inner is nonnull because the constructors require it.
-        // - self.inner should be valid for dropping, because it's exclusively
-        //   owned by us, and it should be unsafe to leave T in an un-droppable
-        //   state via the deref channels.
-        // - the T pointed to by self.inner is exclusively accessible by the
-        //   internals of this Box, and since we're in a drop impl, we have a
-        //   mutable borrow of this Box, so this should indeed be the only way
-        //   to access parts of the object.
-        unsafe { self.inner.drop_in_place() };
+        if self.should_drop {
+            // Safety:
+            // - self.inner is valid for reads and writes because the constructors
+            //   require it.
+            // - self.inner is properly aligned because the constructors require it.
+            // - self.inner is nonnull because the constructors require it.
+            // - self.inner should be valid for dropping, because it's exclusively
+            //   owned by us, and it should be unsafe to leave T in an un-droppable
+            //   state via the deref channels.
+            // - the T pointed to by self.inner is exclusively accessible by the
+            //   internals of this Box, and since we're in a drop impl, we have a
+            //   mutable borrow of this Box, so this should indeed be the only way
+            //   to access parts of the object.
+            unsafe { self.inner.drop_in_place() };
+        }
     }
 }
 

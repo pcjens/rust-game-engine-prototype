@@ -9,4 +9,5 @@ platform-abstraction-layer = { version = "0.1.0", path = "../platform-abstractio
 platform-sdl2 = { version = "0.1.0", path = "../platform-sdl2", optional = true }
 
 [features]
-default = ["platform-sdl2"]
+default = ["sdl2"]
+sdl2 = ["platform-sdl2", "engine/std"]

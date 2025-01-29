@@ -67,6 +67,12 @@ pub struct Sender<T: 'static + Sync> {
 }
 
 impl<T: Sync> Sender<T> {
+    /// Returns how many tasks could be sent to be buffered up before the other
+    /// side receives them.
+    pub fn capacity(&self) -> usize {
+        self.ch.queue.len() - 1
+    }
+
     /// Sends the value into the channel if there's room.
     pub fn send(&mut self, value: T) -> Result<(), T> {
         if self.ch.queue.len() <= 1 {
@@ -140,6 +146,12 @@ pub struct Receiver<T: 'static + Sync> {
 }
 
 impl<T: Sync> Receiver<T> {
+    /// Returns how many tasks could be buffered up to be received without any
+    /// recv calls.
+    pub fn capacity(&self) -> usize {
+        self.ch.queue.len() - 1
+    }
+
     /// Blocks until the sender sends something, and then returns that value.
     #[track_caller]
     pub fn recv(&mut self) -> T {
@@ -253,8 +265,8 @@ mod sync_unsafe_cell {
 /// Allocates the memory for a channel with the given capacity using `alloc` and
 /// leaks the memory to create a channel.
 ///
-/// Just for tests, since the engine proper doesn't use `alloc`.
-#[cfg(test)]
+/// This is just for tests.
+#[doc(hidden)]
 pub fn leak_channel<T: Sync>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     extern crate alloc;
     use alloc::boxed::Box;

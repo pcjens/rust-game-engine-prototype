@@ -136,17 +136,51 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
-    /// Creates a new [`ThreadPool`].
-    pub fn new(threads: Box<[ThreadState]>) -> ThreadPool {
-        ThreadPool {
+    /// Creates a new [`ThreadPool`], returning None if the channels don't have
+    /// matching capacities.
+    pub fn new(threads: Box<[ThreadState]>) -> Option<ThreadPool> {
+        // Check that each channel has the same capacity
+        let mut capacity = None;
+        for thread in threads.iter() {
+            if let Some(capacity) = capacity {
+                if thread.receiver.capacity() != capacity || thread.sender.capacity() != capacity {
+                    return None;
+                }
+            } else if thread.receiver.capacity() != thread.sender.capacity() {
+                return None;
+            } else {
+                capacity = Some(thread.receiver.capacity());
+            }
+        }
+
+        Some(ThreadPool {
             next_thread_index: 0,
             threads,
-        }
+        })
     }
 
     /// Returns the amount of threads in this thread pool.
     pub fn thread_count(&self) -> usize {
         self.threads.len()
+    }
+
+    /// Returns the length of a task queue.
+    ///
+    /// In total, tasks can be spawned without joining up to this amount times
+    /// the thread count.
+    pub fn queue_len(&self) -> usize {
+        if let Some(thread) = self.threads.first() {
+            thread.receiver.capacity() // Checked in new() to match all other channels too
+        } else {
+            0
+        }
+    }
+
+    /// Returns true if the thread pool has any pending tasks in the queues.
+    pub fn has_pending(&self) -> bool {
+        self.threads
+            .iter()
+            .any(|thread| thread.recv_count != thread.sent_count)
     }
 
     /// Schedules the function to be ran on a thread in this pool, passing in
@@ -175,17 +209,12 @@ impl ThreadPool {
         }
 
         let thread_index = self.next_thread_index;
-        self.next_thread_index = (thread_index + 1) % self.thread_count();
-
         let task_position = self.threads[thread_index].sent_count;
-        self.threads[thread_index].sent_count = task_position
-            .checked_add(1)
-            .expect("sent task count should not overflow a u64. well done!");
 
-        let func = func as *const ();
+        let func = func as *const (); // type erase for TaskInFlight
 
         let data: *mut T = data.into_ptr();
-        let data = data as *mut (); // type erase for run()
+        let data = data as *mut (); // type erase for TaskInFlight
 
         fn proxy<T>(func: *const (), data: *mut ()) {
             // Safety: this pointer is cast from the destination type `fn(&mut
@@ -209,12 +238,16 @@ impl ThreadPool {
             func_proxy: proxy::<T>,
         };
 
-        self.threads[thread_index]
-            .sender
+        (self.threads[thread_index].sender)
             .send(task)
             // Safety: T is definitely correct, we just created this task with
             // the same type parameter.
             .map_err(|task| unsafe { task.join::<T>(false) })?;
+
+        self.threads[thread_index].sent_count = task_position
+            .checked_add(1)
+            .expect("thread pool sent_count should not overflow a u64");
+        self.next_thread_index = (thread_index + 1) % self.thread_count();
 
         Ok(TaskHandle {
             thread_index,
@@ -236,55 +269,60 @@ impl ThreadPool {
     /// state that actually has a corresponding parallel thread).
     pub fn join_task<T>(&mut self, handle: TaskHandle<T>) -> Result<Box<T>, TaskHandle<T>> {
         let current_recv_count = self.threads[handle.thread_index].recv_count;
-        if handle.task_position == current_recv_count {
-            let task = self.threads[handle.thread_index].receiver.recv();
-            // Safety: the TaskHandle returned from the spawn function
-            // has the correct T for this, and since we've already
-            // checked the thread index and task position, we know this
-            // matches the original spawn call (and thus its type
-            // parameter) for this data.
-            let data = unsafe { task.join::<T>(true) };
-            self.threads[handle.thread_index].recv_count += 1;
-            return Ok(data);
+
+        if handle.task_position != current_recv_count {
+            return Err(handle);
         }
-        Err(handle)
+
+        let task = self.threads[handle.thread_index].receiver.recv();
+        // Safety: the TaskHandle returned from the spawn function
+        // has the correct T for this, and since we've already
+        // checked the thread index and task position, we know this
+        // matches the original spawn call (and thus its type
+        // parameter) for this data.
+        let data = unsafe { task.join::<T>(true) };
+        self.threads[handle.thread_index].recv_count += 1;
+        Ok(data)
     }
+}
+
+/// Create a new thread pool using `alloc::boxed::Box` for allocation (by Boxing
+/// and then leaking the memory).
+///
+/// This is just for tests.
+#[doc(hidden)]
+pub fn leak_single_threaded_thread_pool(queue_length: usize) -> ThreadPool {
+    extern crate alloc;
+    use crate::{self as pal, channel::leak_channel};
+    use alloc::boxed::Box;
+
+    // Generally you'd create two channels for thread<->thread communication,
+    // but in a single-threaded situation, the channel works as a simple work
+    // queue.
+    let (tx, rx) = leak_channel::<TaskInFlight>(queue_length);
+    let thread_state = ThreadState::new(tx, rx);
+    let threads = Box::leak(Box::new([thread_state]));
+    ThreadPool::new(pal::Box::from_mut(threads)).unwrap()
 }
 
 #[cfg(test)]
 mod tests {
-    extern crate alloc;
+    use crate::Box;
 
-    use alloc::boxed::Box;
-
-    use crate::{self as pal, channel::leak_channel};
-
-    use super::{TaskInFlight, ThreadPool, ThreadState};
+    use super::leak_single_threaded_thread_pool;
 
     #[derive(Debug)]
     struct ExampleData(u32);
 
     #[test]
     fn single_threaded_pool_works() {
-        // Generally you'd create two channels for thread<->thread
-        // communication, but in a single-threaded situation, the channel works
-        // as a simple work queue.
-        let (tx, rx) = leak_channel::<TaskInFlight>(1);
-        let mut thread_pool: ThreadPool = ThreadPool {
-            next_thread_index: 0,
-            threads: pal::Box::from_mut(Box::leak(Box::new([ThreadState {
-                sender: tx,
-                receiver: rx,
-                sent_count: 0,
-                recv_count: 0,
-            }]))),
-        };
+        let mut thread_pool = leak_single_threaded_thread_pool(1);
 
         let mut data = ExampleData(0);
         {
             // Safety: `data` is dropped after this scope, and this Box does not
             // leave this scope, so `data` outlives this Box.
-            let data_boxed: pal::Box<ExampleData> = unsafe { pal::Box::from_ptr(&raw mut data) };
+            let data_boxed: Box<ExampleData> = unsafe { Box::from_ptr(&raw mut data) };
             assert_eq!(0, data_boxed.0);
 
             let handle = thread_pool.spawn_task(data_boxed, |n| n.0 = 1).unwrap();
