@@ -44,17 +44,6 @@ impl<T: ?Sized> Box<T> {
         self.should_drop = false; // avoid dropping the value
         self.inner
     }
-
-    /// Forgets the type of the [`Box`].
-    ///
-    /// Useful in cases where we're only interested in ownership of the pointer
-    /// rather than the value behind it.
-    pub fn anonymize(self) -> Box<()> {
-        Box {
-            inner: self.inner as *mut (),
-            should_drop: self.should_drop,
-        }
-    }
 }
 
 impl<T: ?Sized> Drop for Box<T> {
