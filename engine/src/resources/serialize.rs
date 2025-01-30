@@ -1,9 +1,9 @@
 use core::ops::Range;
 
-use arrayvec::ArrayString;
+use arrayvec::{ArrayString, ArrayVec};
 
 use super::{
-    assets::{AudioClipAsset, TextureAsset},
+    assets::{AudioClipAsset, TextureAsset, TextureMipLevel, MAX_MIPS},
     chunks::{ChunkDescriptor, TextureChunkDescriptor},
     NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
@@ -101,21 +101,33 @@ impl Serialize for AudioClipAsset {
 }
 
 impl Serialize for TextureAsset {
-    const SERIALIZED_SIZE: usize = u16::SERIALIZED_SIZE * 2
-        + bool::SERIALIZED_SIZE
-        + <Range<u32> as Serialize>::SERIALIZED_SIZE;
+    const SERIALIZED_SIZE: usize =
+        bool::SERIALIZED_SIZE + <ArrayVec<TextureMipLevel, MAX_MIPS> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
         let TextureAsset {
-            width,
-            height,
             transparent,
+            mip_chain,
+        } = self;
+        serialize::<bool>(transparent, dst, &mut cursor);
+        serialize::<ArrayVec<TextureMipLevel, MAX_MIPS>>(mip_chain, dst, &mut cursor);
+    }
+}
+
+impl Serialize for TextureMipLevel {
+    const SERIALIZED_SIZE: usize =
+        <(u16, u16) as Serialize>::SERIALIZED_SIZE * 2 + <Range<u32> as Serialize>::SERIALIZED_SIZE;
+    fn serialize(&self, dst: &mut [u8]) {
+        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
+        let mut cursor = 0;
+        let TextureMipLevel {
+            size,
+            offset,
             texture_chunks,
         } = self;
-        serialize::<u16>(width, dst, &mut cursor);
-        serialize::<u16>(height, dst, &mut cursor);
-        serialize::<bool>(transparent, dst, &mut cursor);
+        serialize::<(u16, u16)>(offset, dst, &mut cursor);
+        serialize::<(u16, u16)>(size, dst, &mut cursor);
         serialize::<Range<u32>>(texture_chunks, dst, &mut cursor);
     }
 }
@@ -142,6 +154,22 @@ impl<const LEN: usize> Serialize for ArrayString<LEN> {
     }
 }
 
+impl<T: Serialize, const LEN: usize> Serialize for ArrayVec<T, LEN> {
+    const SERIALIZED_SIZE: usize = u8::SERIALIZED_SIZE + T::SERIALIZED_SIZE * LEN;
+    fn serialize(&self, dst: &mut [u8]) {
+        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
+        assert!(
+            LEN < 0xFF,
+            "serialization impl for ArrayVec only supports lengths up to 255",
+        );
+        let mut cursor = 0;
+        serialize::<u8>(&(self.len() as u8), dst, &mut cursor);
+        for element in self {
+            serialize::<T>(element, dst, &mut cursor);
+        }
+    }
+}
+
 impl Serialize for Range<u64> {
     const SERIALIZED_SIZE: usize = u64::SERIALIZED_SIZE * 2;
     #[inline]
@@ -159,6 +187,16 @@ impl Serialize for Range<u32> {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         self.start.serialize(&mut dst[0..4]);
         self.end.serialize(&mut dst[4..8]);
+    }
+}
+
+impl Serialize for (u16, u16) {
+    const SERIALIZED_SIZE: usize = u16::SERIALIZED_SIZE * 2;
+    #[inline]
+    fn serialize(&self, dst: &mut [u8]) {
+        assert_eq!(Self::SERIALIZED_SIZE, dst.len());
+        self.0.serialize(&mut dst[0..2]);
+        self.1.serialize(&mut dst[2..4]);
     }
 }
 

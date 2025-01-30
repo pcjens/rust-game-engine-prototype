@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
-engine = { version = "0.1.0", path = "../engine" }
+engine = { version = "0.1.0", path = "../engine", features = ["asset-conditioning"] }

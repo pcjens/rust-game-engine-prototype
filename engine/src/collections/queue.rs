@@ -85,6 +85,11 @@ impl<T> Queue<'_, T> {
         self.initialized_len == self.uninit_slice.len()
     }
 
+    /// Returns `true` if there's no elements in the queue.
+    pub fn is_empty(&self) -> bool {
+        self.initialized_len == 0
+    }
+
     /// Returns an iterator of the elements currently in the queue.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         let len = self.uninit_slice.len();

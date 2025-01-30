@@ -1,9 +1,11 @@
 use core::{ops::Range, str};
 
-use arrayvec::ArrayString;
+use arrayvec::{ArrayString, ArrayVec};
+
+use crate::resources::assets::MAX_MIPS;
 
 use super::{
-    assets::{AudioClipAsset, TextureAsset},
+    assets::{AudioClipAsset, TextureAsset, TextureMipLevel},
     chunks::{ChunkDescriptor, TextureChunkDescriptor},
     NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
@@ -98,16 +100,27 @@ impl Deserialize for AudioClipAsset {
 }
 
 impl Deserialize for TextureAsset {
-    const SERIALIZED_SIZE: usize = u16::SERIALIZED_SIZE * 2
-        + bool::SERIALIZED_SIZE
+    const SERIALIZED_SIZE: usize = bool::SERIALIZED_SIZE
+        + <ArrayVec<TextureMipLevel, MAX_MIPS> as Deserialize>::SERIALIZED_SIZE;
+    fn deserialize(src: &[u8]) -> Self {
+        assert_eq!(Self::SERIALIZED_SIZE, src.len());
+        let mut cursor = 0;
+        Self {
+            transparent: deserialize::<bool>(src, &mut cursor),
+            mip_chain: deserialize::<ArrayVec<TextureMipLevel, MAX_MIPS>>(src, &mut cursor),
+        }
+    }
+}
+
+impl Deserialize for TextureMipLevel {
+    const SERIALIZED_SIZE: usize = <(u16, u16) as Deserialize>::SERIALIZED_SIZE * 2
         + <Range<u32> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
         Self {
-            width: deserialize::<u16>(src, &mut cursor),
-            height: deserialize::<u16>(src, &mut cursor),
-            transparent: deserialize::<bool>(src, &mut cursor),
+            offset: deserialize::<(u16, u16)>(src, &mut cursor),
+            size: deserialize::<(u16, u16)>(src, &mut cursor),
             texture_chunks: deserialize::<Range<u32>>(src, &mut cursor),
         }
     }
@@ -137,6 +150,25 @@ impl<const LEN: usize> Deserialize for ArrayString<LEN> {
     }
 }
 
+impl<T: Deserialize, const LEN: usize> Deserialize for ArrayVec<T, LEN> {
+    const SERIALIZED_SIZE: usize = u8::SERIALIZED_SIZE + T::SERIALIZED_SIZE * LEN;
+    fn deserialize(src: &[u8]) -> Self {
+        assert_eq!(Self::SERIALIZED_SIZE, src.len());
+        assert!(
+            LEN < 0xFF,
+            "deserialization impl for ArrayVec only supports lengths up to 255",
+        );
+        let mut cursor = 0;
+        let len = deserialize::<u8>(src, &mut cursor) as usize;
+        assert!(len <= LEN, "serialized vec cannot fit");
+        let mut vec = ArrayVec::new();
+        for _ in 0..len {
+            vec.push(deserialize::<T>(src, &mut cursor));
+        }
+        vec
+    }
+}
+
 impl Deserialize for Range<u64> {
     const SERIALIZED_SIZE: usize = u64::SERIALIZED_SIZE * 2;
     #[inline]
@@ -156,6 +188,17 @@ impl Deserialize for Range<u32> {
         let start = u32::deserialize(&src[0..4]);
         let end = u32::deserialize(&src[4..8]);
         start..end
+    }
+}
+
+impl Deserialize for (u16, u16) {
+    const SERIALIZED_SIZE: usize = u16::SERIALIZED_SIZE * 2;
+    #[inline]
+    fn deserialize(src: &[u8]) -> Self {
+        assert_eq!(Self::SERIALIZED_SIZE, src.len());
+        let u0 = u16::deserialize(&src[0..2]);
+        let u1 = u16::deserialize(&src[2..4]);
+        (u0, u1)
     }
 }
 

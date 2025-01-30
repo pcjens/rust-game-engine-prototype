@@ -84,8 +84,12 @@ impl ResourceLoader {
 
     /// Starts file read operations for the queued up chunk loading requests.
     pub fn dispatch_reads(&mut self, resources: &ResourceDatabase, platform: &dyn Pal) {
+        let mut dispatched_any = false;
         while let Some(LoadRequest { size, .. }) = self.to_load_queue.peek_front() {
             let Some(staging_slice) = self.staging_buffer.allocate(*size) else {
+                if !dispatched_any && self.in_flight_queue.is_empty() {
+                    panic!("resource loader has no in-flight loads, but staging buffer can't fit a single read (staging_buffer_size too low?)");
+                }
                 break;
             };
             let (buffer, read_buffer_metadata) = staging_slice.into_parts();
@@ -109,6 +113,8 @@ impl ResourceLoader {
                 })
                 .ok()
                 .unwrap();
+
+            dispatched_any = true;
         }
     }
 
