@@ -138,6 +138,14 @@ impl Sdl2Pal {
                 match event {
                     Event::Quit { .. } => {
                         self.exit_requested.set(true);
+                        thread::spawn(|| {
+                            // Force-exit the process after 1s, cleanup is pretty optional anyway.
+                            thread::sleep(Duration::from_secs(1));
+                            eprintln!(
+                                "Resource cleanup is taking too long, exiting non-gracefully."
+                            );
+                            std::process::exit(1);
+                        });
                     }
                     Event::KeyDown {
                         keycode: Some(Keycode::Q),

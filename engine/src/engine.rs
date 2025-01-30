@@ -67,7 +67,8 @@ impl<'eng> Engine<'eng> {
             .expect("resources.db should exist and be readable");
         let resource_db = ResourceDatabase::new(platform, persistent_arena, db_file, 1, 1)
             .expect("persistent arena should have enough memory for the resource database");
-        let resource_loader = ResourceLoader::new(persistent_arena, 64, &resource_db)
+        let staging_size = resource_db.largest_chunk_source() as usize;
+        let resource_loader = ResourceLoader::new(persistent_arena, staging_size, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
         let test_texture = resource_db.find_texture("testing texture").unwrap();

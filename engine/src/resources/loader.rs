@@ -35,11 +35,21 @@ pub struct ResourceLoader {
 }
 
 impl ResourceLoader {
+    /// Creates a resource loader with the given amount of staging memory.
+    ///
+    /// `staging_buffer_size` should be at least
+    /// [`ResourceDatabase::largest_chunk_source`].
+    #[track_caller]
     pub fn new(
         arena: &'static StaticAllocator,
         staging_buffer_size: usize,
         resource_db: &ResourceDatabase,
     ) -> Option<ResourceLoader> {
+        assert!(
+            staging_buffer_size as u64 >= resource_db.largest_chunk_source(),
+            "staging_buffer_size is smaller than the resource database's largest_chunk_source()",
+        );
+
         let total_chunks = resource_db.chunks.array_len() + resource_db.texture_chunks.array_len();
         Some(ResourceLoader {
             staging_buffer: RingBuffer::new(arena, staging_buffer_size)?,
@@ -84,12 +94,8 @@ impl ResourceLoader {
 
     /// Starts file read operations for the queued up chunk loading requests.
     pub fn dispatch_reads(&mut self, resources: &ResourceDatabase, platform: &dyn Pal) {
-        let mut dispatched_any = false;
         while let Some(LoadRequest { size, .. }) = self.to_load_queue.peek_front() {
             let Some(staging_slice) = self.staging_buffer.allocate(*size) else {
-                if !dispatched_any && self.in_flight_queue.is_empty() {
-                    panic!("resource loader has no in-flight loads, but staging buffer can't fit a single read (staging_buffer_size too low?)");
-                }
                 break;
             };
             let (buffer, read_buffer_metadata) = staging_slice.into_parts();
@@ -113,8 +119,6 @@ impl ResourceLoader {
                 })
                 .ok()
                 .unwrap();
-
-            dispatched_any = true;
         }
     }
 

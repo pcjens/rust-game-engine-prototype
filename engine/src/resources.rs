@@ -113,6 +113,21 @@ impl ResourceDatabase {
             audio_clips: sorted(deserialize_from_file(arena, audio_clips, platform)?),
         })
     }
+
+    /// Returns the longest source bytes length of all the chunks, i.e. the
+    /// minimum amount of staging memory required to be able to load any chunk
+    /// in this database.
+    pub fn largest_chunk_source(&self) -> u64 {
+        let largest_chunk_source = (self.chunk_descriptors.iter())
+            .map(|chunk| chunk.source_bytes.end - chunk.source_bytes.start)
+            .max()
+            .unwrap_or(0);
+        let largest_texture_chunk_source = (self.texture_chunk_descriptors.iter())
+            .map(|chunk| chunk.source_bytes.end - chunk.source_bytes.start)
+            .max()
+            .unwrap_or(0);
+        largest_chunk_source.max(largest_texture_chunk_source)
+    }
 }
 
 fn sorted<T: Ord>(mut input: FixedVec<'_, T>) -> FixedVec<'_, T> {
