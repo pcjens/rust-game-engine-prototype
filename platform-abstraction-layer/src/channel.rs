@@ -127,13 +127,13 @@ impl<T: Sync> Sender<T> {
             *slot = CachePadded::new(Some(value));
         }
 
-        self.ch.write_semaphore.increment();
-
         // 4. Update the write offset, making the written value visible to the
         //    receiver.
         self.ch
             .write_offset
             .store(next_write_offset, Ordering::Release);
+
+        self.ch.write_semaphore.increment();
 
         Ok(())
     }
@@ -158,13 +158,6 @@ impl<T: Sync> Receiver<T> {
         self.ch.write_semaphore.decrement();
         self.recv_impl()
             .expect("send should've been called before this receive")
-    }
-
-    /// Returns the oldest sent value on this channel if there are any.
-    pub fn try_recv(&mut self) -> Option<T> {
-        let value = self.recv_impl()?;
-        self.ch.write_semaphore.decrement();
-        Some(value)
     }
 
     fn recv_impl(&mut self) -> Option<T> {
@@ -302,7 +295,7 @@ mod tests {
     fn sender_and_receiver_are_send() {
         let (mut tx, mut rx) = leak_channel::<u32>(1);
         spawn(move || tx.send(123).unwrap());
-        assert_eq!(123, rx.try_recv().unwrap());
+        assert_eq!(123, rx.recv());
     }
 
     #[test]
@@ -330,9 +323,8 @@ mod tests {
         }
         assert_eq!(Err(123), tx.send(123));
         for i in 0..CAP {
-            assert_eq!(123 + i, rx.try_recv().unwrap());
+            assert_eq!(123 + i, rx.recv());
         }
-        assert_eq!(None, rx.try_recv());
     }
 
     #[test]
@@ -340,17 +332,17 @@ mod tests {
         let (mut tx, mut rx) = leak_channel::<u32>(2);
 
         tx.send(12).unwrap();
-        assert_eq!(12, rx.try_recv().unwrap());
+        assert_eq!(12, rx.recv());
         tx.send(34).unwrap();
-        assert_eq!(34, rx.try_recv().unwrap());
+        assert_eq!(34, rx.recv());
         tx.send(56).unwrap();
-        assert_eq!(56, rx.try_recv().unwrap());
+        assert_eq!(56, rx.recv());
         tx.send(78).unwrap();
-        assert_eq!(78, rx.try_recv().unwrap());
+        assert_eq!(78, rx.recv());
 
         tx.send(21).unwrap();
         tx.send(43).unwrap();
-        assert_eq!(21, rx.try_recv().unwrap());
-        assert_eq!(43, rx.try_recv().unwrap());
+        assert_eq!(21, rx.recv());
+        assert_eq!(43, rx.recv());
     }
 }
