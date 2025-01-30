@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-use core::{cell::Cell, ffi::c_void, fmt::Arguments, time::Duration};
+use core::{cell::Cell, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
@@ -176,15 +176,6 @@ impl Pal for TestPlatform {
         if !clean {
             panic!("TestPlatform::exit({clean}) was called (test ran into an error?)");
         }
-    }
-
-    fn malloc(&self, size: usize) -> *mut c_void {
-        // Safety: ffi call, handling the possible null pointer is up to the caller
-        unsafe { libc::malloc(size) }
-    }
-
-    unsafe fn free(&self, ptr: *mut c_void) {
-        libc::free(ptr);
     }
 }
 

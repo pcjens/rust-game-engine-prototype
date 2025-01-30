@@ -114,14 +114,17 @@ impl<T> Queue<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{allocators::LinearAllocator, test_platform::TestPlatform};
+    use crate::{
+        allocators::{LinearAllocator, StaticAllocator},
+        static_allocator,
+    };
 
     use super::Queue;
 
     #[test]
     fn pushes_and_pops_in_fifo_order() {
-        let platform = TestPlatform::new();
-        let alloc = LinearAllocator::new(&platform, 2).unwrap();
+        static ARENA: &StaticAllocator = static_allocator!(2);
+        let alloc = LinearAllocator::new(ARENA, 2).unwrap();
         let mut queue = Queue::<u8>::new(&alloc, 2).unwrap();
 
         assert!(queue.push_back(0).is_ok());
@@ -143,8 +146,8 @@ mod tests {
 
     #[test]
     fn iter_works() {
-        let platform = TestPlatform::new();
-        let alloc = LinearAllocator::new(&platform, 3).unwrap();
+        static ARENA: &StaticAllocator = static_allocator!(3);
+        let alloc = LinearAllocator::new(ARENA, 3).unwrap();
         let mut queue = Queue::<u8>::new(&alloc, 3).unwrap();
         queue.push_back(0).unwrap();
         queue.push_back(1).unwrap();

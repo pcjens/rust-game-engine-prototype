@@ -10,7 +10,7 @@ pub mod thread_pool;
 
 use arrayvec::ArrayVec;
 
-use core::{ffi::c_void, fmt::Arguments, time::Duration};
+use core::{fmt::Arguments, time::Duration};
 
 pub use boxed::*;
 pub use input::*;
@@ -147,23 +147,4 @@ pub trait Pal {
     /// resource clean up. In failure cases, the idea is to bail asap, but it's
     /// up to the platform.
     fn exit(&self, clean: bool);
-
-    /// Allocate the given amount of bytes (returning a null pointer on error).
-    /// Not called often from the engine, memory is allocated in big chunks, so
-    /// this can be slow and defensively implemented.
-    ///
-    /// The implementation should make sure the pointer is shareable between
-    /// threads.
-    fn malloc(&self, size: usize) -> *mut c_void;
-
-    /// Free the memory allocated by [`Pal::malloc`]. Not called often from the
-    /// engine, memory is allocated in big chunks, so this can be slow and
-    /// defensively implemented.
-    ///
-    /// ### Safety
-    ///
-    /// - Since the implementation is free to free the memory, the memory
-    ///   pointed at by the given pointer shouldn't be accessed after calling
-    ///   this.
-    unsafe fn free(&self, ptr: *mut c_void);
 }

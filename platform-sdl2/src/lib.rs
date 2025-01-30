@@ -30,7 +30,7 @@ use sdl2::{
 use sdl2_sys::{
     SDL_BlendMode, SDL_Color, SDL_GameController, SDL_GameControllerGetType,
     SDL_GameControllerOpen, SDL_GameControllerType, SDL_RenderGeometryRaw, SDL_Renderer,
-    SDL_ScaleMode, SDL_SetTextureBlendMode, SDL_SetTextureScaleMode, SDL_free, SDL_malloc,
+    SDL_ScaleMode, SDL_SetTextureBlendMode, SDL_SetTextureScaleMode,
 };
 
 enum Hid {
@@ -631,15 +631,6 @@ impl Pal for Sdl2Pal {
             exit(1);
         }
         self.exit_requested.set(true);
-    }
-
-    fn malloc(&self, size: usize) -> *mut c_void {
-        // Safety: ffi is unsafe by default, but there's nothing to ensure here.
-        unsafe { SDL_malloc(size) }
-    }
-
-    unsafe fn free(&self, ptr: *mut c_void) {
-        SDL_free(ptr)
     }
 }
 

@@ -59,7 +59,7 @@ impl<'eng> Engine<'eng> {
         let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 4)
             .expect("persistent arena should have enough memory for the thread pool");
 
-        let frame_arena = LinearAllocator::new(platform, 10_000)
+        let frame_arena = LinearAllocator::new(persistent_arena, 10_000)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
@@ -91,7 +91,7 @@ impl EngineCallbacks for Engine<'_> {
         let timestamp = platform.elapsed();
         self.frame_arena.reset();
 
-        let mut test_numbers = [1i32; 100];
+        let mut test_numbers = [1i32; 32];
         thread_pool_scope(&mut self.thread_pool, &self.frame_arena, |thread_pool| {
             let test_numbers = thread_pool
                 .scatter(&mut test_numbers, |numbers| {

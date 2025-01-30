@@ -1,13 +1,14 @@
 use core::{
     ffi::c_void,
     fmt::Debug,
+    marker::PhantomData,
     mem::{transmute, MaybeUninit},
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use bytemuck::{fill_zeroes, Zeroable};
-use platform_abstraction_layer::{Box, Pal};
+use platform_abstraction_layer::Box;
 
 #[allow(unused_imports)] // used in docs
 use crate::allocators::{static_allocator, StaticAllocator};
@@ -16,12 +17,10 @@ use crate::allocators::{static_allocator, StaticAllocator};
 /// with any size or alignment (within the capacity) very fast, but individual
 /// allocations can't be freed to make more space while there's still other
 /// allocations in use.
-pub struct LinearAllocator<'eng> {
+pub struct LinearAllocator<'a> {
+    backing_mem_lifetime_holder: PhantomData<&'a mut ()>,
     backing_mem_ptr: *mut c_void,
     backing_mem_size: usize,
-    /// The platform where the memory was allocated from. If `None`, the backing
-    /// memory is leaked.
-    platform: Option<&'eng dyn Pal>,
     /// The amount of bytes allocated starting from `backing_mem_ptr`. Can
     /// overflow `backing_mem_size` when the allocator reaches capacity, but in
     /// such a case, we don't even create a reference to the out-of-bounds area
@@ -39,43 +38,25 @@ impl Debug for LinearAllocator<'_> {
     }
 }
 
-impl Drop for LinearAllocator<'_> {
-    fn drop(&mut self) {
-        self.reset();
-        if let Some(platform) = self.platform {
-            // Safety: since we have an exclusive borrow of self, and within
-            // this scope, we've "freed" all the allocations, we can be sure
-            // that there's no pointers to the memory backed by this pointer
-            // anymore, so it's safe to free. See further safety explanation in
-            // the reset implementation.
-            unsafe { platform.free(self.backing_mem_ptr) };
-        }
-    }
-}
-
 impl LinearAllocator<'_> {
     /// Creates a new [`LinearAllocator`] with `capacity` bytes of backing
     /// memory. Returns None if allocating the memory fails or if `capacity`
     /// overflows `isize`.
-    pub fn new(platform: &dyn Pal, capacity: usize) -> Option<LinearAllocator> {
+    ///
+    /// See [`StaticAllocator`] for bootstrapping one of these.
+    pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<LinearAllocator<'a>> {
         if capacity > isize::MAX as usize {
             // Practically never happens, but asserting this here helps avoid a
             // safety check later.
             return None;
         }
 
-        // The pointer returned by malloc should be shareable between threads,
-        // see the impl notes in the doc.
-        let backing_mem_ptr = platform.malloc(capacity);
-        if backing_mem_ptr.is_null() {
-            return None;
-        }
+        let buffer: &'a mut [MaybeUninit<u8>] = allocator.try_alloc_uninit_slice(capacity)?;
 
         Some(LinearAllocator {
-            backing_mem_ptr,
-            backing_mem_size: capacity,
-            platform: Some(platform),
-
+            backing_mem_lifetime_holder: PhantomData,
+            backing_mem_ptr: buffer.as_mut_ptr() as *mut c_void,
+            backing_mem_size: buffer.len(),
             allocated: AtomicUsize::new(0),
         })
     }
@@ -97,13 +78,13 @@ impl LinearAllocator<'_> {
     /// pointed to by it for 'static.
     pub const unsafe fn from_raw_slice(backing_slice: *mut [u8]) -> LinearAllocator<'static> {
         LinearAllocator {
+            backing_mem_lifetime_holder: PhantomData,
             backing_mem_ptr: (*backing_slice).as_mut_ptr() as *mut c_void,
             backing_mem_size: if backing_slice.len() > isize::MAX as usize {
                 isize::MAX as usize
             } else {
                 backing_slice.len()
             },
-            platform: None,
             allocated: AtomicUsize::new(0),
         }
     }

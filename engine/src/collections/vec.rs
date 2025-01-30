@@ -178,7 +178,10 @@ mod tests {
 
     use arrayvec::ArrayString;
 
-    use crate::{allocators::LinearAllocator, collections::FixedVec, test_platform::TestPlatform};
+    use crate::{
+        allocators::{static_allocator, LinearAllocator, StaticAllocator},
+        collections::FixedVec,
+    };
 
     #[test]
     fn does_not_leak() {
@@ -205,12 +208,9 @@ mod tests {
             }
         }
 
-        let platform = TestPlatform::new();
-        let alloc = LinearAllocator::new(
-            &platform,
-            size_of::<Element>() * COUNT + align_of::<Element>() - 1,
-        )
-        .unwrap();
+        const ALLOCATOR_SIZE: usize = size_of::<Element>() * COUNT + align_of::<Element>() - 1;
+        static ARENA: &StaticAllocator = static_allocator!(ALLOCATOR_SIZE);
+        let alloc = LinearAllocator::new(ARENA, ALLOCATOR_SIZE).unwrap();
         let mut vec: FixedVec<Element> = FixedVec::new(&alloc, COUNT).unwrap();
 
         // Fill once:
