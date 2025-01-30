@@ -1,4 +1,13 @@
-use core::ptr;
+pub trait SemaphoreImpl: Sync {
+    fn increment(&self);
+    fn decrement(&self);
+}
+
+struct SingleThreadedSemaphore;
+impl SemaphoreImpl for SingleThreadedSemaphore {
+    fn increment(&self) {}
+    fn decrement(&self) {}
+}
 
 /// Atomically counting semaphore for efficiently waiting on other threads,
 /// intended to be created by the platform implementation, making use of OS
@@ -10,10 +19,8 @@ use core::ptr;
 #[derive(Clone)]
 pub struct Semaphore {
     // TODO: replace with a *const dyn SemaphoreTrait + Sync or similar?
-    semaphore_ptr: *const (),
-    increment_fn: Option<fn(*const ())>,
-    decrement_fn: Option<fn(*const ())>,
-    drop_fn: Option<fn(*const ())>,
+    semaphore_ptr: *const dyn SemaphoreImpl,
+    drop_fn: Option<fn(*const dyn SemaphoreImpl)>,
 }
 
 // Safety: Semaphore::single_threaded makes sure this struct is inert,
@@ -24,42 +31,37 @@ impl Semaphore {
     /// Creates a semaphore from very raw parts. Intended to be used in a
     /// platform implementation.
     ///
-    /// `semaphore_ptr` represents the semaphore value (possibly pointing to
-    /// some data) and the functions will get that pointer passed in when
-    /// called.
+    /// `drop_fn` is called in Semaphore's drop implementation and
+    /// `semaphore_ptr` is passed in. The `semaphore_ptr` isn't used after that.
     ///
     /// ### Safety
     ///
-    /// `semaphore_ptr` should be safe to access from other threads, and the
-    /// functions should expect to be called from different threads.
+    /// `semaphore_ptr` should be valid for the whole lifetime of the semaphore
+    /// (until drop).
     pub unsafe fn new(
-        semaphore_ptr: *const (),
-        increment_fn: Option<fn(*const ())>,
-        decrement_fn: Option<fn(*const ())>,
-        drop_fn: Option<fn(*const ())>,
+        semaphore_ptr: *const dyn SemaphoreImpl,
+        drop_fn: Option<fn(*const dyn SemaphoreImpl)>,
     ) -> Semaphore {
         Semaphore {
             semaphore_ptr,
-            increment_fn,
-            decrement_fn,
             drop_fn,
         }
     }
 
+    /// Creates a no-op semaphore. Fits single-threaded platforms — will cause
+    /// panics if used in multi-threaded ones.
     pub fn single_threaded() -> Semaphore {
         Semaphore {
-            semaphore_ptr: ptr::null(),
-            increment_fn: None,
-            decrement_fn: None,
+            semaphore_ptr: &SingleThreadedSemaphore,
             drop_fn: None,
         }
     }
 
     /// Increments the semaphore's count.
     pub fn increment(&self) {
-        if let Some(increment) = self.increment_fn {
-            increment(self.semaphore_ptr);
-        }
+        // Safety: the constructor requires the pointer to be valid to use for
+        // the whole lifetime of the semaphore.
+        unsafe { &(*self.semaphore_ptr) }.increment();
     }
 
     /// Waits until the count is positive, and then decrements the semaphore's
@@ -70,9 +72,9 @@ impl Semaphore {
     /// for unsafe operations. However, it's fine to panic in such a case,
     /// because it's a clear bug.
     pub fn decrement(&self) {
-        if let Some(decrement) = self.decrement_fn {
-            decrement(self.semaphore_ptr);
-        }
+        // Safety: the constructor requires the pointer to be valid to use for
+        // the whole lifetime of the semaphore.
+        unsafe { &(*self.semaphore_ptr) }.decrement();
     }
 }
 

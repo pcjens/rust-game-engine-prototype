@@ -1,3 +1,6 @@
+#[cfg(feature = "std")]
+extern crate std;
+
 use core::{cell::Cell, ffi::c_void, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
@@ -92,18 +95,58 @@ impl Pal for TestPlatform {
         Ok(buffer)
     }
 
+    #[cfg(not(feature = "std"))]
     fn create_semaphore(&self) -> Semaphore {
         Semaphore::single_threaded()
     }
 
-    // TODO: make TestPlatform multithreaded if the std feature is in use, so that any multithreaded code paths get tested as well
-
+    #[cfg(not(feature = "std"))]
     fn thread_pool_size(&self) -> Option<usize> {
         None
     }
 
+    #[cfg(not(feature = "std"))]
     fn spawn_pool_thread(&self, _channels: [TaskChannel; 2]) -> ThreadState {
         unimplemented!("TestPlatform is single-threaded")
+    }
+
+    #[cfg(feature = "std")]
+    fn create_semaphore(&self) -> Semaphore {
+        semaphore::create()
+    }
+
+    #[cfg(feature = "std")]
+    fn thread_pool_size(&self) -> Option<usize> {
+        // Ideally this would be a constant, but in case the actual available
+        // parallellism is just 1, the thread pool could deadlock.
+        let parallellism = std::thread::available_parallelism().ok()?.get();
+        if parallellism > 1 {
+            Some(3)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn spawn_pool_thread(&self, channels: [TaskChannel; 2]) -> ThreadState {
+        let [(task_sender, mut task_receiver), (mut result_sender, result_receiver)] = channels;
+        std::thread::Builder::new()
+            .name(std::string::String::from("pool-thread-in-test"))
+            .spawn(move || loop {
+                let mut task = task_receiver.recv();
+                task.run();
+                'send_result: loop {
+                    match result_sender.send(task) {
+                        Ok(()) => break 'send_result,
+                        Err(task_) => {
+                            std::thread::sleep(Duration::from_millis(1));
+                            task = task_;
+                        }
+                    }
+                }
+            })
+            .unwrap();
+        ThreadState::new(task_sender, result_receiver)
     }
 
     fn input_devices(&self) -> InputDevices {
@@ -142,5 +185,46 @@ impl Pal for TestPlatform {
 
     unsafe fn free(&self, ptr: *mut c_void) {
         libc::free(ptr);
+    }
+}
+
+#[cfg(feature = "std")]
+mod semaphore {
+    extern crate std;
+
+    use std::boxed::Box;
+    use std::sync::{Condvar, Mutex};
+
+    use platform_abstraction_layer as pal;
+
+    struct Semaphore {
+        value: Mutex<u32>,
+        condvar: Condvar,
+    }
+
+    impl pal::SemaphoreImpl for Semaphore {
+        fn increment(&self) {
+            let mut value_lock = self.value.lock().unwrap();
+            *value_lock += 1;
+            self.condvar.notify_one();
+        }
+
+        fn decrement(&self) {
+            let mut value_lock = self.value.lock().unwrap();
+            while *value_lock == 0 {
+                value_lock = self.condvar.wait(value_lock).unwrap();
+            }
+            *value_lock -= 1;
+        }
+    }
+
+    pub fn create() -> pal::Semaphore {
+        let semaphore: &'static mut Semaphore = Box::leak(Box::new(Semaphore {
+            value: Mutex::new(0),
+            condvar: Condvar::new(),
+        }));
+        // Safety: the semaphore is definitely valid for the entire lifetime of
+        // the semaphore, since we have a static borrow of it.
+        unsafe { pal::Semaphore::new(semaphore, None) }
     }
 }
