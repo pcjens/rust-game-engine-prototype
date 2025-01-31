@@ -56,18 +56,18 @@ impl<'eng> Engine<'eng> {
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
 
-        let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 4)
+        let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 1)
             .expect("persistent arena should have enough memory for the thread pool");
 
-        let frame_arena = LinearAllocator::new(persistent_arena, 10_000)
+        let frame_arena = LinearAllocator::new(persistent_arena, 8 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
-        let resource_db = ResourceDatabase::new(platform, persistent_arena, db_file, 1, 1)
+        let resource_db = ResourceDatabase::new(platform, persistent_arena, db_file, 512, 512)
             .expect("persistent arena should have enough memory for the resource database");
-        let staging_size = resource_db.largest_chunk_source() as usize;
+        let staging_size = 8 * 1024 * 1024;
         let resource_loader = ResourceLoader::new(persistent_arena, staging_size, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
@@ -185,7 +185,7 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(100_000);
+        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(64 * 1024 * 1024);
         let mut engine = Engine::new(&platform, PERSISTENT_ARENA);
 
         let fps = 30;
