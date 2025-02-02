@@ -13,22 +13,25 @@ jobs:
   test-linux:
     runs-on: ubuntu-latest
     steps:
-    - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
     - run: cargo test
+    - run: cargo test --package=engine
   test-windows:
     runs-on: windows-latest
     steps:
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --features=static-sdl2
+    - run: cargo test --features="sdl2-sys/static-link"
+    # The engine package is (thankfully) the only library in this workspace with
+    # features, so just as a sanity check, test it without the features as well.
+    - run: cargo test --package=engine --no-default-features
   test-macos:
     runs-on: macos-latest
     steps:
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --features=static-sdl2
+    - run: cargo test --features="sdl2-sys/static-link"
   test-web:
     runs-on: ubuntu-latest
     steps:
@@ -38,10 +41,10 @@ jobs:
     - uses: actions/setup-node@v4
     - uses: mymindstorm/setup-emsdk@v14
     - uses: actions/checkout@v3
-    - run: cargo test --target=wasm32-unknown-emscripten
+    - run: cargo test --target=wasm32-unknown-emscripten --features="sdl2-sys/static-link"
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
-        RUSTFLAGS: -C link-arg=-sUSE_SDL=2 -C link-arg=-sSTACK_SIZE=1000000
+        RUSTFLAGS: -C link-arg=-sSTACK_SIZE=1000000
   test-miri:
     runs-on: ubuntu-latest
     steps:
@@ -49,7 +52,7 @@ jobs:
       with:
         components: miri
     - uses: actions/checkout@v3
-    - run: cargo miri test --all-features
+    - run: cargo miri test
       env:
         # Leaks are ignored because intentional Box::leak is reported as such.
-        MIRIFLAGS: -Zmiri-ignore-leaks -Zmiri-num-cpus=3 -Zmiri-many-seeds=0..16 -Zmiri-symbolic-alignment-check
+        MIRIFLAGS: -Zmiri-ignore-leaks -Zmiri-many-seeds=0..16 -Zmiri-symbolic-alignment-check
