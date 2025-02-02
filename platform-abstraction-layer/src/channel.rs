@@ -260,6 +260,7 @@ mod sync_unsafe_cell {
 ///
 /// This is just for tests.
 #[doc(hidden)]
+#[cfg(test)]
 pub fn leak_channel<T: Sync>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     extern crate alloc;
     use alloc::boxed::Box;

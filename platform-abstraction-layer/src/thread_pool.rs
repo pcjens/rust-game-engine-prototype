@@ -41,6 +41,10 @@ pub struct TaskInFlight {
     /// Pass `self.func` and `self.data` in here to call the function with the
     /// right types.
     func_proxy: fn(func: *const (), data: *mut ()),
+    /// Can be set to true by the processing thread to signal that the thread
+    /// panicked. This will cause the join function to panic with "a thread in
+    /// the thread pool panicked" when joining this task.
+    thread_panicked: bool,
 }
 
 impl TaskInFlight {
@@ -56,10 +60,25 @@ impl TaskInFlight {
         }
     }
 
+    /// Signals the thread pool that the thread responsible for running this
+    /// task panicked. This can be used to propagate the panic to the main
+    /// thread.
+    pub fn signal_panic(&mut self) {
+        self.thread_panicked = true;
+    }
+
+    /// Panics if the thread running this task has panicked, runs the task if
+    /// the task hasn't been ran and it didn't panic, and finally, returns the
+    /// data operated on by this task. Called by [`ThreadPool::join_task`].
+    ///
     /// ### Safety
     /// The type parameter `T` must match the original type parameter `T` of
     /// [`ThreadPool::spawn_task`] exactly.
     unsafe fn join<T>(mut self, run_if_not_finished: bool) -> Box<T> {
+        if self.thread_panicked {
+            panic!("a thread in the thread pool panicked");
+        }
+
         if !self.finished && run_if_not_finished {
             self.run();
         }
@@ -236,6 +255,7 @@ impl ThreadPool {
             data,
             func,
             func_proxy: proxy::<T>,
+            thread_panicked: false,
         };
 
         (self.threads[thread_index].sender)
@@ -286,43 +306,33 @@ impl ThreadPool {
     }
 }
 
-/// Create a new thread pool using `alloc::boxed::Box` for allocation (by Boxing
-/// and then leaking the memory).
-///
-/// This is just for tests.
-#[doc(hidden)]
-pub fn leak_single_threaded_thread_pool(queue_length: usize) -> ThreadPool {
+#[cfg(test)]
+mod tests {
     extern crate alloc;
+
     use crate::{self as pal, channel::leak_channel};
     use alloc::boxed::Box;
 
-    // Generally you'd create two channels for thread<->thread communication,
-    // but in a single-threaded situation, the channel works as a simple work
-    // queue.
-    let (tx, rx) = leak_channel::<TaskInFlight>(queue_length);
-    let thread_state = ThreadState::new(tx, rx);
-    let threads = Box::leak(Box::new([thread_state]));
-    ThreadPool::new(pal::Box::from_mut(threads)).unwrap()
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::Box;
-
-    use super::leak_single_threaded_thread_pool;
+    use super::{TaskInFlight, ThreadPool, ThreadState};
 
     #[derive(Debug)]
     struct ExampleData(u32);
 
     #[test]
     fn single_threaded_pool_works() {
-        let mut thread_pool = leak_single_threaded_thread_pool(1);
+        // Generally you'd create two channels for thread<->thread
+        // communication, but in a single-threaded situation, the channel works
+        // as a simple work queue.
+        let (tx, rx) = leak_channel::<TaskInFlight>(1);
+        let thread_state = ThreadState::new(tx, rx);
+        let threads = Box::leak(Box::new([thread_state]));
+        let mut thread_pool = ThreadPool::new(pal::Box::from_mut(threads)).unwrap();
 
         let mut data = ExampleData(0);
         {
             // Safety: `data` is dropped after this scope, and this Box does not
             // leave this scope, so `data` outlives this Box.
-            let data_boxed: Box<ExampleData> = unsafe { Box::from_ptr(&raw mut data) };
+            let data_boxed: pal::Box<ExampleData> = unsafe { pal::Box::from_ptr(&raw mut data) };
             assert_eq!(0, data_boxed.0);
 
             let handle = thread_pool.spawn_task(data_boxed, |n| n.0 = 1).unwrap();

@@ -4,6 +4,7 @@ use std::{
     fmt::Arguments,
     fs::File,
     io::{self, Read, Seek, SeekFrom},
+    panic,
     path::PathBuf,
     process::exit,
     ptr::{addr_of, null_mut},
@@ -515,14 +516,10 @@ impl Pal for Sdl2Pal {
         unsafe { pal::Semaphore::new(semaphore, None) }
     }
 
-    fn thread_pool_size(&self) -> Option<usize> {
-        let parallellism = thread::available_parallelism().map(|u| u.get()).ok()?;
-        if parallellism > 1 {
-            // Leave one thread for the main thread
-            Some(parallellism - 1)
-        } else {
-            None
-        }
+    fn available_parallelism(&self) -> usize {
+        thread::available_parallelism()
+            .map(|u| u.get())
+            .unwrap_or(1)
     }
 
     fn spawn_pool_thread(&self, channels: [pal::TaskChannel; 2]) -> pal::ThreadState {
@@ -531,7 +528,14 @@ impl Pal for Sdl2Pal {
             .name("threadpool".to_string())
             .spawn(move || loop {
                 let mut task = task_receiver.recv();
-                task.run();
+
+                let result = panic::catch_unwind(panic::AssertUnwindSafe(|| task.run()));
+                if result.is_err() {
+                    // Signal the main thread that we panicked, but don't resume
+                    // until we've sent this information back.
+                    task.signal_panic();
+                }
+
                 'send_result: loop {
                     match result_sender.send(task) {
                         Ok(()) => break 'send_result,
@@ -540,6 +544,11 @@ impl Pal for Sdl2Pal {
                             task = task_;
                         }
                     }
+                }
+
+                if let Err(err) = result {
+                    // We can now resume panicking without causing a hang.
+                    panic::resume_unwind(err);
                 }
             })
             .unwrap();

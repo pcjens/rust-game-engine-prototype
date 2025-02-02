@@ -9,7 +9,7 @@ use platform_abstraction_layer::{
 use crate::{
     allocators::{LinearAllocator, StaticAllocator},
     input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
-    multithreading::{self, thread_pool_scope},
+    multithreading::{self, parallelize},
     renderer::DrawQueue,
     resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
 };
@@ -91,53 +91,55 @@ impl EngineCallbacks for Engine<'_> {
         let timestamp = platform.elapsed();
         self.frame_arena.reset();
 
-        let mut test_numbers = [1i32; 32];
-        thread_pool_scope(&mut self.thread_pool, &self.frame_arena, |thread_pool| {
-            let test_numbers = thread_pool
-                .scatter(&mut test_numbers, |numbers| {
-                    for number in numbers {
-                        *number *= 2;
-                    }
-                })
-                .unwrap();
+        self.event_queue
+            .retain(|queued| !queued.timed_out(timestamp));
 
-            self.event_queue
-                .retain(|queued| !queued.timed_out(timestamp));
+        self.resource_loader
+            .finish_reads(&mut self.resource_db, platform);
 
-            self.resource_loader
-                .finish_reads(&mut self.resource_db, platform);
+        let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
 
-            let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
+        // Testing area follows, could be considered "game code" for now:
 
-            // Testing area follows, could be considered "game code" for now:
-
-            let mut action_test = false;
-
-            if let Some(input) = &mut self.test_input {
-                input.update(&mut self.event_queue);
-                action_test = input.actions[TestInput::Act].pressed;
-            }
-
-            let test_texture = self.resource_db.get_texture(self.test_texture);
-            let (w, _) = platform.draw_area();
-            let w = if action_test { w / 2. } else { w };
-            test_texture.draw(
-                (w / 2., 200.0, 400.0, 400.0),
-                0,
-                &mut draw_queue,
-                &self.resource_db,
-                &mut self.resource_loader,
-            );
-
-            draw_queue.dispatch_draw(&self.frame_arena, platform);
-
-            self.resource_loader
-                .dispatch_reads(&self.resource_db, platform);
-
-            let test_numbers = thread_pool.gather(test_numbers).unwrap();
-            assert!(test_numbers.iter().all(|i| *i == 2));
-        })
+        let mut test_numbers = [1, 2, 3, 4];
+        parallelize(
+            &mut self.thread_pool,
+            &self.frame_arena,
+            &mut test_numbers,
+            |numbers| {
+                for number in numbers {
+                    *number *= *number;
+                }
+            },
+        )
         .unwrap();
+        assert!(test_numbers
+            .iter()
+            .enumerate()
+            .all(|(i, num)| *num == (i + 1).pow(2)));
+
+        let mut action_test = false;
+
+        if let Some(input) = &mut self.test_input {
+            input.update(&mut self.event_queue);
+            action_test = input.actions[TestInput::Act].pressed;
+        }
+
+        let test_texture = self.resource_db.get_texture(self.test_texture);
+        let (w, _) = platform.draw_area();
+        let w = if action_test { w / 2. } else { w };
+        test_texture.draw(
+            (w / 2., 200.0, 400.0, 400.0),
+            0,
+            &mut draw_queue,
+            &self.resource_db,
+            &mut self.resource_loader,
+        );
+
+        draw_queue.dispatch_draw(&self.frame_arena, platform);
+
+        self.resource_loader
+            .dispatch_reads(&self.resource_db, platform);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {
@@ -177,16 +179,13 @@ mod tests {
 
     /// Initializes the engine and simulates 10 seconds of running the engine,
     /// with a burst of mashing the "ActPrimary" button in the middle.
-    #[test]
-    pub fn smoke_test() {
-        let platform = TestPlatform::new();
+    fn run_smoke_test(platform: &TestPlatform, persistent_arena: &'static StaticAllocator) {
         let device = platform.input_devices()[0];
         let button = platform
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(64 * 1024 * 1024);
-        let mut engine = Engine::new(&platform, PERSISTENT_ARENA);
+        let mut engine = Engine::new(platform, persistent_arena);
 
         let fps = 30;
         for current_frame in 0..(10 * fps) {
@@ -202,12 +201,30 @@ mod tests {
                             Event::DigitalInputReleased(device, button)
                         },
                         platform.elapsed(),
-                        &platform,
+                        platform,
                     );
                 }
             }
 
-            engine.iterate(&platform);
+            engine.iterate(platform);
         }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "emscripten"))]
+    fn smoke_test_multithreaded() {
+        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(64 * 1024 * 1024);
+        run_smoke_test(&TestPlatform::new(true), PERSISTENT_ARENA);
+    }
+
+    #[test]
+    #[ignore = "the emscripten target doesn't support multithreading"]
+    #[cfg(target_os = "emscripten")]
+    fn smoke_test_multithreaded() {}
+
+    #[test]
+    fn smoke_test_singlethreaded() {
+        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(64 * 1024 * 1024);
+        run_smoke_test(&TestPlatform::new(false), PERSISTENT_ARENA);
     }
 }

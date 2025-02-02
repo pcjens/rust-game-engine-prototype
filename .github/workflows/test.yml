@@ -49,12 +49,7 @@ jobs:
       with:
         components: miri
     - uses: actions/checkout@v3
-    # Main test (leaks are ignored because Box::leak is reported as such, and
-    # they're not applicable anyway, the engine doesn't malloc outside of initialization)
     - run: cargo miri test --all-features
       env:
-        MIRIFLAGS: -Zmiri-ignore-leaks -Zmiri-many-seeds=0..16 -Zmiri-num-cpus=3 -Zmiri-symbolic-alignment-check
-    # Just engine without any features, i.e. tests the no_std specific parts
-    - run: cargo miri test --features="" --package engine
-      env:
-        MIRIFLAGS: -Zmiri-ignore-leaks -Zmiri-many-seeds=0..16 -Zmiri-num-cpus=3 -Zmiri-symbolic-alignment-check
+        # Leaks are ignored because intentional Box::leak is reported as such.
+        MIRIFLAGS: -Zmiri-ignore-leaks -Zmiri-num-cpus=3 -Zmiri-many-seeds=0..16 -Zmiri-symbolic-alignment-check

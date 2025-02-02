@@ -1,4 +1,3 @@
-#[cfg(feature = "std")]
 extern crate std;
 
 use core::{cell::Cell, fmt::Arguments, time::Duration};
@@ -11,12 +10,14 @@ use platform_abstraction_layer::{
 #[derive(Debug)]
 pub struct TestPlatform {
     current_time: Cell<Duration>,
+    threads: usize,
 }
 
 impl TestPlatform {
-    pub fn new() -> TestPlatform {
+    pub fn new(multi_threaded: bool) -> TestPlatform {
         TestPlatform {
             current_time: Cell::new(Duration::from_millis(0)),
+            threads: if multi_threaded { 3 } else { 1 },
         }
     }
 
@@ -95,46 +96,28 @@ impl Pal for TestPlatform {
         Ok(buffer)
     }
 
-    #[cfg(not(feature = "std"))]
-    fn create_semaphore(&self) -> Semaphore {
-        Semaphore::single_threaded()
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn thread_pool_size(&self) -> Option<usize> {
-        None
-    }
-
-    #[cfg(not(feature = "std"))]
-    fn spawn_pool_thread(&self, _channels: [TaskChannel; 2]) -> ThreadState {
-        unimplemented!("TestPlatform is single-threaded")
-    }
-
-    #[cfg(feature = "std")]
     fn create_semaphore(&self) -> Semaphore {
         semaphore::create()
     }
 
-    #[cfg(feature = "std")]
-    fn thread_pool_size(&self) -> Option<usize> {
-        // Ideally this would be a constant, but in case the actual available
-        // parallellism is just 1, the thread pool could deadlock.
-        let parallellism = std::thread::available_parallelism().ok()?.get();
-        if parallellism > 1 {
-            Some(3)
-        } else {
-            None
-        }
+    fn available_parallelism(&self) -> usize {
+        self.threads
     }
 
-    #[cfg(feature = "std")]
     fn spawn_pool_thread(&self, channels: [TaskChannel; 2]) -> ThreadState {
         let [(task_sender, mut task_receiver), (mut result_sender, result_receiver)] = channels;
         std::thread::Builder::new()
             .name(std::string::String::from("pool-thread-in-test"))
             .spawn(move || loop {
                 let mut task = task_receiver.recv();
-                task.run();
+
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| task.run()));
+                if result.is_err() {
+                    // Signal the main thread that we panicked, but don't resume
+                    // until we've sent this information back.
+                    task.signal_panic();
+                }
+
                 'send_result: loop {
                     match result_sender.send(task) {
                         Ok(()) => break 'send_result,
@@ -143,6 +126,11 @@ impl Pal for TestPlatform {
                             task = task_;
                         }
                     }
+                }
+
+                if let Err(err) = result {
+                    // We can now resume panicking without causing a hang.
+                    std::panic::resume_unwind(err);
                 }
             })
             .unwrap();
@@ -179,7 +167,6 @@ impl Pal for TestPlatform {
     }
 }
 
-#[cfg(feature = "std")]
 mod semaphore {
     extern crate std;
 

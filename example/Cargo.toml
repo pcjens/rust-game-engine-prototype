@@ -10,4 +10,4 @@ platform-sdl2 = { version = "0.1.0", path = "../platform-sdl2", optional = true 
 
 [features]
 default = ["sdl2"]
-sdl2 = ["platform-sdl2", "engine/std"]
+sdl2 = ["platform-sdl2"]

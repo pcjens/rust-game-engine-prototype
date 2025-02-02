@@ -116,12 +116,26 @@ pub trait Pal {
     fn create_semaphore(&self) -> Semaphore;
 
     /// Returns how many threads the system could process in parallel
-    /// efficiently in addition to the main thread, or `None` for
-    /// single-threaded platforms.
-    fn thread_pool_size(&self) -> Option<usize>;
+    /// efficiently.
+    ///
+    /// Note that this count shouldn't be decremented by one to "leave room for
+    /// the main thread," because the main thread often sleeps while waiting for
+    /// worker threads to finish their work.
+    ///
+    /// If this returns 1, the thread pool will not utilize worker threads, and
+    /// `spawn_pool_thread` can be left `unimplemented!`.
+    fn available_parallelism(&self) -> usize;
 
     /// Spawns a thread for a thread pool, using the given channels to pass
     /// tasks back and forth.
+    ///
+    /// Implementation note: unless the build has `panic = "abort"`, the worker
+    /// thread should catch panics, and if they happen, call `signal_panic` on
+    /// the task and send the task back to the main thread via the results
+    /// channel, and *then* resume the panic. This will avoid the main thread
+    /// silently hanging when joining tasks that panicked the thread they were
+    /// running on, it'll panic instead, with a message about a thread pool
+    /// thread panicking.
     fn spawn_pool_thread(&self, channels: [TaskChannel; 2]) -> ThreadState;
 
     /// Get a list of the currently connected input devices.

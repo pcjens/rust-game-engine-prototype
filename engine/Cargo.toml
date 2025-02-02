@@ -15,8 +15,6 @@ libc = { version = "0.2.168", default-features = false }
 [features]
 default = []
 
-# Enables important safety checks for non-"panic=abort" builds.
-std = []
-
-# Enables asset conditioning functions, used by import-asset.
-asset-conditioning = ["std"]
+# Enables asset conditioning functions and brings in `std`, used by
+# import-asset.
+asset-conditioning = []
