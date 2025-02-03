@@ -169,7 +169,7 @@ impl TextureAsset {
                     for y in y0..y1 {
                         pending_chunk_pixels
                             [(y - y0) * CHUNK_STRIDE..(x1 - x0) * BPP + (y - y0) * CHUNK_STRIDE]
-                            .copy_from_slice(&pixels[y * stride..(y + 1) * stride]);
+                            .copy_from_slice(&pixels[x0 * BPP + y * stride..x1 * BPP + y * stride]);
                     }
                 }
             }

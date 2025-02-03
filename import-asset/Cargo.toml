@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
 engine = { version = "0.1.0", path = "../engine", features = ["asset-conditioning"] }
+image = { version = "0.25.5", default-features = false, features = ["jpeg"] }

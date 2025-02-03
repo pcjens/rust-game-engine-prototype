@@ -124,7 +124,7 @@ impl EngineCallbacks for Engine<'_> {
         let (w, _) = platform.draw_area();
         let w = if action_test { w / 2. } else { w };
         test_texture.draw(
-            (w / 2., 200.0, 400.0, 400.0),
+            (w / 2., 200.0, 319.0, 400.0),
             0,
             &mut draw_queue,
             &self.resource_db,

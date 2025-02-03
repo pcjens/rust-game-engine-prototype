@@ -5,44 +5,49 @@ use engine::resources::{
     assets::TextureAsset, serialize, NamedAsset, ResourceDatabaseHeader, TextureChunkDescriptor,
     TEXTURE_CHUNK_FORMAT,
 };
+use image::imageops::FilterType;
 
 fn main() {
-    let mut dst = vec![0; 1000];
-
-    let header = ResourceDatabaseHeader {
-        chunks: 0,
-        texture_chunks: 1,
-        textures: 1,
-        audio_clips: 0,
-    };
+    let mut dst = vec![0; 1_000_000];
 
     let mut chunk_data: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     let mut texture_chunks: Vec<TextureChunkDescriptor> = Vec::new();
 
-    let texture = NamedAsset {
-        name: ArrayString::from_str("testing texture").unwrap(),
-        asset: TextureAsset::create(
-            2,
-            2,
-            |w, h, stride, pixels| {
-                const BPP: usize = TEXTURE_CHUNK_FORMAT.bytes_per_pixel();
-                const PIXELS: [u8; 2 * 2 * BPP] = [
-                    0xFF, 0xFF, 0x00, 0xFF, // Yellow
-                    0xFF, 0x00, 0xFF, 0xFF, // Pink
-                    0x00, 0xFF, 0x00, 0xFF, // Green
-                    0x00, 0xFF, 0xFF, 0xFF, // Cyan
-                ];
-                const PIXEL_STRIDE: usize = 2 * BPP;
-                assert_eq!(2, w);
-                assert_eq!(2, h);
-                for y in 0..h as usize {
-                    pixels[y * stride..w as usize * BPP + y * stride]
-                        .copy_from_slice(&PIXELS[y * PIXEL_STRIDE..(y + 1) * PIXEL_STRIDE]);
-                }
-            },
-            &mut chunk_data,
-            &mut texture_chunks,
-        ),
+    let texture = {
+        let image =
+            image::load_from_memory(include_bytes!("../../example/resources/kellot.jpeg")).unwrap();
+        let width = image.width() as u16;
+        let height = image.height() as u16;
+        NamedAsset {
+            name: ArrayString::from_str("testing texture").unwrap(),
+            asset: TextureAsset::create(
+                width,
+                height,
+                |w, h, stride, pixels| {
+                    const BPP: usize = TEXTURE_CHUNK_FORMAT.bytes_per_pixel();
+                    let image = image.resize_exact(w as u32, h as u32, FilterType::CatmullRom);
+                    let image = image.into_rgba8();
+                    for y in 0..h as usize {
+                        for x in 0..w as usize {
+                            let [r, g, b, a] = image.get_pixel(x as u32, y as u32).0;
+                            pixels[x * BPP + y * stride] = r;
+                            pixels[x * BPP + 1 + y * stride] = g;
+                            pixels[x * BPP + 2 + y * stride] = b;
+                            pixels[x * BPP + 3 + y * stride] = a;
+                        }
+                    }
+                },
+                &mut chunk_data,
+                &mut texture_chunks,
+            ),
+        }
+    };
+
+    let header = ResourceDatabaseHeader {
+        chunks: 0,
+        texture_chunks: texture_chunks.len() as u32,
+        textures: 1,
+        audio_clips: 0,
     };
 
     let mut cursor = 0;
