@@ -52,21 +52,20 @@ pub struct TextureAsset {
 
 impl TextureAsset {
     #[cfg(feature = "asset-conditioning")]
-    pub fn create<F: Fn(u16, u16, usize, &mut [u8]), W: std::io::Write + std::io::Seek>(
+    pub fn create(
         width: u16,
         height: u16,
-        render_texture: F,
-        chunk_data: &mut W,
+        render_texture: impl Fn(u16, u16, usize, &mut [u8]),
+        chunk_data: &mut (impl std::io::Write + std::io::Seek),
         output_chunks: &mut std::vec::Vec<TextureChunkDescriptor>,
     ) -> TextureAsset {
         use crate::resources::TEXTURE_CHUNK_FORMAT;
 
         const BPP: usize = TEXTURE_CHUNK_FORMAT.bytes_per_pixel();
-        const CHUNK_BYTES: usize =
-            TEXTURE_CHUNK_DIMENSIONS.0 as usize * TEXTURE_CHUNK_DIMENSIONS.1 as usize * BPP;
         const CHUNK_WIDTH: usize = TEXTURE_CHUNK_DIMENSIONS.0 as usize;
         const CHUNK_HEIGHT: usize = TEXTURE_CHUNK_DIMENSIONS.1 as usize;
         const CHUNK_STRIDE: usize = CHUNK_WIDTH * BPP;
+        const CHUNK_BYTES: usize = CHUNK_STRIDE * CHUNK_HEIGHT;
 
         let mut transparent = false;
         let mut pending_chunk_width = 0;
@@ -260,34 +259,59 @@ impl TextureAsset {
         resources: &ResourceDatabase,
         resource_loader: &mut ResourceLoader,
     ) {
-        let mip = &self.mip_chain[0];
-        assert_eq!(1, mip.texture_chunks.end - mip.texture_chunks.start);
-        let chunk_index = mip.texture_chunks.start;
+        const CHUNK_WIDTH: u16 = TEXTURE_CHUNK_DIMENSIONS.0;
+        const CHUNK_HEIGHT: u16 = TEXTURE_CHUNK_DIMENSIONS.1;
 
-        if let Some(chunk) = resources.texture_chunks.get(chunk_index) {
-            let (x0, x1) = (mip.offset.0, mip.offset.0 + mip.size.0);
-            let (y0, y1) = (mip.offset.1, mip.offset.1 + mip.size.1);
-            let _ = draw_queue.quads.push(TexQuad {
-                position_top_left: (x, y),
-                position_bottom_right: (x + width, y + height),
-                texcoord_top_left: (
-                    x0 as f32 / TEXTURE_CHUNK_DIMENSIONS.0 as f32,
-                    y0 as f32 / TEXTURE_CHUNK_DIMENSIONS.1 as f32,
-                ),
-                texcoord_bottom_right: (
-                    y1 as f32 / TEXTURE_CHUNK_DIMENSIONS.0 as f32,
-                    x1 as f32 / TEXTURE_CHUNK_DIMENSIONS.1 as f32,
-                ),
-                draw_order,
-                blend_mode: if self.transparent {
-                    BlendMode::Blend
+        let mip = &self.mip_chain[0];
+        let chunks_x = mip.size.0.div_ceil(CHUNK_WIDTH) as u32;
+        let chunks_y = mip.size.1.div_ceil(CHUNK_HEIGHT) as u32;
+        assert_eq!(
+            chunks_x * chunks_y,
+            mip.texture_chunks.end - mip.texture_chunks.start,
+            "resource database has a corrupt chunk, amount of chunks does not match the texture size",
+        );
+
+        let tex_width = mip.size.0 as f32;
+        let tex_height = mip.size.1 as f32;
+        let scale_x = width / tex_width;
+        let scale_y = height / tex_height;
+
+        for cy in 0..chunks_y {
+            for cx in 0..chunks_x {
+                let chunk_index = mip.texture_chunks.start + cx + cy * chunks_x;
+                let tex_offset_x = (cx * CHUNK_WIDTH as u32) as f32;
+                let tex_offset_y = (cy * CHUNK_HEIGHT as u32) as f32;
+                let x = x + tex_offset_x * scale_x;
+                let y = y + tex_offset_y * scale_y;
+                let width = (tex_width - tex_offset_x).min(CHUNK_WIDTH as f32) * scale_x;
+                let height = (tex_height - tex_offset_y).min(CHUNK_HEIGHT as f32) * scale_y;
+
+                if let Some(chunk) = resources.texture_chunks.get(chunk_index) {
+                    let (x0, x1) = (mip.offset.0, mip.offset.0 + mip.size.0);
+                    let (y0, y1) = (mip.offset.1, mip.offset.1 + mip.size.1);
+                    let _ = draw_queue.quads.push(TexQuad {
+                        position_top_left: (x, y),
+                        position_bottom_right: (x + width, y + height),
+                        texcoord_top_left: (
+                            x0 as f32 / CHUNK_WIDTH as f32,
+                            y0 as f32 / CHUNK_HEIGHT as f32,
+                        ),
+                        texcoord_bottom_right: (
+                            y1 as f32 / CHUNK_WIDTH as f32,
+                            x1 as f32 / CHUNK_HEIGHT as f32,
+                        ),
+                        draw_order,
+                        blend_mode: if self.transparent {
+                            BlendMode::Blend
+                        } else {
+                            BlendMode::None
+                        },
+                        texture: chunk.0,
+                    });
                 } else {
-                    BlendMode::None
-                },
-                texture: chunk.0,
-            });
-        } else {
-            resource_loader.queue_texture_chunk(chunk_index, resources);
+                    resource_loader.queue_texture_chunk(chunk_index, resources);
+                }
+            }
         }
     }
 }
