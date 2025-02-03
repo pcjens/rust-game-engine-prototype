@@ -1,5 +1,3 @@
-use core::{mem::transmute, slice};
-
 use platform_abstraction_layer::{
     thread_pool::{TaskHandle, ThreadPool},
     Pal, TaskChannel, ThreadState,
@@ -54,27 +52,19 @@ pub fn create_thread_pool(
 /// is not called and the data is not touched.
 #[track_caller]
 #[must_use]
-pub fn parallelize<T: Sync>(
+pub fn parallelize<T: 'static + Sync>(
     thread_pool: &mut ThreadPool,
     arena: &LinearAllocator,
     data: &mut [T],
     func: fn(&mut [T]),
 ) -> Option<usize> {
-    #[derive(Debug)]
-    struct GenericTask {
-        data_ptr: *mut (),
-        data_len: usize,
-        func_ptr: *const (),
-        func_proxy: fn(*const (), *mut (), usize),
+    struct Task<T: Sync> {
+        data: *mut [T],
+        func: fn(&mut [T]),
     }
 
-    // Safety: the type of the value pointed to by data_ptr is of type T, which
-    // is required to be Sync.
-    unsafe impl Sync for GenericTask {}
-
-    #[derive(Debug)]
-    struct TaskProxy {
-        handle: TaskHandle<GenericTask>,
+    struct TaskProxy<T: 'static + Sync> {
+        handle: TaskHandle<Task<T>>,
         metadata: RingAllocationMetadata,
     }
 
@@ -96,61 +86,59 @@ pub fn parallelize<T: Sync>(
         assert!(i < max_tasks);
 
         // Allocate the thread pool task.
-        let (generic_task, metadata) = task_buffer
-            .allocate_box(GenericTask {
-                data_ptr: data_part.as_mut_ptr() as *mut (),
-                data_len: data_part.len(),
-                func_ptr: func as *const (),
-                func_proxy: proxy::<T>,
+        let (task, metadata) = task_buffer
+            .allocate_box(Task {
+                data: &raw mut *data_part,
+                func,
             })
-            .unwrap() // task_buffer is guaranteed to have capacity via the assert at the start of this loop body
+            .ok()
+            .unwrap() // does not panic: task_buffer is guaranteed to have capacity via the assert at the start of this loop body
             .into_parts();
-
-        fn proxy<T>(func_ptr: *const (), data_ptr: *mut (), data_len: usize) {
-            // Safety: this pointer is cast from the destination type `fn(&mut
-            // [T])` above, and transmuting pointers to fn pointers is ok
-            // according to the [fn
-            // docs](https://doc.rust-lang.org/core/primitive.fn.html#casting-to-and-from-integers).
-            let func = unsafe { transmute::<*const (), fn(&mut [T])>(func_ptr) };
-
-            let data_ptr = data_ptr as *mut T;
-            // Safety: the pointer and length are valid regarding alignment etc.
-            // basic stuff since they were created from a valid slice in the
-            // first place. The lifetime is valid as well since data does not
-            // escape this function, and this function is run within the
-            // lifetime of the `parallelize` function call, which is the
-            // lifetime of the original slice this pointer and length are from.
-            let data = unsafe { slice::from_raw_parts_mut(data_ptr, data_len) };
-
-            func(data);
-        }
 
         // Send off the task, using the proxy function from it to call the
         // user-provided one.
         let handle = thread_pool
-            .spawn_task(generic_task, |task| {
-                (task.func_proxy)(task.func_ptr, task.data_ptr, task.data_len);
+            .spawn_task(task, |task| {
+                // Safety:
+                // - Pointer-validity-wise, this reference is ok to create as it
+                //   was created from a valid mutable borrow via &raw mut in the
+                //   first place.
+                // - Lifetime-wise, creating this borrow is valid because its
+                //   lifetime spans this function, and this function is run
+                //   within the lifetime of the `parallelize` function call due
+                //   to all tasks being joined before the end.
+                // - Exclusive-access-wise, it's valid since the backing slice
+                //   is only used to split it with chunks_mut, and those chunks
+                //   are simply sent off to worker threads. Since this all
+                //   happens during parallelize() (see lifetime point), there's
+                //   definitely no others creating any kind of borrow of this
+                //   particular chunk.
+                let data = unsafe { &mut *task.data };
+                (task.func)(data);
             })
-            .unwrap(); // thread_pool is guaranteed to have capacity, it's empty and we're only spawning thread_count tasks
+            .ok()
+            .unwrap(); // does not panic: thread_pool is guaranteed to have capacity, it's empty and we're only spawning thread_count tasks
 
         // Add the task handle to the queue to be joined before returning.
         task_proxies
             .push_back(TaskProxy { handle, metadata })
-            .unwrap(); // task_proxies is guaranteed to have capacity via the assert at the start of this loop body
+            .ok()
+            .unwrap(); // does not panic: task_proxies is guaranteed to have capacity via the assert at the start of this loop body
     }
 
     // Join tasks and free the buffers (doesn't free up space for anything, but
     // makes sure we're not leaking anything, which would violate the safety
     // requirements of the non-static RingBuffer).
     while let Some(proxy) = task_proxies.pop_front() {
-        let generic_task = thread_pool.join_task(proxy.handle).unwrap();
-        // Safety: the GenericTask was allocated in the previous loop, with the
-        // actual task being sent onto a thread, and the metadata stored in the
-        // proxy, alongside the handle for said task. Since `generic_task` here
-        // is the result of that task, it must be the one we allocated alongside
-        // this metadata, as they're both from the same proxy.
-        let boxed = unsafe { RingBox::from_parts(generic_task, proxy.metadata) };
-        task_buffer.free_box(boxed).unwrap();
+        let task = thread_pool.join_task(proxy.handle).ok().unwrap(); // does not panic: we're joining tasks in FIFO order
+
+        // Safety: the `Task` was allocated in the previous loop, with the
+        // actual boxed task being sent onto a thread, and the metadata stored
+        // in the proxy, alongside the handle for said task. Since `task` here
+        // is the result of that task, it must be the same boxed task allocated
+        // alongside this metadata.
+        let boxed = unsafe { RingBox::from_parts(task, proxy.metadata) };
+        task_buffer.free_box(boxed).ok().unwrap();
     }
 
     Some(chunk_size)
