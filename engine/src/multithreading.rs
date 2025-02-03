@@ -89,8 +89,10 @@ pub fn parallelize<T: 'static + Sync>(
     // Safety: all allocations from this buffer are passed into the thread pool,
     // from which all tasks are joined, and those buffers are freed right after.
     // So there are no leaked allocations.
-    let mut task_buffer = unsafe { RingBuffer::from_mut(&mut backing_task_buffer) }?;
-    let mut task_proxies = Queue::from_mut(&mut backing_task_proxies)?;
+    let mut task_buffer = unsafe { RingBuffer::from_mut(&mut backing_task_buffer) }.unwrap();
+    let mut task_proxies = Queue::from_mut(&mut backing_task_proxies).unwrap();
+
+    thread_pool.reset_thread_counter();
 
     let chunk_size = data.len().div_ceil(max_tasks);
     for (i, data_part) in data.chunks_mut(chunk_size).enumerate() {

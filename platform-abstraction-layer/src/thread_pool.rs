@@ -202,6 +202,14 @@ impl ThreadPool {
             .any(|thread| thread.recv_count != thread.sent_count)
     }
 
+    /// Resets the counter used to assign tasks to different threads.
+    ///
+    /// After calling this, the next [`ThreadPool::spawn_task`] is sent off to
+    /// the first thread, instead of whichever value the counter is on now.
+    pub fn reset_thread_counter(&mut self) {
+        self.next_thread_index = 0;
+    }
+
     /// Schedules the function to be ran on a thread in this pool, passing in
     /// the data as an argument, if they fit in the task queue.
     ///
