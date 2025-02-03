@@ -29,7 +29,7 @@ struct LoadTask {
 }
 
 pub struct ResourceLoader {
-    staging_buffer: RingBuffer<u8>,
+    staging_buffer: RingBuffer<'static, u8>,
     to_load_queue: Queue<'static, LoadRequest>,
     in_flight_queue: Queue<'static, LoadTask>,
 }

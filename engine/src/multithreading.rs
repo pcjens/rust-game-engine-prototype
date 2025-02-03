@@ -1,3 +1,6 @@
+use core::mem::MaybeUninit;
+
+use arrayvec::ArrayVec;
 use platform_abstraction_layer::{
     thread_pool::{TaskHandle, ThreadPool},
     Pal, TaskChannel, ThreadState,
@@ -7,6 +10,10 @@ use crate::{
     allocators::LinearAllocator,
     collections::{channel::channel, Queue, RingAllocationMetadata, RingBox, RingBuffer},
 };
+
+/// The maximum amount of threads which can be used by [`parallelize`].
+/// [`create_thread_pool`] also caps the amount of threads it creates at this.
+pub const MAX_THREADS: usize = 128;
 
 /// Creates a thread pool, reserving space for buffering `task_queue_length`
 /// tasks per thread.
@@ -21,7 +28,7 @@ pub fn create_thread_pool(
     platform: &dyn Pal,
     task_queue_length: usize,
 ) -> Option<ThreadPool> {
-    let thread_count = platform.available_parallelism();
+    let thread_count = platform.available_parallelism().min(MAX_THREADS);
     if thread_count > 1 {
         let init_thread_state = || {
             let task_channel: TaskChannel = channel(platform, allocator, task_queue_length)?;
@@ -43,18 +50,16 @@ pub fn create_thread_pool(
 /// Runs the function on multiple threads, splitting the data into one part for
 /// each thread.
 ///
-/// The return value is the size of the chunks the slice was split into. The
-/// same slices can be acquired by calling `chunks` or `chunks_mut` on `data`
-/// and passing it in as the chunk size.
+/// The return value is the size of the chunks `data` was split into. The same
+/// slices can be acquired by calling `chunks` or `chunks_mut` on `data` and
+/// passing it in as the chunk size.
 ///
-/// Returns `None` if the thread pool already has pending tasks, or if the arena
-/// doesn't have enough memory for the tasks. In these cases, the given function
-/// is not called and the data is not touched.
+/// Returns `None` if the thread pool already has pending tasks. In this case,
+/// the given function is not called and the data is not touched.
 #[track_caller]
 #[must_use]
 pub fn parallelize<T: 'static + Sync>(
     thread_pool: &mut ThreadPool,
-    arena: &LinearAllocator,
     data: &mut [T],
     func: fn(&mut [T]),
 ) -> Option<usize> {
@@ -72,12 +77,20 @@ pub fn parallelize<T: 'static + Sync>(
         return None;
     }
 
-    let max_tasks = thread_pool.thread_count();
-    // Safety: task_buffer is only used to allocate within this function, and
-    // while the allocations are passed to the thread pool, they are also
-    // retrieved and RingBuffer::freed before returning.
-    let mut task_buffer = unsafe { RingBuffer::new_non_static(arena, max_tasks) }?;
-    let mut task_proxies = Queue::new(arena, max_tasks)?;
+    let max_tasks = thread_pool.thread_count().min(MAX_THREADS);
+
+    let mut backing_task_buffer = ArrayVec::<MaybeUninit<Task<T>>, MAX_THREADS>::new();
+    let mut backing_task_proxies = ArrayVec::<MaybeUninit<TaskProxy<T>>, MAX_THREADS>::new();
+    for _ in 0..max_tasks {
+        backing_task_buffer.push(MaybeUninit::uninit());
+        backing_task_proxies.push(MaybeUninit::uninit());
+    }
+
+    // Safety: all allocations from this buffer are passed into the thread pool,
+    // from which all tasks are joined, and those buffers are freed right after.
+    // So there are no leaked allocations.
+    let mut task_buffer = unsafe { RingBuffer::from_mut(&mut backing_task_buffer) }?;
+    let mut task_proxies = Queue::from_mut(&mut backing_task_proxies)?;
 
     let chunk_size = data.len().div_ceil(max_tasks);
     for (i, data_part) in data.chunks_mut(chunk_size).enumerate() {
@@ -159,7 +172,7 @@ mod tests {
         let mut thread_pool = create_thread_pool(ARENA, &platform, 1).unwrap();
 
         let mut data = [1, 2, 3, 4];
-        parallelize(&mut thread_pool, ARENA, &mut data, |data| {
+        parallelize(&mut thread_pool, &mut data, |data| {
             for n in data {
                 *n *= *n;
             }
@@ -176,7 +189,7 @@ mod tests {
         let mut thread_pool = create_thread_pool(ARENA, &platform, 1).unwrap();
 
         let mut data = [1, 2, 3, 4];
-        parallelize(&mut thread_pool, ARENA, &mut data, |data| {
+        parallelize(&mut thread_pool, &mut data, |data| {
             for n in data {
                 *n *= *n;
             }

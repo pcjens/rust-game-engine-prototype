@@ -102,16 +102,11 @@ impl EngineCallbacks for Engine<'_> {
         // Testing area follows, could be considered "game code" for now:
 
         let mut test_numbers = [1, 2, 3, 4];
-        parallelize(
-            &mut self.thread_pool,
-            &self.frame_arena,
-            &mut test_numbers,
-            |numbers| {
-                for number in numbers {
-                    *number *= *number;
-                }
-            },
-        )
+        parallelize(&mut self.thread_pool, &mut test_numbers, |numbers| {
+            for number in numbers {
+                *number *= *number;
+            }
+        })
         .unwrap();
         assert!(test_numbers
             .iter()

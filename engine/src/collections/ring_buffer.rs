@@ -2,6 +2,7 @@ mod boxed;
 mod slice;
 
 use core::{
+    marker::PhantomData,
     mem::{transmute, MaybeUninit},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -35,7 +36,8 @@ pub struct RingAllocationMetadata {
 /// may be less than the total capacity, since the individual slices are
 /// contiguous and can't span across the end of the backing buffer. These gaps
 /// could be prevented with memory mapping trickery in the future.
-pub struct RingBuffer<T> {
+pub struct RingBuffer<'a, T> {
+    buffer_lifetime: PhantomData<&'a mut [T]>,
     buffer_ptr: *mut MaybeUninit<T>,
     buffer_len: usize,
     allocated_offset: usize,
@@ -49,11 +51,15 @@ fn make_buffer_id() -> usize {
     prev_id.checked_add(1).unwrap()
 }
 
-impl<T> RingBuffer<T> {
+impl<T> RingBuffer<'_, T> {
     /// Allocates a new ring buffer with the given capacity.
-    pub fn new(allocator: &'static LinearAllocator, capacity: usize) -> Option<RingBuffer<T>> {
+    pub fn new(
+        allocator: &'static LinearAllocator,
+        capacity: usize,
+    ) -> Option<RingBuffer<'static, T>> {
         let buffer = allocator.try_alloc_uninit_slice(capacity)?;
         Some(RingBuffer {
+            buffer_lifetime: PhantomData,
             buffer_ptr: buffer.as_mut_ptr(),
             buffer_len: buffer.len(),
             allocated_offset: 0,
@@ -62,18 +68,17 @@ impl<T> RingBuffer<T> {
         })
     }
 
-    /// Allocates a new ring buffer with the given capacity.
+    /// Creates a new ring buffer with the given buffer.
     ///
     /// ### Safety
     ///
-    /// This ring buffer and all allocations from it must not outlive 'a.
+    /// All allocations made from this [`RingBuffer`] must be passed back into
+    /// [`RingBuffer::free`] before it is dropped, as the backing memory is only
+    /// borrowed for 'a.
     #[allow(clippy::needless_lifetimes)]
-    pub unsafe fn new_non_static<'a>(
-        allocator: &'a LinearAllocator,
-        capacity: usize,
-    ) -> Option<RingBuffer<T>> {
-        let buffer = allocator.try_alloc_uninit_slice(capacity)?;
+    pub unsafe fn from_mut<'a>(buffer: &'a mut [MaybeUninit<T>]) -> Option<RingBuffer<'a, T>> {
         Some(RingBuffer {
+            buffer_lifetime: PhantomData,
             buffer_ptr: buffer.as_mut_ptr(),
             buffer_len: buffer.len(),
             allocated_offset: 0,
@@ -101,7 +106,7 @@ impl<T> RingBuffer<T> {
     }
 }
 
-impl<T: Zeroable> RingBuffer<T> {
+impl<T: Zeroable> RingBuffer<'_, T> {
     /// Allocates and zeroes out a slice of the given length if there's enough
     /// contiguous free space.
     pub fn allocate(&mut self, len: usize) -> Option<RingSlice<T>> {
@@ -160,7 +165,7 @@ impl<T: Zeroable> RingBuffer<T> {
     }
 }
 
-impl<T> RingBuffer<T> {
+impl<T> RingBuffer<'_, T> {
     /// Allocates space for one T if there's free space, and boxes it.
     pub fn allocate_box(&mut self, value: T) -> Result<RingBox<T>, T> {
         let Some(offset) = self.allocate_offset(1) else {

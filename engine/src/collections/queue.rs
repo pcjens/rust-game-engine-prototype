@@ -23,6 +23,14 @@ impl<T> Queue<'_, T> {
         })
     }
 
+    pub fn from_mut(buffer: &mut [MaybeUninit<T>]) -> Option<Queue<T>> {
+        Some(Queue {
+            initialized_offset: 0,
+            initialized_len: 0,
+            uninit_slice: buffer,
+        })
+    }
+
     pub fn push_back(&mut self, value: T) -> Result<(), T> {
         if self.initialized_len >= self.uninit_slice.len() {
             return Err(value);
