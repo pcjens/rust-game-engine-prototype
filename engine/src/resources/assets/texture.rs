@@ -251,6 +251,8 @@ impl TextureAsset {
     }
 
     /// Draw this texture at coordinates x and y with some width and height.
+    /// Returns false if the texture couldn't be drawn due to the draw queue
+    /// filling up.
     pub fn draw(
         &self,
         (x, y, width, height): (f32, f32, f32, f32),
@@ -258,7 +260,7 @@ impl TextureAsset {
         draw_queue: &mut DrawQueue,
         resources: &ResourceDatabase,
         resource_loader: &mut ResourceLoader,
-    ) {
+    ) -> bool {
         const CHUNK_WIDTH: u16 = TEXTURE_CHUNK_DIMENSIONS.0;
         const CHUNK_HEIGHT: u16 = TEXTURE_CHUNK_DIMENSIONS.1;
 
@@ -276,30 +278,52 @@ impl TextureAsset {
         let scale_x = width / tex_width;
         let scale_y = height / tex_height;
 
+        let mut draw_success = true;
+        let mut tex_x_pos = mip.offset.0 as f32;
+        let mut tex_y_pos = mip.offset.1 as f32;
         for cy in 0..chunks_y {
+            let row_first_desc = &resources.texture_chunk_descriptors
+                [(mip.texture_chunks.start + cy * chunks_x) as usize];
+            let chunk_height = if cy == 0 {
+                (row_first_desc.region_height - mip.offset.1) as f32
+            } else {
+                let y_off_into_texture = tex_y_pos - mip.offset.1 as f32;
+                (tex_height - y_off_into_texture).min(row_first_desc.region_height as f32)
+            };
+
             for cx in 0..chunks_x {
                 let chunk_index = mip.texture_chunks.start + cx + cy * chunks_x;
-                let tex_offset_x = (cx * CHUNK_WIDTH as u32) as f32;
-                let tex_offset_y = (cy * CHUNK_HEIGHT as u32) as f32;
-                let x = x + tex_offset_x * scale_x;
-                let y = y + tex_offset_y * scale_y;
-                let width = (tex_width - tex_offset_x).min(CHUNK_WIDTH as f32) * scale_x;
-                let height = (tex_height - tex_offset_y).min(CHUNK_HEIGHT as f32) * scale_y;
+                let desc = &resources.texture_chunk_descriptors[chunk_index as usize];
+
+                let chunk_width = if cx == 0 {
+                    (desc.region_width - mip.offset.0) as f32
+                } else {
+                    let x_off_into_texture = tex_x_pos - mip.offset.0 as f32;
+                    (tex_width - x_off_into_texture).min(desc.region_width as f32)
+                };
 
                 if let Some(chunk) = resources.texture_chunks.get(chunk_index) {
-                    let (x0, x1) = (mip.offset.0, mip.offset.0 + mip.size.0);
-                    let (y0, y1) = (mip.offset.1, mip.offset.1 + mip.size.1);
-                    let _ = draw_queue.quads.push(TexQuad {
+                    let x = x + tex_x_pos * scale_x;
+                    let y = y + tex_y_pos * scale_y;
+                    let width = chunk_width * scale_x;
+                    let height = chunk_height * scale_y;
+
+                    let chunk_x_pos = tex_x_pos % CHUNK_WIDTH as f32;
+                    let chunk_y_pos = tex_y_pos % CHUNK_WIDTH as f32;
+                    let (tex_x0, tex_x1) = (
+                        chunk_x_pos / CHUNK_WIDTH as f32,
+                        (chunk_x_pos + chunk_width) / CHUNK_WIDTH as f32,
+                    );
+                    let (tex_y0, tex_y1) = (
+                        chunk_y_pos / CHUNK_WIDTH as f32,
+                        (chunk_y_pos + chunk_height) / CHUNK_WIDTH as f32,
+                    );
+
+                    let quad = TexQuad {
                         position_top_left: (x, y),
                         position_bottom_right: (x + width, y + height),
-                        texcoord_top_left: (
-                            x0 as f32 / CHUNK_WIDTH as f32,
-                            y0 as f32 / CHUNK_HEIGHT as f32,
-                        ),
-                        texcoord_bottom_right: (
-                            y1 as f32 / CHUNK_WIDTH as f32,
-                            x1 as f32 / CHUNK_HEIGHT as f32,
-                        ),
+                        texcoord_top_left: (tex_x0, tex_y0),
+                        texcoord_bottom_right: (tex_y1, tex_x1),
                         draw_order,
                         blend_mode: if self.transparent {
                             BlendMode::Blend
@@ -307,11 +331,21 @@ impl TextureAsset {
                             BlendMode::None
                         },
                         texture: chunk.0,
-                    });
+                    };
+
+                    if draw_queue.quads.push(quad).is_err() {
+                        draw_success = false;
+                    }
                 } else {
                     resource_loader.queue_texture_chunk(chunk_index, resources);
                 }
+
+                tex_x_pos += chunk_width;
             }
+            tex_y_pos += chunk_height;
+            tex_x_pos = mip.offset.0 as f32;
         }
+
+        draw_success
     }
 }

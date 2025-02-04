@@ -97,7 +97,7 @@ impl EngineCallbacks for Engine<'_> {
         self.resource_loader
             .finish_reads(&mut self.resource_db, platform);
 
-        let mut draw_queue = DrawQueue::new(&self.frame_arena, 1).unwrap();
+        let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000).unwrap();
 
         // Testing area follows, could be considered "game code" for now:
 
@@ -121,15 +121,15 @@ impl EngineCallbacks for Engine<'_> {
         }
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
-        let (w, _) = platform.draw_area();
-        let w = if action_test { w / 2. } else { w };
-        test_texture.draw(
-            (w / 2., 200.0, 319.0, 400.0),
+        let x = if action_test { 100.0 } else { 0.0 };
+        let draw_success = test_texture.draw(
+            (x, 0.0, 319.0, 400.0),
             0,
             &mut draw_queue,
             &self.resource_db,
             &mut self.resource_loader,
         );
+        assert!(draw_success);
 
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 
