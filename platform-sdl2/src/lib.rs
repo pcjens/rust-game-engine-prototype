@@ -311,7 +311,7 @@ impl Pal for Sdl2Pal {
             };
             let scale_mode = match settings.texture_filter {
                 pal::TextureFilter::NearestNeighbor => SDL_ScaleMode::SDL_ScaleModeNearest,
-                pal::TextureFilter::Anisotropic => SDL_ScaleMode::SDL_ScaleModeBest,
+                pal::TextureFilter::Linear => SDL_ScaleMode::SDL_ScaleModeLinear,
             };
             let texture = if let Some(texture_index) = settings.texture {
                 let i = texture_index.inner() as usize;

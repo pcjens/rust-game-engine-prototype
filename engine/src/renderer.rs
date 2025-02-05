@@ -119,9 +119,7 @@ impl<'frm> DrawQueue<'frm> {
                     DrawSettings {
                         texture: Some(texture),
                         blend_mode,
-                        // FIXME: switch this back after done with rendering work
-                        //texture_filter: TextureFilter::Anisotropic,
-                        texture_filter: TextureFilter::NearestNeighbor,
+                        texture_filter: TextureFilter::Linear,
                         clip_area: None,
                     },
                 );

@@ -106,7 +106,7 @@ pub enum BlendMode {
 pub enum TextureFilter {
     NearestNeighbor,
     #[default]
-    Anisotropic,
+    Linear,
 }
 
 /// Descriptions of pixel data layouts, used to interpret the byte arrays passed
