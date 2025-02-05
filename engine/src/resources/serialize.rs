@@ -116,19 +116,32 @@ impl Serialize for TextureAsset {
 }
 
 impl Serialize for TextureMipLevel {
-    const SERIALIZED_SIZE: usize =
-        <(u16, u16) as Serialize>::SERIALIZED_SIZE * 2 + <Range<u32> as Serialize>::SERIALIZED_SIZE;
+    // Sadly, `usize::max` is not const. One variant has 4x u16 and 1x u32, the
+    // other has 2x u16 and 2x u32, so the max of the two sizes is 12.
+    const SERIALIZED_SIZE: usize = bool::SERIALIZED_SIZE + 12;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
-        let TextureMipLevel {
-            size,
-            offset,
-            texture_chunks,
-        } = self;
-        serialize::<(u16, u16)>(offset, dst, &mut cursor);
-        serialize::<(u16, u16)>(size, dst, &mut cursor);
-        serialize::<Range<u32>>(texture_chunks, dst, &mut cursor);
+        match self {
+            TextureMipLevel::SingleChunkTexture {
+                offset,
+                size,
+                texture_chunk,
+            } => {
+                serialize::<bool>(&false, dst, &mut cursor);
+                serialize::<(u16, u16)>(offset, dst, &mut cursor);
+                serialize::<(u16, u16)>(size, dst, &mut cursor);
+                serialize::<u32>(texture_chunk, dst, &mut cursor);
+            }
+            TextureMipLevel::MultiChunkTexture {
+                size,
+                texture_chunks,
+            } => {
+                serialize::<bool>(&true, dst, &mut cursor);
+                serialize::<(u16, u16)>(size, dst, &mut cursor);
+                serialize::<Range<u32>>(texture_chunks, dst, &mut cursor);
+            }
+        }
     }
 }
 

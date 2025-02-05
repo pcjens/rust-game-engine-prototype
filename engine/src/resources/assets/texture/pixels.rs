@@ -1,5 +1,9 @@
 use core::ops::{Index, IndexMut};
 
+use platform_abstraction_layer::PixelFormat;
+
+use crate::resources::TEXTURE_CHUNK_FORMAT;
+
 use super::BPP;
 
 /// Stores a pixel slice and its size and stride for slicing into subregions and
@@ -90,6 +94,49 @@ impl TexPixels<'_> {
         let second_to_last_row =
             &rest[second_to_last_start..second_to_last_start + self.width * BPP];
         last_row.copy_from_slice(second_to_last_row);
+    }
+
+    /// Returns true if the texture has any transparent pixels.
+    pub fn has_transparent_pixels(&self) -> bool {
+        assert!(
+            matches!(TEXTURE_CHUNK_FORMAT, PixelFormat::Rgba),
+            "TexPixels::has_transparent_pixels needs updating for the non-rgba texture chunk format",
+        );
+        for y in 0..self.height {
+            let row = self.row(y);
+            let mut alpha_offset = 3;
+            while alpha_offset < row.len() {
+                if row[alpha_offset] != 0xFF {
+                    return true;
+                }
+                alpha_offset += 4;
+            }
+        }
+        false
+    }
+
+    /// Returns a borrow of the pixels at y-coordinate `y`.
+    ///
+    /// Note that one pixel consists of multiple bytes.
+    pub fn row(&self, y: usize) -> &[u8] {
+        &self.pixels[y * self.stride..self.width * BPP + y * self.stride]
+    }
+
+    /// Returns a mutable borrow of the pixels at y-coordinate `y`.
+    ///
+    /// Note that one pixel consists of multiple bytes.
+    pub fn row_mut(&mut self, y: usize) -> &mut [u8] {
+        &mut self.pixels[y * self.stride..self.width * BPP + y * self.stride]
+    }
+
+    /// Like copy_from_slice but for textures.
+    /// ### Panics
+    /// If the width and height of `self` and `src` don't match.
+    pub fn copy_from(&mut self, src: &TexPixels) {
+        assert_eq!((self.width, self.height), (src.width, src.height));
+        for y in 0..self.height {
+            self.row_mut(y).copy_from_slice(src.row(y));
+        }
     }
 }
 

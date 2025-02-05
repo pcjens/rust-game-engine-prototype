@@ -113,15 +113,24 @@ impl Deserialize for TextureAsset {
 }
 
 impl Deserialize for TextureMipLevel {
-    const SERIALIZED_SIZE: usize = <(u16, u16) as Deserialize>::SERIALIZED_SIZE * 2
-        + <Range<u32> as Deserialize>::SERIALIZED_SIZE;
+    // Sadly, `usize::max` is not const. One variant has 4x u16 and 1x u32, the
+    // other has 2x u16 and 2x u32, so the max of the two sizes is 12.
+    const SERIALIZED_SIZE: usize = bool::SERIALIZED_SIZE + 12;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
-        Self {
-            offset: deserialize::<(u16, u16)>(src, &mut cursor),
-            size: deserialize::<(u16, u16)>(src, &mut cursor),
-            texture_chunks: deserialize::<Range<u32>>(src, &mut cursor),
+        let multi_chunk = deserialize::<bool>(src, &mut cursor);
+        if multi_chunk {
+            Self::MultiChunkTexture {
+                size: deserialize::<(u16, u16)>(src, &mut cursor),
+                texture_chunks: deserialize::<Range<u32>>(src, &mut cursor),
+            }
+        } else {
+            Self::SingleChunkTexture {
+                offset: deserialize::<(u16, u16)>(src, &mut cursor),
+                size: deserialize::<(u16, u16)>(src, &mut cursor),
+                texture_chunk: deserialize::<u32>(src, &mut cursor),
+            }
         }
     }
 }

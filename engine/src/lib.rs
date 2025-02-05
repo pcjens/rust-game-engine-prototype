@@ -12,6 +12,8 @@ pub mod allocators;
 /// Collection types for varying memory access patterns. Backing memory provided
 /// by allocators in the [allocators] module.
 pub mod collections;
+/// Geometry related types and operations.
+pub mod geom;
 /// Input events and their translation into game-specific actions.
 pub mod input;
 /// Utilities for splitting work to be processed in parallel.
