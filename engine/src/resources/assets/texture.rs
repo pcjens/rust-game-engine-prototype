@@ -310,11 +310,10 @@ impl TextureAsset {
                 }
 
                 let tex_src = Rect {
-                    // FIXME: remove these -1 and +2's, just debugging the borders
-                    x: (offset.0 - 1) as f32 / CHUNK_WIDTH as f32,
-                    y: (offset.1 - 1) as f32 / CHUNK_HEIGHT as f32,
-                    w: (size.0 + 2) as f32 / CHUNK_WIDTH as f32,
-                    h: (size.1 + 2) as f32 / CHUNK_HEIGHT as f32,
+                    x: offset.0 as f32 / CHUNK_WIDTH as f32,
+                    y: offset.1 as f32 / CHUNK_HEIGHT as f32,
+                    w: size.0 as f32 / CHUNK_WIDTH as f32,
+                    h: size.1 as f32 / CHUNK_HEIGHT as f32,
                 };
                 draw(*texture_chunk, dst, tex_src);
 
@@ -370,19 +369,17 @@ impl TextureAsset {
                 let curr_chunk_w = (tex_width - tex_x_pos).min(CHUNK_WIDTH - 2);
 
                 let dst = Rect {
-                    // FIXME: remove these -1 and +2's, just separating chunks for clarity
-                    x: x + tex_x_pos as f32 * scale_x + 1.0,
-                    y: y + tex_y_pos as f32 * scale_y + 1.0,
-                    w: curr_chunk_w as f32 * scale_x - 2.0,
-                    h: curr_chunk_h as f32 * scale_y - 2.0,
+                    x: x + tex_x_pos as f32 * scale_x,
+                    y: y + tex_y_pos as f32 * scale_y,
+                    w: curr_chunk_w as f32 * scale_x,
+                    h: curr_chunk_h as f32 * scale_y,
                 };
 
                 let tex_src = Rect {
-                    // FIXME: remove these -1 and +2's, just debugging the borders
-                    x: ((tex_x_pos + 1 - 1) % (CHUNK_WIDTH - 2)) as f32 / CHUNK_WIDTH as f32,
-                    y: ((tex_y_pos + 1 - 1) % (CHUNK_HEIGHT - 2)) as f32 / CHUNK_HEIGHT as f32,
-                    w: (curr_chunk_w + 2) as f32 / CHUNK_WIDTH as f32,
-                    h: (curr_chunk_h + 2) as f32 / CHUNK_HEIGHT as f32,
+                    x: 1. / CHUNK_WIDTH as f32,
+                    y: 1. / CHUNK_HEIGHT as f32,
+                    w: curr_chunk_w as f32 / CHUNK_WIDTH as f32,
+                    h: curr_chunk_h as f32 / CHUNK_HEIGHT as f32,
                 };
 
                 draw(curr_chunk_index, dst, tex_src);

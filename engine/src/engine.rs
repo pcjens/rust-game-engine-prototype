@@ -125,8 +125,8 @@ impl EngineCallbacks for Engine<'_> {
         let (screen_width, _) = platform.draw_area();
         let x = if action_test { -screen_width } else { 0.0 };
         for mip in 0..9 {
-            let w = 319.0 * 4.0;
-            let h = 400.0 * 4.0;
+            let w = 319.0;
+            let h = 400.0;
             let draw_success = test_texture.draw(
                 Rect::xywh(x + mip as f32 * w * 1.1, 0.0, w, h),
                 mip,
