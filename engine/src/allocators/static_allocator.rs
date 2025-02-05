@@ -20,7 +20,7 @@ use super::LinearAllocator;
 ///
 /// ```
 /// use engine::allocators::{StaticAllocator, static_allocator};
-/// static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(1024 * 1024 * 1024);
+/// static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(1024 * 1024);
 /// ```
 #[macro_export]
 macro_rules! static_allocator {

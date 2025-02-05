@@ -120,6 +120,12 @@ impl<T> FixedVec<'_, T> {
     pub fn is_full(&self) -> bool {
         self.initialized_len == self.uninit_slice.len()
     }
+
+    /// Returns the amount of elements that could be pushed into this array
+    /// before the capacity is reached.
+    pub fn spare_capacity(&self) -> usize {
+        self.uninit_slice.len() - self.initialized_len
+    }
 }
 
 impl<T: Zeroable> FixedVec<'_, T> {

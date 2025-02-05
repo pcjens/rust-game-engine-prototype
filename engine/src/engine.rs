@@ -121,15 +121,21 @@ impl EngineCallbacks for Engine<'_> {
         }
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
-        let x = if action_test { 100.0 } else { 0.0 };
-        let draw_success = test_texture.draw(
-            (x, 0.0, 319.0, 400.0),
-            0,
-            &mut draw_queue,
-            &self.resource_db,
-            &mut self.resource_loader,
-        );
-        assert!(draw_success);
+        let (screen_width, _) = platform.draw_area();
+        let x = if action_test { -screen_width } else { 0.0 };
+        for mip in 0..9 {
+            let w = 319.0 * 2.0;
+            let h = 400.0 * 2.0;
+            let draw_success = test_texture.draw(
+                (x + mip as f32 * w * 1.1, 0.0, w, h),
+                mip,
+                0,
+                &mut draw_queue,
+                &self.resource_db,
+                &mut self.resource_loader,
+            );
+            assert!(draw_success);
+        }
 
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 

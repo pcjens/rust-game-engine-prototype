@@ -1,6 +1,9 @@
 #[cfg(feature = "asset-conditioning")]
 extern crate std;
 
+#[cfg(feature = "asset-conditioning")]
+mod pixels;
+
 use core::ops::Range;
 
 use arrayvec::ArrayVec;
@@ -26,6 +29,11 @@ gen_asset_handle_code!(
 /// The maximum amount of mip levels for a texture.
 pub const MAX_MIPS: usize = 12;
 
+/// Bytes per pixel in the texture chunk format, the only format used within
+/// this module.
+#[cfg(feature = "asset-conditioning")]
+const BPP: usize = crate::resources::TEXTURE_CHUNK_FORMAT.bytes_per_pixel();
+
 /// One mipmap level of a [`TextureAsset`].
 #[derive(Debug)]
 pub struct TextureMipLevel {
@@ -35,7 +43,12 @@ pub struct TextureMipLevel {
     /// The dimensions of the texture in pixels.
     pub size: (u16, u16),
     /// The chunks the texture is made up of. Multi-chunk textures are allocated
-    /// starting from the top-left of the texture, row-major.
+    /// starting from the top-left of the texture, row-major, with the chunks in
+    /// between corners having 1px borders. So where the offset into the chunk
+    /// is unclear (e.g. the top row of chunks has the y offset from the
+    /// `offset` field of this struct, but the x offset isn't clear aside from
+    /// the top-left corner) the offset is 1 and the size is the chunk's
+    /// width/height minus 2.
     pub texture_chunks: Range<u32>,
 }
 
@@ -59,9 +72,6 @@ impl TextureAsset {
         chunk_data: &mut (impl std::io::Write + std::io::Seek),
         output_chunks: &mut std::vec::Vec<TextureChunkDescriptor>,
     ) -> TextureAsset {
-        use crate::resources::TEXTURE_CHUNK_FORMAT;
-
-        const BPP: usize = TEXTURE_CHUNK_FORMAT.bytes_per_pixel();
         const CHUNK_WIDTH: usize = TEXTURE_CHUNK_DIMENSIONS.0 as usize;
         const CHUNK_HEIGHT: usize = TEXTURE_CHUNK_DIMENSIONS.1 as usize;
         const CHUNK_STRIDE: usize = CHUNK_WIDTH * BPP;
@@ -102,6 +112,8 @@ impl TextureAsset {
             }
 
             let stride = width * BPP;
+
+            // TODO: replace the inline blitting logic with Texture helpers
 
             // Try to fit the texture to the right of the reserved region
             if pending_chunk_width + width <= CHUNK_WIDTH && height <= CHUNK_HEIGHT {
@@ -187,46 +199,24 @@ impl TextureAsset {
         for _ in 0..MAX_MIPS {
             let (width_with_border, height_with_border) = (width + 2, height + 2);
             let stride = width_with_border * BPP;
-            let pixels_with_border = &mut pixels[..height_with_border * stride];
-            let pixels = &mut pixels_with_border
-                [BPP + stride..(1 + width) * BPP + (height_with_border - 1) * stride];
-            render_texture(width as u16, height as u16, stride, pixels);
+            let pixels = &mut pixels[..height_with_border * stride];
+            let mut tex_with_border =
+                pixels::TexPixels::new(pixels, stride, width_with_border, height_with_border)
+                    .unwrap();
+            let tex_inner = tex_with_border.shrink().unwrap();
+            render_texture(
+                tex_inner.width as u16,
+                tex_inner.height as u16,
+                tex_inner.stride,
+                tex_inner.pixels,
+            );
 
-            // The following section just adds a 1 pixel wide border around the
-            // texture to make bilinear samples not mix up with neighbors in the
-            // texture chunk.
-            let mut copy_from_to = |from: (usize, usize), to: (usize, usize)| {
-                let (x0, y0) = from;
-                let (x1, y1) = to;
-                for c in 0..BPP {
-                    pixels_with_border[c + x1 * BPP + y1 * stride] =
-                        pixels_with_border[c + x0 * BPP + y0 * stride];
-                }
-            };
-            // Fill out the top and bottom border (without corners)
-            for (y, y_from) in [(0, 1), (height_with_border - 1, height_with_border - 2)] {
-                for x in 1..1 + width {
-                    copy_from_to((x, y_from), (x, y));
-                }
-            }
-            // Fill out the left and right border (without corners)
-            for y in 1..1 + height {
-                for (x, x_from) in [(0, 1), (width_with_border - 1, width_with_border - 2)] {
-                    copy_from_to((x_from, y), (x, y));
-                }
-            }
-            // Fill out the corners
-            let x_last = width_with_border - 1; // x coord of the right border
-            let y_last = height_with_border - 1; // y coord of the bottom border
-            copy_from_to((1, 0), (0, 0));
-            copy_from_to((x_last - 1, 0), (x_last, 0));
-            copy_from_to((1, y_last), (0, y_last));
-            copy_from_to((x_last - 1, y_last), (x_last, y_last));
+            tex_with_border.fill_border();
 
             mip_chain.push(allocate(
-                width_with_border,
-                height_with_border,
-                pixels_with_border,
+                tex_with_border.width,
+                tex_with_border.height,
+                tex_with_border.pixels,
             ));
 
             (width, height) = (width.div_ceil(2), height.div_ceil(2));
@@ -256,6 +246,7 @@ impl TextureAsset {
     pub fn draw(
         &self,
         (x, y, width, height): (f32, f32, f32, f32),
+        mip: usize, // FIXME: replace with a proper mip level calculation
         draw_order: u8,
         draw_queue: &mut DrawQueue,
         resources: &ResourceDatabase,
@@ -264,7 +255,7 @@ impl TextureAsset {
         const CHUNK_WIDTH: u16 = TEXTURE_CHUNK_DIMENSIONS.0;
         const CHUNK_HEIGHT: u16 = TEXTURE_CHUNK_DIMENSIONS.1;
 
-        let mip = &self.mip_chain[0];
+        let mip = &self.mip_chain[mip];
         let chunks_x = mip.size.0.div_ceil(CHUNK_WIDTH) as u32;
         let chunks_y = mip.size.1.div_ceil(CHUNK_HEIGHT) as u32;
         assert_eq!(
@@ -273,19 +264,24 @@ impl TextureAsset {
             "resource database has a corrupt chunk, amount of chunks does not match the texture size",
         );
 
+        if draw_queue.quads.spare_capacity() < (chunks_x * chunks_y) as usize {
+            return false;
+        }
+
+        let tex_offset_x = mip.offset.0 as f32;
+        let tex_offset_y = mip.offset.1 as f32;
         let tex_width = mip.size.0 as f32;
         let tex_height = mip.size.1 as f32;
         let scale_x = width / tex_width;
         let scale_y = height / tex_height;
 
-        let mut draw_success = true;
-        let mut tex_x_pos = mip.offset.0 as f32;
-        let mut tex_y_pos = mip.offset.1 as f32;
+        let mut tex_x_pos = tex_offset_x;
+        let mut tex_y_pos = tex_offset_y;
         for cy in 0..chunks_y {
             let row_first_desc = &resources.texture_chunk_descriptors
                 [(mip.texture_chunks.start + cy * chunks_x) as usize];
             let chunk_height = if cy == 0 {
-                (row_first_desc.region_height - mip.offset.1) as f32
+                ((row_first_desc.region_height - mip.offset.1) as f32).min(tex_height)
             } else {
                 let y_off_into_texture = tex_y_pos - mip.offset.1 as f32;
                 (tex_height - y_off_into_texture).min(row_first_desc.region_height as f32)
@@ -296,34 +292,34 @@ impl TextureAsset {
                 let desc = &resources.texture_chunk_descriptors[chunk_index as usize];
 
                 let chunk_width = if cx == 0 {
-                    (desc.region_width - mip.offset.0) as f32
+                    ((desc.region_width - mip.offset.0) as f32).min(tex_width)
                 } else {
                     let x_off_into_texture = tex_x_pos - mip.offset.0 as f32;
                     (tex_width - x_off_into_texture).min(desc.region_width as f32)
                 };
 
                 if let Some(chunk) = resources.texture_chunks.get(chunk_index) {
-                    let x = x + tex_x_pos * scale_x;
-                    let y = y + tex_y_pos * scale_y;
+                    let x = x + (tex_x_pos - tex_offset_x) * scale_x;
+                    let y = y + (tex_y_pos - tex_offset_y) * scale_y;
                     let width = chunk_width * scale_x;
                     let height = chunk_height * scale_y;
 
                     let chunk_x_pos = tex_x_pos % CHUNK_WIDTH as f32;
-                    let chunk_y_pos = tex_y_pos % CHUNK_WIDTH as f32;
+                    let chunk_y_pos = tex_y_pos % CHUNK_HEIGHT as f32;
                     let (tex_x0, tex_x1) = (
                         chunk_x_pos / CHUNK_WIDTH as f32,
                         (chunk_x_pos + chunk_width) / CHUNK_WIDTH as f32,
                     );
                     let (tex_y0, tex_y1) = (
-                        chunk_y_pos / CHUNK_WIDTH as f32,
-                        (chunk_y_pos + chunk_height) / CHUNK_WIDTH as f32,
+                        chunk_y_pos / CHUNK_HEIGHT as f32,
+                        (chunk_y_pos + chunk_height) / CHUNK_HEIGHT as f32,
                     );
 
                     let quad = TexQuad {
                         position_top_left: (x, y),
                         position_bottom_right: (x + width, y + height),
                         texcoord_top_left: (tex_x0, tex_y0),
-                        texcoord_bottom_right: (tex_y1, tex_x1),
+                        texcoord_bottom_right: (tex_x1, tex_y1),
                         draw_order,
                         blend_mode: if self.transparent {
                             BlendMode::Blend
@@ -333,9 +329,7 @@ impl TextureAsset {
                         texture: chunk.0,
                     };
 
-                    if draw_queue.quads.push(quad).is_err() {
-                        draw_success = false;
-                    }
+                    draw_queue.quads.push(quad).unwrap();
                 } else {
                     resource_loader.queue_texture_chunk(chunk_index, resources);
                 }
@@ -346,6 +340,6 @@ impl TextureAsset {
             tex_x_pos = mip.offset.0 as f32;
         }
 
-        draw_success
+        true
     }
 }

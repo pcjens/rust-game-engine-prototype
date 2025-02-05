@@ -8,6 +8,7 @@ use crate::resources::assets::TextureAsset;
 /// Parameters for rendering a textured quad.
 ///
 /// Generally created by the engine in e.g. [`TextureAsset::draw`].
+#[derive(Debug)]
 pub struct TexQuad {
     pub position_top_left: (f32, f32),
     pub position_bottom_right: (f32, f32),
@@ -118,7 +119,9 @@ impl<'frm> DrawQueue<'frm> {
                     DrawSettings {
                         texture: Some(texture),
                         blend_mode,
-                        texture_filter: TextureFilter::Anisotropic,
+                        // FIXME: switch this back after done with rendering work
+                        //texture_filter: TextureFilter::Anisotropic,
+                        texture_filter: TextureFilter::NearestNeighbor,
                         clip_area: None,
                     },
                 );
