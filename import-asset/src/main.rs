@@ -1,6 +1,14 @@
-use std::{fs, io::Cursor, str::FromStr};
+mod cli;
+mod database;
+
+use std::{
+    fs::{self, File},
+    io::Cursor,
+    str::FromStr,
+};
 
 use arrayvec::ArrayString;
+use database::Database;
 use engine::resources::{
     assets::TextureAsset, serialize, NamedAsset, ResourceDatabaseHeader, TextureChunkDescriptor,
     TEXTURE_CHUNK_FORMAT,
@@ -8,6 +16,25 @@ use engine::resources::{
 use image::imageops::FilterType;
 
 fn main() {
+    let opts = cli::options().run();
+
+    tracing_subscriber::fmt()
+        .with_max_level(opts.verbosity_level)
+        .finish();
+
+    // TODO: would be nice if we could lock the file at this point if it exists,
+    // to avoid overwriting changes made in between here and the write. The
+    // `file_lock` feature is in FCP, so it might be possible relatively soon.
+    let db_file = File::open(&opts.resource_db_path).ok();
+    let database = Database::new(db_file).expect("database file should be readable");
+
+    let db_file = File::create(&opts.resource_db_path).expect("database file should be writable");
+    database
+        .write_into(db_file)
+        .expect("the modified database should be able to be written into the file");
+
+    // TODO: remove everything below here
+
     let mut dst = vec![0; 1_000_000];
 
     let mut chunk_data: Cursor<Vec<u8>> = Cursor::new(Vec::new());
