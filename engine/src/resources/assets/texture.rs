@@ -268,7 +268,6 @@ impl TextureAsset {
     pub fn draw(
         &self,
         dst: Rect,
-        mip: usize, // FIXME: replace with a proper mip level calculation
         draw_order: u8,
         draw_queue: &mut DrawQueue,
         resources: &ResourceDatabase,
@@ -297,7 +296,27 @@ impl TextureAsset {
             }
         };
 
-        let mip = &self.mip_chain[mip];
+        let texture_by_render_resolution_ratio = match &self.mip_chain[0] {
+            TextureMipLevel::SingleChunkTexture { size, .. }
+            | TextureMipLevel::MultiChunkTexture { size, .. } => {
+                let width_scale = size.0 / (dst.w * draw_queue.scale_factor) as u16;
+                let height_scale = size.1 / (dst.h * draw_queue.scale_factor) as u16;
+                width_scale.min(height_scale)
+            }
+        };
+
+        // Since every mip is half the resolution, with index 0 being the
+        // highest, log2 of the scale between the actual texture and the
+        // rendered size matches the index of the mip that matches the rendered
+        // size the closest. ilog2 rounds down, which is fine, as that'll end up
+        // picking the higher resolution mip of the two mips around the real
+        // log2 result.
+        let mip_level = texture_by_render_resolution_ratio
+            .checked_ilog2()
+            .unwrap_or(0) as usize;
+
+        let max_mip = self.mip_chain.len() - 1;
+        let mip = &self.mip_chain[mip_level.min(max_mip)];
 
         match mip {
             TextureMipLevel::SingleChunkTexture {

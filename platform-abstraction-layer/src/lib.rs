@@ -57,6 +57,11 @@ pub trait Pal {
     /// system as the [`Vertex`]es passed into [`Pal::draw_triangles`].
     fn draw_area(&self) -> (f32, f32);
 
+    /// Get the current screen scale factor. When multiplied with
+    /// [`Pal::draw_area`] should match the resolution of the framebuffer (i.e.
+    /// the resolution which textures should match for pixel perfect rendering).
+    fn draw_scale_factor(&self) -> f32;
+
     /// Render out a pile of triangles.
     fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings);
 

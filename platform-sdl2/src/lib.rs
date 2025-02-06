@@ -276,9 +276,19 @@ impl Pal for Sdl2Pal {
     fn draw_area(&self) -> (f32, f32) {
         let (w, h) = {
             let canvas = self.canvas.borrow();
-            canvas.viewport().size()
+            canvas.window().size()
         };
         (w as f32, h as f32)
+    }
+
+    fn draw_scale_factor(&self) -> f32 {
+        let (scaled_width, pixel_width) = {
+            let canvas = self.canvas.borrow();
+            let (scaled_w, _) = canvas.window().size();
+            let (pixel_w, _) = canvas.window().drawable_size();
+            (scaled_w, pixel_w)
+        };
+        pixel_width as f32 / scaled_width as f32
     }
 
     fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings) {

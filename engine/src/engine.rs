@@ -98,7 +98,8 @@ impl EngineCallbacks for Engine<'_> {
         self.resource_loader
             .finish_reads(&mut self.resource_db, platform);
 
-        let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000).unwrap();
+        let scale_factor = platform.draw_scale_factor();
+        let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
 
         // Testing area follows, could be considered "game code" for now:
 
@@ -124,18 +125,20 @@ impl EngineCallbacks for Engine<'_> {
         let test_texture = self.resource_db.get_texture(self.test_texture);
         let (screen_width, _) = platform.draw_area();
         let x = if action_test { -screen_width } else { 0.0 };
+        let mut offset = 0.0;
         for mip in 0..9 {
-            let w = 319.0;
-            let h = 400.0;
+            let scale = 1. / 2i32.pow(mip) as f32;
+            let w = 319.0 * scale;
+            let h = 400.0 * scale;
             let draw_success = test_texture.draw(
-                Rect::xywh(x + mip as f32 * w * 1.1, 0.0, w, h),
-                mip,
+                Rect::xywh(x + offset, 0.0, w, h),
                 0,
                 &mut draw_queue,
                 &self.resource_db,
                 &mut self.resource_loader,
             );
             assert!(draw_success);
+            offset += w + 20.0;
         }
 
         draw_queue.dispatch_draw(&self.frame_arena, platform);

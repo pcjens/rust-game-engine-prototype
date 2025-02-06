@@ -31,6 +31,10 @@ impl Pal for TestPlatform {
         (320.0, 240.0)
     }
 
+    fn draw_scale_factor(&self) -> f32 {
+        1.5
+    }
+
     fn draw_triangles(&self, _vertices: &[Vertex], _indices: &[u32], _settings: DrawSettings) {}
 
     fn create_texture(&self, width: u16, height: u16, format: PixelFormat) -> Option<TextureRef> {

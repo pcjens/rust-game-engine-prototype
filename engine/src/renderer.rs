@@ -26,20 +26,28 @@ impl TexQuad {
 }
 
 /// Queue of draw commands to be sorted and shipped off to the platform for
-/// rendering.
+/// rendering and some related rendering state.
 ///
 /// Intended to be recreated every frame, but can be reused between frames to
 /// avoid having to queue up the draws again.
 pub struct DrawQueue<'frm> {
     /// Textured quads to draw.
     pub quads: FixedVec<'frm, TexQuad>,
+    /// [`Pal::draw_scale_factor`], stored here because all textured rendering
+    /// functionality needs it.
+    pub scale_factor: f32,
 }
 
 impl<'frm> DrawQueue<'frm> {
     /// Creates a new queue of draws.
-    pub fn new(allocator: &'frm LinearAllocator, max_quads: usize) -> Option<DrawQueue<'frm>> {
+    pub fn new(
+        allocator: &'frm LinearAllocator,
+        max_quads: usize,
+        scale_factor: f32,
+    ) -> Option<DrawQueue<'frm>> {
         Some(DrawQueue {
             quads: FixedVec::new(allocator, max_quads)?,
+            scale_factor,
         })
     }
 
