@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 platform-abstraction-layer = { version = "0.1.0", path = "../platform-abstraction-layer" }
 sdl2 = "0.37.0"
-sdl2-sys = { version = "0.37.0", features = ["bundled"] }
+sdl2-sys = "0.37.0"
 
 [features]
 default = []

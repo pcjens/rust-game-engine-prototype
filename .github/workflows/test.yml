@@ -13,8 +13,10 @@ jobs:
   test-linux:
     runs-on: ubuntu-latest
     steps:
+    - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
+    - run: cargo build
     - run: cargo test
     - run: cargo test --package=engine
   test-windows:
@@ -22,7 +24,8 @@ jobs:
     steps:
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --features="sdl2-sys/static-link"
+    - run: cargo build --features="sdl2/bundled sdl2/static-link"
+    - run: cargo test --features="sdl2/bundled sdl2/static-link"
     # The engine package is (thankfully) the only library in this workspace with
     # features, so just as a sanity check, test it without the features as well.
     - run: cargo test --package=engine --no-default-features
@@ -31,7 +34,8 @@ jobs:
     steps:
     - uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
-    - run: cargo test --features="sdl2-sys/static-link"
+    - run: cargo build --features="sdl2/bundled sdl2/static-link"
+    - run: cargo test --features="sdl2/bundled sdl2/static-link"
   test-web:
     runs-on: ubuntu-latest
     steps:
@@ -41,7 +45,11 @@ jobs:
     - uses: actions/setup-node@v4
     - uses: mymindstorm/setup-emsdk@v14
     - uses: actions/checkout@v3
-    - run: cargo test --target=wasm32-unknown-emscripten --features="sdl2-sys/static-link"
+    - run: cargo build --target=wasm32-unknown-emscripten --features="sdl2/bundled sdl2/static-link"
+      env:
+        CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
+        RUSTFLAGS: -C link-arg=-sSTACK_SIZE=1000000
+    - run: cargo test --target=wasm32-unknown-emscripten --features="sdl2/bundled sdl2/static-link"
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
         RUSTFLAGS: -C link-arg=-sSTACK_SIZE=1000000
