@@ -25,7 +25,7 @@ jobs:
     - uses: actions/checkout@v3
     - run: cargo build --release --package=example --timings
       env:
-        CARGO_INCREMENTAL=0
+        CARGO_INCREMENTAL: 0
     - uses: actions/upload-artifact@v4
       with:
         name: cargo-release-timing
