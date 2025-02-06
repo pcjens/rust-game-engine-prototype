@@ -67,14 +67,14 @@ pub struct Sdl2Pal {
 }
 
 impl Sdl2Pal {
-    pub fn new() -> Sdl2Pal {
+    pub fn new(title: &str) -> Sdl2Pal {
         let sdl_context = sdl2::init().expect("SDL 2 library should be able to init");
 
         let video = sdl_context
             .video()
             .expect("SDL video subsystem should be able to init");
         let window = video
-            .window("title", 960, 540)
+            .window(title, 960, 540)
             .allow_highdpi()
             .position_centered()
             .resizable()
@@ -263,12 +263,6 @@ impl Sdl2Pal {
                 canvas.present();
             }
         }
-    }
-}
-
-impl Default for Sdl2Pal {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
