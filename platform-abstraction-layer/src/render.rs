@@ -5,7 +5,7 @@ use bytemuck::{Pod, Zeroable};
 /// Texture coordinates (u, v) should be interpreted as "0, 0" referring to the
 /// top-left corner of the texture and "1, 1" referring to the bottom-right
 /// corner.
-#[derive(Debug, Default, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct Vertex {
     pub x: f32,
@@ -19,6 +19,26 @@ pub struct Vertex {
     pub b: u8,
     pub a: u8,
 }
+
+// Safety: Vertex is "inhabited" and all zeroes is a valid value for it, all the
+// fields are Zeroable.
+unsafe impl Zeroable for Vertex {}
+
+// Safety: manually checked for f32 typed x/y/u/v at the beginning with u8 typed
+// r/g/b/a at the end.
+// - The type must be inhabited: it is.
+// - The type must allow any bit pattern: it does, f32 and u8 are Pod.
+// - The type must not contain any uninit (or padding) bytes: it does not, it's
+//   4-aligned and the first four fields are 4 bytes, and the last four are
+//   1-byte aligned and there's 4 of them.
+// - The type needs to have all fields also be `Pod`: it does.
+// - The type needs to be `repr(C)` or...: yes, it is repr(C) and does not
+//   specify padding or alignment manually.
+// - It is disallowed for types to contain pointer types, `Cell`, `UnsafeCell`,
+//   atomics, and any other forms of interior mutability: none of those in this.
+// - More precisely: A shared reference to the type must allow reads, and *only*
+//   reads: yes, no hidden inner mutability tricks.
+unsafe impl Pod for Vertex {}
 
 impl Vertex {
     /// Creates a [`Vertex`] with zeroed texture coordinates and a white color,

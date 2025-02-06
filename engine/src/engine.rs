@@ -1,7 +1,6 @@
 use core::time::Duration;
 
 use arrayvec::ArrayVec;
-use enum_map::enum_map;
 use platform_abstraction_layer::{
     thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Pal,
 };
@@ -9,15 +8,16 @@ use platform_abstraction_layer::{
 use crate::{
     allocators::{LinearAllocator, StaticAllocator},
     geom::Rect,
-    input::{Action, ActionKind, EventQueue, InputDeviceState, QueuedEvent},
+    input::{ActionKind, ActionState, EventQueue, InputDeviceState, QueuedEvent},
     multithreading::{self, parallelize},
     renderer::DrawQueue,
     resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
 };
 
-#[derive(enum_map::Enum)]
+#[repr(usize)]
 enum TestInput {
     Act,
+    _Count,
 }
 
 /// The top-level structure of the game engine which owns all the runtime state
@@ -38,7 +38,7 @@ pub struct Engine<'eng> {
     /// timeout if not.
     event_queue: EventQueue,
 
-    test_input: Option<InputDeviceState<TestInput>>,
+    test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
     test_texture: TextureHandle,
 }
 
@@ -119,7 +119,7 @@ impl EngineCallbacks for Engine<'_> {
 
         if let Some(input) = &mut self.test_input {
             input.update(&mut self.event_queue);
-            action_test = input.actions[TestInput::Act].pressed;
+            action_test = input.actions[TestInput::Act as usize].pressed;
         }
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
@@ -154,14 +154,16 @@ impl EngineCallbacks for Engine<'_> {
                     // TODO: testing code, delete this
                     self.test_input = Some(InputDeviceState {
                         device,
-                        actions: enum_map! {
-                            TestInput::Act => Action {
+                        actions: [
+                            // TestInput::Act
+                            ActionState {
                                 kind: ActionKind::Held,
-                                mapping: platform.default_button_for_action(ActionCategory::ActPrimary, device).unwrap(),
+                                mapping: platform
+                                    .default_button_for_action(ActionCategory::ActPrimary, device),
                                 disabled: false,
                                 pressed: false,
                             },
-                        },
+                        ],
                     });
                 }
 

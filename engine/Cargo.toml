@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
 bytemuck = { version = "1.20.0", default-features = false, features = ["zeroable_maybe_uninit"] }
-enum-map = { version = "2.7.3", default-features = false }
 platform-abstraction-layer = { version = "0.1.0", path = "../platform-abstraction-layer" }
 
 [dev-dependencies]

@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
-bytemuck = { version = "1.20.0", default-features = false, features = ["derive"] }
+bytemuck = { version = "1.20.0", default-features = false }
 crossbeam-utils = { version = "0.8.21", default-features = false }

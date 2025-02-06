@@ -1,7 +1,7 @@
 #![no_std]
 
-#[cfg(test)]
-mod test_platform;
+#[cfg(any(test, doctest))]
+pub mod test_platform;
 
 /// Low-level memory allocators used for all dynamic allocation in the engine.
 ///

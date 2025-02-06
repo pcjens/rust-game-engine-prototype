@@ -1,7 +1,6 @@
 use core::time::Duration;
 
 use arrayvec::ArrayVec;
-use enum_map::{EnumArray, EnumMap};
 use platform_abstraction_layer::{Button, Event, InputDevice};
 
 const EVENT_QUEUE_TIMEOUT: Duration = Duration::from_millis(200);
@@ -10,7 +9,7 @@ const EVENT_QUEUE_TIMEOUT: Duration = Duration::from_millis(200);
 pub type EventQueue = ArrayVec<QueuedEvent, 1000>;
 
 /// Input event that happened at some point in the past, waiting to be used as a
-/// trigger for an [`Action`], or to be timed out.
+/// trigger for an [`ActionState`], or to be timed out.
 pub struct QueuedEvent {
     pub event: Event,
     pub timestamp: Duration,
@@ -28,24 +27,60 @@ impl QueuedEvent {
 
 /// The main input interface for the game, created, and maintained in game code.
 ///
-/// `K` should be an enum that represents the various actions that can be
-/// triggered by the player to be detected by the game. Every frame,
-/// [`InputDeviceState::update`] should be called to update action states, and
-/// then the [`Action::pressed`] status of the values in
+/// `N` should be the amount of actions that can be triggered by the player to
+/// be detected by the game. Every frame, [`InputDeviceState::update`] should be
+/// called, and then the [`ActionState::pressed`] status of the values in
 /// [`InputDeviceState::actions`] should be used to trigger any relevant events
-/// in the game.
-pub struct InputDeviceState<K: EnumArray<Action>> {
+/// in the game based on the actions' index.
+///
+/// ### Example
+/// ```
+/// # let mut event_queue = engine::input::EventQueue::new();
+/// # let a_device_from_platform = platform_abstraction_layer::InputDevice::new(0);
+/// # let button_from_platform = platform_abstraction_layer::Button::new(0);
+/// # let another_button_from_platform = platform_abstraction_layer::Button::new(0);
+/// use engine::input::{InputDeviceState, ActionState, ActionKind};
+///
+/// #[repr(usize)]
+/// enum PlayerAction {
+///     Jump,
+///     Run,
+///     Select,
+///     _Count,
+/// }
+///
+/// let mut input_device_state = InputDeviceState {
+///     device: a_device_from_platform,
+///     actions: [ActionState::default(); PlayerAction::_Count as usize],
+/// };
+///
+/// // Maybe bind the actions:
+/// let jump_action = &mut input_device_state.actions[PlayerAction::Jump as usize];
+/// jump_action.kind = ActionKind::Instant;
+/// jump_action.mapping = Some(button_from_platform);
+///
+/// let run_action = &mut input_device_state.actions[PlayerAction::Run as usize];
+/// run_action.kind = ActionKind::Held;
+/// run_action.mapping = Some(another_button_from_platform);
+///
+/// // Somewhere early in a frame:
+/// input_device_state.update(&mut event_queue);
+/// if input_device_state.actions[PlayerAction::Jump as usize].pressed {
+///     // Jump!
+/// }
+/// ```
+pub struct InputDeviceState<const N: usize> {
     /// The device this [`InputDeviceState`] tracks.
     pub device: InputDevice,
     /// Each action's current state, updated based on events in
     /// [`InputDeviceState::update`].
-    pub actions: EnumMap<K, Action>,
+    pub actions: [ActionState; N],
 }
 
-impl<K: EnumArray<Action>> InputDeviceState<K> {
+impl<const N: usize> InputDeviceState<N> {
     pub fn update(&mut self, event_queue: &mut EventQueue) {
         // Reset any instant actions to "not pressed"
-        for action in self.actions.values_mut() {
+        for action in &mut self.actions {
             if matches!(action.kind, ActionKind::Instant) {
                 action.pressed = false;
             }
@@ -55,8 +90,8 @@ impl<K: EnumArray<Action>> InputDeviceState<K> {
         event_queue.retain(|event| {
             match event.event {
                 Event::DigitalInputPressed(device, button) if device == self.device => {
-                    for action in self.actions.values_mut() {
-                        if action.mapping == button && !action.disabled {
+                    for action in &mut self.actions {
+                        if action.mapping == Some(button) && !action.disabled {
                             match action.kind {
                                 ActionKind::Instant if action.pressed => return true, // handle this event on the next frame, there's many presses queued up
                                 ActionKind::Instant => action.pressed = true,
@@ -69,8 +104,8 @@ impl<K: EnumArray<Action>> InputDeviceState<K> {
                 }
 
                 Event::DigitalInputReleased(device, button) if device == self.device => {
-                    for action in self.actions.values_mut() {
-                        if action.mapping == button && !action.disabled {
+                    for action in &mut self.actions {
+                        if action.mapping == Some(button) && !action.disabled {
                             if matches!(action.kind, ActionKind::Held) {
                                 action.pressed = false;
                             }
@@ -87,11 +122,12 @@ impl<K: EnumArray<Action>> InputDeviceState<K> {
 }
 
 /// A rebindable action and its current state.
-pub struct Action {
-    /// How events are used to change the status of [`Action::pressed`].
+#[derive(Clone, Copy, Default)]
+pub struct ActionState {
+    /// How events are used to change the status of [`ActionState::pressed`].
     pub kind: ActionKind,
     /// Button which triggers this action.
-    pub mapping: Button,
+    pub mapping: Option<Button>,
     /// If true, events are ignored, but unless the events time out, they will
     /// trigger the action once this is set to false again.
     ///
@@ -104,9 +140,11 @@ pub struct Action {
 }
 
 /// The button press pattern to be used to trigger a specific action.
+#[derive(Clone, Copy, Default)]
 pub enum ActionKind {
     /// Actions that happen right away when the button is pressed, and stop
     /// happening until the next press.
+    #[default]
     Instant,
     /// Actions that start happening when the button is pressed, and stop
     /// happening when it's released.

@@ -84,25 +84,34 @@ impl<T> SparseArray<'_, T> {
 
 /// `Option<u32>` but Zeroable and u32-sized.
 ///
-/// But can't contain `0xFFFFFFFF`.
-#[derive(Zeroable, Clone, Copy)]
+/// But can't hold the value `0xFFFFFFFF`.
+#[derive(Clone, Copy)]
 struct OptionalU32 {
-    index_plus_one: Option<NonZeroU32>,
+    /// Contains the value represented by this struct, except that the inner
+    /// value from [`NonZeroU32::get`] is 1 more than the value this struct
+    /// represents. [`OptionalU32::set`] and [`OptionalU32::get`] handle
+    /// applying this bias in both directions.
+    biased_index: Option<NonZeroU32>,
 }
+
+// Safety: OptionalU32 is inhabited and all zeroes is a valid value for it (it'd
+// have `index_plus_one: None`). For another perspective, Option<T> is Zeroable
+// if T is PodInOption, and NonZeroU32 is PodInOption.
+unsafe impl Zeroable for OptionalU32 {}
 
 impl OptionalU32 {
     pub fn set(&mut self, index: u32) {
-        self.index_plus_one = Some(NonZeroU32::new(index + 1).unwrap());
+        self.biased_index = Some(NonZeroU32::new(index + 1).unwrap());
     }
 
     pub fn get(self) -> Option<u32> {
-        self.index_plus_one
+        self.biased_index
             .map(|index_plus_one| index_plus_one.get() - 1)
     }
 
     pub fn take(&mut self) -> Option<u32> {
         let result = self.get();
-        self.index_plus_one = None;
+        self.biased_index = None;
         result
     }
 }
