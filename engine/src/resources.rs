@@ -180,6 +180,7 @@ mod named_asset {
     /// Implements equality and comparison operators purely based on the name,
     /// as assets with a specific name should be unique within a resource
     /// database.
+    #[derive(Debug)]
     pub struct NamedAsset<T> {
         pub name: ArrayString<ASSET_NAME_LENGTH>,
         pub asset: T,

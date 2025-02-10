@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.95"
 arrayvec = { version = "0.7.6", default-features = false }
 bpaf = { version = "0.9.16", features = ["derive", "batteries", "autocomplete"] }
 engine = { version = "0.1.0", path = "../engine", features = ["asset-conditioning"] }

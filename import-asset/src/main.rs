@@ -14,27 +14,32 @@ use engine::resources::{
     TEXTURE_CHUNK_FORMAT,
 };
 use image::imageops::FilterType;
+use tracing_subscriber::util::SubscriberInitExt;
 
 fn main() {
     let opts = cli::options().run();
 
     tracing_subscriber::fmt()
         .with_max_level(opts.verbosity_level)
-        .finish();
+        .finish()
+        .init();
 
     // TODO: would be nice if we could lock the file at this point if it exists,
     // to avoid overwriting changes made in between here and the write. The
     // `file_lock` feature is in FCP, so it might be possible relatively soon.
-    let db_file = File::open(&opts.resource_db_path).ok();
-    let database = Database::new(db_file).expect("database file should be readable");
+    let mut db_file = File::open(&opts.resource_db_path).ok();
+    let database = Database::new(db_file.as_mut()).expect("database file should be readable");
 
-    let db_file = File::create(&opts.resource_db_path).expect("database file should be writable");
+    let mut db_file =
+        File::create(&opts.resource_db_path).expect("database file should be writable");
     database
-        .write_into(db_file)
+        .write_into(&mut db_file)
         .expect("the modified database should be able to be written into the file");
 
-    // TODO: remove everything below here
+    return;
+    // TODO: remove everything below here, keeping it here for now for reference
 
+    #[allow(unreachable_code)]
     let mut dst = vec![0; 1_000_000];
 
     let mut chunk_data: Cursor<Vec<u8>> = Cursor::new(Vec::new());
