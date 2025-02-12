@@ -46,6 +46,16 @@ impl Database {
                 }};
             }
 
+            // TODO: read chunk data into per-chunk-vecs, so that the chunk data
+            // can be rewritten in the write step, possibly not writing out all
+            // of the chunks (e.g. if an asset was overwritten, it got new
+            // chunks, the old ones should not be written back into the db
+            // file). Also, in the write step, this means that all chunk
+            // references in the assets should be updated to match the indices
+            // of the chunks as they were actually written (annoying point:
+            // different assets referring to a shared chunk). Same thing for the
+            // byte ranges in the chunks themselves.
+
             Ok(Database {
                 chunk_descriptors: read_vec!(header, chunks, &mut buffer, db_file),
                 texture_chunk_descriptors: read_vec!(header, texture_chunks, &mut buffer, db_file),

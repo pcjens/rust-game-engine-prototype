@@ -7,16 +7,19 @@ use std::{
     str::FromStr,
 };
 
+use anyhow::Context;
 use arrayvec::ArrayString;
+use cli::{Command, Options};
 use database::Database;
 use engine::resources::{
     assets::TextureAsset, serialize, NamedAsset, ResourceDatabaseHeader, TextureChunkDescriptor,
     TEXTURE_CHUNK_FORMAT,
 };
 use image::imageops::FilterType;
+use serde::{Deserialize, Serialize};
 use tracing_subscriber::util::SubscriberInitExt;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let opts = cli::options().run();
 
     tracing_subscriber::fmt()
@@ -27,16 +30,17 @@ fn main() {
     // TODO: would be nice if we could lock the file at this point if it exists,
     // to avoid overwriting changes made in between here and the write. The
     // `file_lock` feature is in FCP, so it might be possible relatively soon.
-    let mut db_file = File::open(&opts.resource_db_path).ok();
-    let database = Database::new(db_file.as_mut()).expect("database file should be readable");
+    let mut db_file = File::open(&opts.database).ok();
+    let mut database = Database::new(db_file.as_mut()).expect("database file should be readable");
 
-    let mut db_file =
-        File::create(&opts.resource_db_path).expect("database file should be writable");
+    process_command(&opts, &mut database)?;
+
+    let mut db_file = File::create(&opts.database).expect("database file should be writable");
     database
         .write_into(&mut db_file)
         .expect("the modified database should be able to be written into the file");
 
-    return;
+    return Ok(());
     // TODO: remove everything below here, keeping it here for now for reference
 
     #[allow(unreachable_code)]
@@ -99,4 +103,37 @@ fn main() {
     fs::write("resources.db", &dst[..cursor]).unwrap();
 
     println!("This does not import assets yet. Wrote a resources.db for testing though.");
+}
+
+fn process_command(opts: &Options, _db: &mut Database) -> anyhow::Result<()> {
+    #[derive(Serialize, Deserialize)]
+    enum SettingsFile {
+        V1 { imports: Vec<Command> },
+    }
+
+    let SettingsFile::V1 { imports } = if opts.settings.exists() {
+        let settings = fs::read_to_string(&opts.settings)
+            .context("failed to open the import settings file")?;
+        serde_json::from_str(&settings).context("failed to parse the import settings file")?
+    } else {
+        SettingsFile::V1 {
+            imports: Vec::new(),
+        }
+    };
+
+    match &opts.command {
+        cli::Command::Reimport {} => {
+            // TODO: clean out the whole database, loop through the settings file, process each command with this function
+            for _command in imports {}
+        }
+
+        cli::Command::Texture { name: _, file } => {
+            let _file = File::open(file).context("failed to open texture file for importing")?;
+            // TODO: read the file and engine::Serialize into a TextureAsset
+            // TODO: if successful, serde::Serialize this command, add to the import settings json, write out a new version of the settings file
+            todo!("texture import")
+        }
+    }
+
+    Ok(())
 }
