@@ -10,34 +10,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Does a non-incremental optimized build of a game, and an incremental debug
-  # build with no actual changes, as a sort of benchmark for how long it takes
-  # to compile a game using this engine. Of course, in CI, this will quite
-  # probably be slower than on a developer machine (at time of writing, the
-  # release build takes ~2.1 seconds on my desktop), but this should serve as a
-  # rough data point for estimating how compile times are changing over the
-  # course of developing the engine.
-  estimate-build-times:
-    runs-on: ubuntu-latest
-    steps:
-    - run: sudo apt-get install -y libsdl2-dev
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: actions/checkout@v3
-    - run: cargo build --release --package=example --timings
-      env:
-        CARGO_INCREMENTAL: 0
-    - uses: actions/upload-artifact@v4
-      with:
-        name: cargo-release-timing
-        path: target/cargo-timings/cargo-timing.html
-    - run: |
-        cargo build --package=example
-        sed -i -e "s/example game/changed example game/" example/src/main.rs
-    - run: cargo build --package=example --timings
-    - uses: actions/upload-artifact@v4
-      with:
-        name: cargo-debug-incremental-timing
-        path: target/cargo-timings/cargo-timing.html
   test-linux:
     runs-on: ubuntu-latest
     steps:
