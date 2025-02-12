@@ -30,9 +30,8 @@ jobs:
       with:
         name: cargo-release-timing
         path: target/cargo-timings/cargo-timing.html
-    - run: |
-        cargo build --package=example
-        sed -i -e "s/example game/changed example game/" example/src/main.rs
+    - run: cargo build --package=example
+    - run: sed -i -e "s/example game/changed example game/" example/src/main.rs
     - run: cargo build --package=example --timings
     - uses: actions/upload-artifact@v4
       with:
