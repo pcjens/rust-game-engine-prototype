@@ -56,6 +56,9 @@ impl<'eng> Engine<'eng> {
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
+        // Maybe an EngineConfig struct that has a const function for
+        // calculating the memory requirements, so you could
+        // "compile-time-static-allocate" the exactly correct amount of memory?
 
         let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 1)
             .expect("persistent arena should have enough memory for the thread pool");

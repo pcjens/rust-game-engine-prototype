@@ -123,6 +123,7 @@ fn write_serializable<S: Serialize>(
         }
     }
     let buffer = &mut buffer[..S::SERIALIZED_SIZE];
+    buffer.fill(0);
     serializable.serialize(buffer);
     writer.write_all(buffer)?;
     Ok(())
