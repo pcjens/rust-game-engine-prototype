@@ -1,20 +1,23 @@
 use std::{path::PathBuf, str::FromStr};
 
+use arrayvec::ArrayString;
 use bpaf::{batteries::verbose_by_slice, Bpaf, Parser, ShellComp};
+use engine::resources::ASSET_NAME_LENGTH;
 use serde::{Deserialize, Serialize};
 use tracing::level_filters::LevelFilter;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Bpaf)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Bpaf)]
+#[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
     /// Reimports all assets in the settings file
     #[bpaf(command("reimport"))]
     Reimport {},
     /// Adds a newtexture into the resource database and saves the settings
     #[bpaf(command("add-texture"))]
-    Texture {
+    AddTexture {
         /// The name of the texture (used to load it in game code)
         #[bpaf(complete_shell(ShellComp::File { mask: None }))]
-        name: String,
+        name: ArrayString<ASSET_NAME_LENGTH>,
         /// The image file to import as a texture
         #[bpaf(complete_shell(ShellComp::File { mask: None }))]
         file: PathBuf,

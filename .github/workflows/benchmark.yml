@@ -11,12 +11,13 @@ env:
 
 jobs:
   # Does a non-incremental optimized build of a game, and an incremental debug
-  # build with no actual changes, as a sort of benchmark for how long it takes
-  # to compile a game using this engine. Of course, in CI, this will quite
+  # build with a very trivial change, as a sort of benchmark for how long it
+  # takes to compile a game using this engine. Of course, in CI, this will quite
   # probably be slower than on a developer machine (at time of writing, the
-  # release build takes ~2.1 seconds on my desktop), but this should serve as a
-  # rough data point for estimating how compile times are changing over the
-  # course of developing the engine.
+  # release build takes ~2.1 seconds on my desktop), and vary wildly between
+  # runs just due to the CI environment, but this should serve as a rough data
+  # point for estimating roughly how compile times are changing over the course
+  # of developing the engine.
   estimate-build-times:
     runs-on: ubuntu-latest
     steps:

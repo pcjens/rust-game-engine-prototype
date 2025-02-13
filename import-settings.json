@@ -1,0 +1,10 @@
+{
+  "settings_file_version": "v1",
+  "imports": [
+    {
+      "command": "add_texture",
+      "name": "testing texture",
+      "file": "example/resources/kellot.jpeg"
+    }
+  ]
+}

@@ -1,4 +1,7 @@
-use std::io::{self, Read, Write};
+use std::{
+    io::{self, Cursor, Read, Write},
+    ops::Range,
+};
 
 use anyhow::Context;
 use engine::resources::{
@@ -18,7 +21,7 @@ pub struct Database {
     pub textures: Vec<NamedAsset<TextureAsset>>,
     pub audio_clips: Vec<NamedAsset<AudioClipAsset>>,
     // Chunk data region
-    pub chunk_data: Vec<u8>,
+    pub chunk_data: Cursor<Vec<u8>>,
 }
 
 impl Database {
@@ -46,16 +49,6 @@ impl Database {
                 }};
             }
 
-            // TODO: read chunk data into per-chunk-vecs, so that the chunk data
-            // can be rewritten in the write step, possibly not writing out all
-            // of the chunks (e.g. if an asset was overwritten, it got new
-            // chunks, the old ones should not be written back into the db
-            // file). Also, in the write step, this means that all chunk
-            // references in the assets should be updated to match the indices
-            // of the chunks as they were actually written (annoying point:
-            // different assets referring to a shared chunk). Same thing for the
-            // byte ranges in the chunks themselves.
-
             Ok(Database {
                 chunk_descriptors: read_vec!(header, chunks, &mut buffer, db_file),
                 texture_chunk_descriptors: read_vec!(header, texture_chunks, &mut buffer, db_file),
@@ -67,7 +60,10 @@ impl Database {
                         .read_to_end(&mut chunk_data)
                         .context("Failed to read the chunk data block")?;
                     debug!("read {} bytes of chunk data", chunk_data.len());
-                    chunk_data
+                    let chunk_len = chunk_data.len();
+                    let mut cursor = Cursor::new(chunk_data);
+                    cursor.set_position(chunk_len as u64);
+                    cursor
                 },
             })
         } else {
@@ -76,7 +72,7 @@ impl Database {
                 texture_chunk_descriptors: Vec::new(),
                 textures: Vec::new(),
                 audio_clips: Vec::new(),
-                chunk_data: Vec::with_capacity(CHUNK_SIZE as usize),
+                chunk_data: Cursor::new(Vec::with_capacity(CHUNK_SIZE as usize)),
             })
         }
     }
@@ -111,12 +107,99 @@ impl Database {
         write_vec!(&self.textures, &mut buffer, db_file);
         write_vec!(&self.audio_clips, &mut buffer, db_file);
 
-        debug!("writing chunk data, {} bytes", self.chunk_data.len());
+        let chunk_data = self.chunk_data.into_inner();
+        debug!("writing chunk data, {} bytes", chunk_data.len());
         db_file
-            .write_all(&self.chunk_data)
+            .write_all(&chunk_data)
             .context("Failed to write the chunk data block")?;
 
         Ok(())
+    }
+
+    /// Removes any unused chunks and the data they point to.
+    ///
+    /// Implementation detail: this function recreates all of the chunks, which
+    /// may result in chunk data being reordered.
+    pub fn prune_chunks(&mut self) {
+        let old_chunks = &self.chunk_descriptors;
+        let old_texchunks = &self.texture_chunk_descriptors;
+        let old_chunk_data = self.chunk_data.get_ref();
+
+        // FIMXE: Chunks reused between multiple assets get cloned for each asset currently
+
+        let mut new_chunks = Vec::with_capacity(old_chunks.len());
+        let mut new_texchunks = Vec::with_capacity(old_texchunks.len());
+        let mut new_chunk_data = Vec::with_capacity(old_chunk_data.len());
+
+        let mut add_chunks = |old_chunk_range: Range<u32>| -> Range<u32> {
+            let start = new_chunks.len() as u32;
+            for i in old_chunk_range {
+                let ChunkDescriptor {
+                    source_bytes: Range { start, end },
+                } = old_chunks[i as usize];
+
+                let new_start = new_chunk_data.len() as u64;
+                new_chunk_data.extend_from_slice(&old_chunk_data[start as usize..end as usize]);
+                let new_end = new_chunk_data.len() as u64;
+
+                new_chunks.push(ChunkDescriptor {
+                    source_bytes: new_start..new_end,
+                });
+            }
+            let end = new_texchunks.len() as u32;
+            start..end
+        };
+
+        for audio_clip in &mut self.audio_clips {
+            audio_clip.asset.chunks = add_chunks(audio_clip.asset.chunks.clone());
+        }
+
+        let mut add_texchunks = |old_chunk_range: Range<u32>| -> Range<u32> {
+            let start = new_texchunks.len() as u32;
+            for i in old_chunk_range {
+                let TextureChunkDescriptor {
+                    region_width,
+                    region_height,
+                    source_bytes: Range { start, end },
+                } = old_texchunks[i as usize];
+
+                let new_start = new_chunk_data.len() as u64;
+                new_chunk_data.extend_from_slice(&old_chunk_data[start as usize..end as usize]);
+                let new_end = new_chunk_data.len() as u64;
+
+                new_texchunks.push(TextureChunkDescriptor {
+                    region_width,
+                    region_height,
+                    source_bytes: new_start..new_end,
+                });
+            }
+            let end = new_texchunks.len() as u32;
+            start..end
+        };
+
+        for texture in &mut self.textures {
+            for mip_level in &mut texture.asset.mip_chain {
+                match mip_level {
+                    engine::resources::assets::TextureMipLevel::SingleChunkTexture {
+                        texture_chunk,
+                        ..
+                    } => {
+                        let old_chunks = *texture_chunk..*texture_chunk + 1;
+                        let new_chunks = add_texchunks(old_chunks);
+                        assert_eq!(new_chunks.start + 1, new_chunks.end);
+                        *texture_chunk = new_chunks.start;
+                    }
+                    engine::resources::assets::TextureMipLevel::MultiChunkTexture {
+                        texture_chunks,
+                        ..
+                    } => *texture_chunks = add_texchunks(texture_chunks.clone()),
+                }
+            }
+        }
+
+        self.chunk_descriptors = new_chunks;
+        self.texture_chunk_descriptors = new_texchunks;
+        self.chunk_data = Cursor::new(new_chunk_data);
     }
 }
 

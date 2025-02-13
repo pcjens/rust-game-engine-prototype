@@ -57,7 +57,7 @@ pub enum TextureMipLevel {
         ///
         /// Chunks are allocated for a multi-chunk texture starting from the
         /// top-left, row by row. Each chunk has a 1px clamp-to-edge border,
-        /// inside which the actual texture is. The chunks on the right and
+        /// inside which is the actual texture. The chunks on the right and
         /// bottom edges of the texture are the only ones that don't occupy
         /// their texture chunk entirely, they instead occupy only up to the
         /// texture's `width` and `height` plus the border, effectively taking
