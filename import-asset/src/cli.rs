@@ -24,6 +24,17 @@ pub enum Command {
     },
 }
 
+impl Command {
+    /// Returns the name of the asset this command imports. Used to match up two
+    /// commands operating on the same asset.
+    pub fn asset_name(&self) -> Option<&str> {
+        match self {
+            Command::Reimport {} => None,
+            Command::AddTexture { name, .. } => Some(name),
+        }
+    }
+}
+
 /// Asset importer for the engine. Without any arguments, simply reimports all
 /// assets in the import-settings.json file, and writes out the database file
 /// into resources.db.

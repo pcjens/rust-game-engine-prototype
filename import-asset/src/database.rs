@@ -9,7 +9,7 @@ use engine::resources::{
     ChunkDescriptor, Deserialize, NamedAsset, ResourceDatabaseHeader, Serialize,
     TextureChunkDescriptor, CHUNK_SIZE,
 };
-use tracing::{debug, info, trace};
+use tracing::{debug, trace};
 
 /// The in-memory editable version of the database, loaded on startup, written
 /// back to disk at the end.
@@ -29,7 +29,7 @@ impl Database {
         if let Some(db_file) = db_file {
             let mut buffer = Vec::new();
 
-            info!("Reading database file.");
+            debug!("Parsing database file.");
 
             let header = read_deserializable::<ResourceDatabaseHeader>(&mut buffer, db_file)
                 .context("Failed to read resource database header")?;
@@ -38,12 +38,12 @@ impl Database {
                 ($header:expr, $field:ident, $buffer:expr, $reader:expr) => {{
                     let len = $header.$field as usize;
                     let mut vec = Vec::with_capacity(len);
-                    debug!("reading {} {}", len, stringify!($field));
+                    debug!("Reading {} {}.", len, stringify!($field));
                     for i in 0..len {
                         vec.push(read_deserializable($buffer, $reader).with_context(|| {
                             format!("Failed to read {}[{}]", stringify!($field), i)
                         })?);
-                        trace!("read {}[{}]: {:?}", stringify!($field), i, &vec[i]);
+                        trace!("Read {}[{}]: {:?}", stringify!($field), i, &vec[i]);
                     }
                     vec
                 }};
@@ -59,7 +59,7 @@ impl Database {
                     db_file
                         .read_to_end(&mut chunk_data)
                         .context("Failed to read the chunk data block")?;
-                    debug!("read {} bytes of chunk data", chunk_data.len());
+                    debug!("Read {} bytes of chunk data.", chunk_data.len());
                     let chunk_len = chunk_data.len();
                     let mut cursor = Cursor::new(chunk_data);
                     cursor.set_position(chunk_len as u64);
@@ -80,7 +80,7 @@ impl Database {
     pub fn write_into(self, db_file: &mut impl Write) -> anyhow::Result<()> {
         let mut buffer = Vec::new();
 
-        info!("Writing database file.");
+        debug!("Serializing the database.");
 
         let header = ResourceDatabaseHeader {
             chunks: self.chunk_descriptors.len() as u32,
@@ -93,9 +93,9 @@ impl Database {
 
         macro_rules! write_vec {
             ($vec:expr, $buffer:expr, $writer:expr) => {
-                debug!("writing {}, len: {}", stringify!($vec), $vec.len());
+                debug!("Writing {}, len: {}.", stringify!($vec), $vec.len());
                 for (i, serializable) in $vec.iter().enumerate() {
-                    trace!("writing {}[{}]: {:?}", stringify!($vec), i, serializable);
+                    trace!("Writing {}[{}]: {:?}", stringify!($vec), i, serializable);
                     write_serializable(serializable, $buffer, $writer)
                         .with_context(|| format!("Failed to write {}[{}]", stringify!($vec), i))?;
                 }
@@ -108,7 +108,7 @@ impl Database {
         write_vec!(&self.audio_clips, &mut buffer, db_file);
 
         let chunk_data = self.chunk_data.into_inner();
-        debug!("writing chunk data, {} bytes", chunk_data.len());
+        debug!("Writing chunk data, {} bytes.", chunk_data.len());
         db_file
             .write_all(&chunk_data)
             .context("Failed to write the chunk data block")?;
