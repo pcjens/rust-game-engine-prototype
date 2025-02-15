@@ -1,6 +1,8 @@
 mod audio_clip;
 mod texture;
 
+use core::ops::Range;
+
 pub use audio_clip::*;
 pub use texture::*;
 
@@ -41,3 +43,10 @@ macro_rules! gen_asset_handle_code {
 }
 
 pub(crate) use gen_asset_handle_code;
+
+pub trait Asset {
+    fn get_chunks(&self) -> Option<Range<u32>>;
+    fn offset_chunks(&mut self, offset: i32);
+    fn get_texture_chunks(&self) -> Option<Range<u32>>;
+    fn offset_texture_chunks(&mut self, offset: i32);
+}

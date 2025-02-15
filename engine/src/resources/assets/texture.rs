@@ -17,7 +17,7 @@ use crate::{
     resources::{ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS},
 };
 
-use super::gen_asset_handle_code;
+use super::{gen_asset_handle_code, Asset};
 
 gen_asset_handle_code!(
     TextureAsset,
@@ -76,6 +76,47 @@ pub struct TextureAsset {
     /// The actual specific-size textures used for rendering depending on the
     /// size of the texture on screen.
     pub mip_chain: ArrayVec<TextureMipLevel, MAX_MIPS>,
+}
+
+impl Asset for TextureAsset {
+    fn get_chunks(&self) -> Option<Range<u32>> {
+        None
+    }
+
+    fn offset_chunks(&mut self, _offset: i32) {}
+
+    fn get_texture_chunks(&self) -> Option<Range<u32>> {
+        let mut range: Option<Range<u32>> = None;
+        for mip in &self.mip_chain {
+            let mip_range = match mip {
+                TextureMipLevel::SingleChunkTexture { texture_chunk, .. } => {
+                    *texture_chunk..*texture_chunk + 1
+                }
+                TextureMipLevel::MultiChunkTexture { texture_chunks, .. } => texture_chunks.clone(),
+            };
+            if let Some(range) = &mut range {
+                range.start = range.start.min(mip_range.start);
+                range.end = range.end.max(mip_range.end);
+            } else {
+                range = Some(mip_range);
+            }
+        }
+        range
+    }
+
+    fn offset_texture_chunks(&mut self, offset: i32) {
+        for mip in &mut self.mip_chain {
+            match mip {
+                TextureMipLevel::SingleChunkTexture { texture_chunk, .. } => {
+                    *texture_chunk = (*texture_chunk as i32 + offset) as u32;
+                }
+                TextureMipLevel::MultiChunkTexture { texture_chunks, .. } => {
+                    texture_chunks.start = (texture_chunks.start as i32 + offset) as u32;
+                    texture_chunks.end = (texture_chunks.end as i32 + offset) as u32;
+                }
+            };
+        }
+    }
 }
 
 impl TextureAsset {

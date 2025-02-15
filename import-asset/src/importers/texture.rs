@@ -4,9 +4,9 @@ use anyhow::Context;
 use engine::resources::{assets::TextureAsset, TEXTURE_CHUNK_FORMAT};
 use image::{imageops::FilterType, load_from_memory};
 
-use crate::database::Database;
+use crate::database::RelatedChunkData;
 
-pub fn import(image_path: &Path, db: &mut Database) -> anyhow::Result<TextureAsset> {
+pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<TextureAsset> {
     let image_bytes = fs::read(image_path).context("Failed to open texture file for importing")?;
     let image = load_from_memory(&image_bytes)
         .context("Failed to read image file as an image (unsupported format?)")?;
@@ -35,6 +35,6 @@ pub fn import(image_path: &Path, db: &mut Database) -> anyhow::Result<TextureAss
             }
         },
         &mut db.chunk_data,
-        &mut db.texture_chunk_descriptors,
+        &mut db.texture_chunks,
     ))
 }

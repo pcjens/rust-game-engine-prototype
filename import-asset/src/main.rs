@@ -5,13 +5,14 @@ mod settings;
 
 use std::{
     fs::{self, File},
+    io::BufWriter,
     str::FromStr,
 };
 
 use anyhow::Context;
 use arrayvec::ArrayString;
 use cli::Command;
-use database::Database;
+use database::{Database, RelatedChunkData};
 use engine::resources::NamedAsset;
 use settings::ImportSettings;
 use tracing::{info, warn};
@@ -31,15 +32,16 @@ fn main() -> anyhow::Result<()> {
     // TODO: would be nice if we could lock the file at this point if it exists,
     // to avoid overwriting changes made in between here and the write. The
     // `file_lock` feature is in FCP, so it might be possible relatively soon.
-    let mut db_file = File::open(&opts.database).ok();
-    let mut database = Database::new(db_file.as_mut()).expect("database file should be readable");
+    info!("Reading database from: {}", opts.database.display());
+    let db_file = fs::read(&opts.database).ok();
+    let mut database =
+        Database::new(db_file.as_deref()).context("Database file should be readable")?;
 
     process_command(&opts.command, &mut settings, &mut database)?;
 
-    database.prune_chunks();
-
     info!("Writing database to: {}", opts.database.display());
-    let mut db_file = File::create(&opts.database).expect("database file should be writable");
+    let mut db_file =
+        BufWriter::new(File::create(&opts.database).context("Database file should be writable")?);
     database
         .write_into(&mut db_file)
         .expect("the modified database should be able to be written into the file");
@@ -52,7 +54,7 @@ fn main() -> anyhow::Result<()> {
             .context("Failed to write the new import settings file")?;
     }
 
-    info!("All done! No fatal errors encountered, but check above logs to be sure.");
+    info!("All done! No fatal errors, but check the logs above for less severe issues.");
 
     Ok(())
 }
@@ -84,12 +86,15 @@ fn process_command(
 
         Command::AddTexture { name, file } => {
             info!("Importing texture \"{}\" from: {}", name, file.display());
+            let mut related_chunk_data = RelatedChunkData::empty();
             let name = ArrayString::from_str(name).unwrap();
-            let asset = importers::texture::import(file, db).context("Failed to import texture")?;
-            if let Some(existing_asset) = db.textures.iter_mut().find(|a| a.name == name) {
-                *existing_asset = NamedAsset { name, asset };
+            let asset = importers::texture::import(file, &mut related_chunk_data)
+                .context("Failed to import texture")?;
+            let asset_and_data = (NamedAsset { name, asset }, related_chunk_data);
+            if let Some(existing_asset) = db.textures.iter_mut().find(|a| a.0.name == name) {
+                *existing_asset = asset_and_data;
             } else {
-                db.textures.push(NamedAsset { name, asset });
+                db.textures.push(asset_and_data);
             }
         }
     }

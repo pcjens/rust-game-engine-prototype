@@ -7,7 +7,7 @@ use crate::resources::CHUNK_SIZE;
 use crate::resources::{TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
 
 /// Metadata for loading in a [`ChunkData`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChunkDescriptor {
     /// The range of bytes in the chunk data portion of the database this
     /// texture chunk can be loaded from.
@@ -15,7 +15,7 @@ pub struct ChunkDescriptor {
 }
 
 /// Metadata for loading in a [`TextureChunkData`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TextureChunkDescriptor {
     /// The width of the texture the chunk contains.
     pub region_width: u16,

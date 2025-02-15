@@ -36,6 +36,21 @@ pub struct ResourceDatabaseHeader {
     pub audio_clips: u32,
 }
 
+impl ResourceDatabaseHeader {
+    /// Returns the byte offset into the resource database file where the chunks
+    /// start.
+    ///
+    /// This is the size of the header, chunk descriptors, and asset metadata.
+    pub const fn chunk_data_offset(&self) -> u64 {
+        use serialize::Serialize as Ser;
+        <ResourceDatabaseHeader as Ser>::SERIALIZED_SIZE as u64
+            + self.chunks as u64 * <ChunkDescriptor as Ser>::SERIALIZED_SIZE as u64
+            + self.texture_chunks as u64 * <TextureChunkDescriptor as Ser>::SERIALIZED_SIZE as u64
+            + self.textures as u64 * <NamedAsset<TextureAsset> as Ser>::SERIALIZED_SIZE as u64
+            + self.audio_clips as u64 * <NamedAsset<AudioClipAsset> as Ser>::SERIALIZED_SIZE as u64
+    }
+}
+
 /// The resource database.
 ///
 /// The internals are exposed for `import-asset`, but game code should mostly
@@ -76,13 +91,16 @@ impl ResourceDatabase {
 
         let mut cursor = 0;
 
+        let header = deserialize::<ResourceDatabaseHeader>(&header_bytes, &mut cursor);
+        // FIXME: header_bytes is leaked here
+
+        let chunk_data_offset = header.chunk_data_offset();
         let ResourceDatabaseHeader {
             chunks,
             texture_chunks,
             textures,
             audio_clips,
-        } = deserialize::<ResourceDatabaseHeader>(&header_bytes, &mut cursor);
-        // FIXME: header_bytes is leaked here
+        } = header;
 
         let buffer = alloc_file_buf::<ChunkDescriptor>(arena, chunks)?;
         let chunk_descriptors = platform.begin_file_read(file, cursor as u64, buffer);
@@ -98,9 +116,6 @@ impl ResourceDatabase {
 
         let buffer = alloc_file_buf::<NamedAsset<AudioClipAsset>>(arena, audio_clips)?;
         let audio_clips = platform.begin_file_read(file, cursor as u64, buffer);
-        cursor += audio_clips.read_size();
-
-        let chunk_data_offset = cursor as u64;
 
         Some(ResourceDatabase {
             chunk_data_file: file,
