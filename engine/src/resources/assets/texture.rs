@@ -135,6 +135,8 @@ impl TextureAsset {
         const CHUNK_STRIDE: usize = CHUNK_WIDTH * BPP;
         const CHUNK_BYTES: usize = CHUNK_STRIDE * CHUNK_HEIGHT;
 
+        assert_ne!(0, width * height, "texture must have at least one pixel");
+
         let mut transparent = false;
         let mut pending_chunk_width: usize = 0;
         let mut pending_chunk_height: usize = 0;
@@ -217,7 +219,7 @@ impl TextureAsset {
 
             // Create and write out any amount of required chunks, leaving the
             // last chunk pending. Borders are considered on a per-chunk basis.
-            let first_chunk = pending_chunk_index + 1;
+            let mut first_chunk = None;
             let max_width_per_chunk = CHUNK_WIDTH - 2;
             let max_height_per_chunk = CHUNK_HEIGHT - 2;
             for y in 0..tex.height.div_ceil(max_height_per_chunk) {
@@ -231,13 +233,15 @@ impl TextureAsset {
 
                     // Flush out the pending chunk (either from a previous
                     // iteration or a whole another allocate-call)
-                    flush_pending_chunk(
-                        pending_chunk_width,
-                        pending_chunk_height,
-                        &pending_chunk_tex,
-                        &mut pending_chunk_index,
-                    );
-                    pending_chunk_tex.pixels.fill(0);
+                    if pending_chunk_width > 0 {
+                        flush_pending_chunk(
+                            pending_chunk_width,
+                            pending_chunk_height,
+                            &pending_chunk_tex,
+                            &mut pending_chunk_index,
+                        );
+                        pending_chunk_tex.pixels.fill(0);
+                    }
 
                     // Copy over slice (x, y) of the texture to the new pending
                     // chunk, with the last chunk possibly leaving space for
@@ -251,9 +255,14 @@ impl TextureAsset {
                     let mut dst = dst_with_border.shrink().unwrap();
                     dst.copy_from(&chunk_tex);
                     dst_with_border.fill_border();
+
+                    if first_chunk.is_none() {
+                        first_chunk = Some(pending_chunk_index);
+                    }
                 }
             }
 
+            let first_chunk = first_chunk.unwrap();
             if first_chunk == pending_chunk_index {
                 TextureMipLevel::SingleChunkTexture {
                     offset: (1, 1),
