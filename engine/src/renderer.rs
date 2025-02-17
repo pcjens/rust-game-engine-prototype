@@ -5,19 +5,35 @@ use platform_abstraction_layer::{BlendMode, DrawSettings, Pal, TextureFilter, Te
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 
 #[allow(unused_imports)] // used in docs
-use crate::resources::assets::TextureAsset;
+use crate::resources::texture::TextureAsset;
 
 /// Parameters for rendering a textured quad.
 ///
 /// Generally created by the engine in e.g. [`TextureAsset::draw`].
 #[derive(Debug)]
 pub struct TexQuad {
+    /// The top-left coordinate of the quad in the same coordinate system as
+    /// what [`Pal::draw_area`] returns.
     pub position_top_left: (f32, f32),
+    /// The bottom-right coordinate of the quad in the same coordinate system as
+    /// what [`Pal::draw_area`] returns.
     pub position_bottom_right: (f32, f32),
+    /// The top-left texture coordinate of the quad, each axis between 0..1,
+    /// with (0, 0) describing the top-left corner of the texture.
     pub texcoord_top_left: (f32, f32),
+    /// The bottom-right texture coordinate of the quad, each axis between 0..1,
+    /// with (0, 0) describing the top-left corner of the texture.
     pub texcoord_bottom_right: (f32, f32),
+    /// The drawing order of this particular textured quad. Quads with a lower
+    /// draw order are rendered below others with a higher one.
+    // TODO: clarify possible opaque draw order optimizations here if they're
+    // ever implemented
     pub draw_order: u8,
+    /// The blending mode (if any) to use to draw this texture above the other
+    /// textures drawn below this one.
     pub blend_mode: BlendMode,
+    /// The texture used to draw this quad with. The region of the texture used
+    /// is controlled with the `texcoord_*` fields.
     pub texture: TextureRef,
 }
 

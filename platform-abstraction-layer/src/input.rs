@@ -1,6 +1,10 @@
 /// An input event sent by the platform to the engine for handling.
 pub enum Event {
+    /// Emitted when a digital input (a button, or a key, but not a thumbstick)
+    /// is pressed down.
     DigitalInputPressed(InputDevice, Button),
+    /// Emitted when a digital input (a button, or a key, but not a thumbstick)
+    /// is pressed released.
     DigitalInputReleased(InputDevice, Button),
 }
 
@@ -16,6 +20,8 @@ impl Button {
         Button(id)
     }
 
+    /// Returns the inner value passed into [`Button::new`]. Generally only
+    /// relevant to the platform implementation.
     pub fn inner(self) -> u64 {
         self.0
     }
@@ -33,6 +39,8 @@ impl InputDevice {
         InputDevice(id)
     }
 
+    /// Returns the inner value passed into [`InputDevice::new`]. Generally only
+    /// relevant to the platform implementation.
     pub fn inner(self) -> u64 {
         self.0
     }
@@ -42,6 +50,7 @@ impl InputDevice {
 /// used by games to set up their default mappings for any input device.
 /// Different categories may map to the same buttons, so making inputs
 /// inputs context-sensitive are recommended.
+#[allow(missing_docs)]
 pub enum ActionCategory {
     Up,
     Down,

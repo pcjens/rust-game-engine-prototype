@@ -28,6 +28,17 @@ struct LoadTask {
     category: LoadCategory,
 }
 
+/// Asynchronous loader for resource chunks.
+///
+/// Holds some staging memory where the chunk data is written by
+/// platform-defined asynchronous file reading utilities after
+/// [`ResourceLoader::dispatch_reads`]. The chunk data is read later to
+/// initialize chunks in [`ResourceLoader::finish_reads`]. Chunks are loaded in
+/// the order [`ResourceLoader::queue_chunk`] and
+/// [`ResourceLoader::queue_texture_chunk`] are called.
+///
+/// Many asset usage related functions take this struct as a parameter for
+/// queueing up relevant chunks to be loaded.
 pub struct ResourceLoader {
     staging_buffer: RingBuffer<'static, u8>,
     to_load_queue: Queue<'static, LoadRequest>,
@@ -58,10 +69,12 @@ impl ResourceLoader {
         })
     }
 
+    /// Queues the regular chunk at `chunk_index` to be loaded.
     pub fn queue_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
         self.queue_load(chunk_index, LoadCategory::Chunk, resources);
     }
 
+    /// Queues the texture chunk at `chunk_index` to be loaded.
     pub fn queue_texture_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
         self.queue_load(chunk_index, LoadCategory::TextureChunk, resources);
     }

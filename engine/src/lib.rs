@@ -1,7 +1,7 @@
 //! TODO: write a outline of the engine here
 
 #![no_std]
-// #![warn(missing_docs)]
+#![warn(missing_docs)]
 
 #[cfg(any(test, doctest))]
 /// A simple platform implementation for use in tests.

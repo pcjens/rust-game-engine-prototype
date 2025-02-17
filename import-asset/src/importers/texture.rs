@@ -9,7 +9,7 @@ use std::{
 use anyhow::Context;
 use arrayvec::ArrayVec;
 use engine::resources::{
-    assets::{TextureAsset, TextureMipLevel, MAX_MIPS},
+    texture::{TextureAsset, TextureMipLevel, MAX_MIPS},
     TextureChunkDescriptor, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
 };
 use image::{imageops::FilterType, load_from_memory, DynamicImage};

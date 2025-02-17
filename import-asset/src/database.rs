@@ -2,9 +2,8 @@ use std::io::{self, Cursor, Write};
 
 use anyhow::Context;
 use engine::resources::{
-    assets::{Asset, AudioClipAsset, TextureAsset},
-    ChunkDescriptor, Deserialize, NamedAsset, ResourceDatabaseHeader, Serialize,
-    TextureChunkDescriptor,
+    audio_clip::AudioClipAsset, texture::TextureAsset, Asset, ChunkDescriptor, Deserialize,
+    NamedAsset, ResourceDatabaseHeader, Serialize, TextureChunkDescriptor,
 };
 use tracing::{debug, trace};
 
@@ -200,19 +199,27 @@ impl Database {
             chunk_data.extend_from_slice(asset_chunk_data.chunk_data.get_ref());
         };
 
-        let textures = (self.textures.into_iter())
+        let mut textures = (self.textures.into_iter())
             .map(|(mut asset, asset_chunk_data)| {
                 append_chunk_data(&mut asset.asset, asset_chunk_data);
                 asset
             })
             .collect::<Vec<_>>();
+        let textures_count = textures.len();
+        textures.sort();
+        textures.dedup();
+        assert_eq!(textures_count, textures.len());
 
-        let audio_clips = (self.audio_clips.into_iter())
+        let mut audio_clips = (self.audio_clips.into_iter())
             .map(|(mut asset, asset_chunk_data)| {
                 append_chunk_data(&mut asset.asset, asset_chunk_data);
                 asset
             })
             .collect::<Vec<_>>();
+        let audio_clip_count = audio_clips.len();
+        audio_clips.sort();
+        audio_clips.dedup();
+        assert_eq!(audio_clip_count, audio_clips.len());
 
         let header = ResourceDatabaseHeader {
             chunks: chunk_descriptors.len() as u32,

@@ -8,7 +8,7 @@ use platform_abstraction_layer::{
 
 use crate::{
     allocators::LinearAllocator,
-    collections::{channel::channel, Queue, RingAllocationMetadata, RingBox, RingBuffer},
+    collections::{channel, Queue, RingAllocationMetadata, RingBox, RingBuffer},
 };
 
 /// The maximum amount of threads which can be used by [`parallelize`].

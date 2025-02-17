@@ -1,5 +1,15 @@
+/// A trait to implement a semaphore object.
 pub trait SemaphoreImpl: Sync {
+    /// Increments the semaphore.
     fn increment(&self);
+    /// Decrements the semaphore, possible waiting for an increment if the
+    /// internal counter is already at zero.
+    ///
+    /// Single-threaded platforms can implement this as a no-op, so this might
+    /// never wait. Any functionality making use of this function should make
+    /// sure to check that any resource being synchronized with this semaphore
+    /// is actually in the expected state, and panic or otherwise error out if
+    /// it's not.
     fn decrement(&self);
 }
 
@@ -18,9 +28,8 @@ impl SemaphoreImpl for SingleThreadedSemaphore {
 /// the semaphore should expect this and probably panic if this happens.
 #[derive(Clone)]
 pub struct Semaphore {
-    // TODO: replace with a *const dyn SemaphoreTrait + Sync or similar?
-    semaphore_ptr: *const dyn SemaphoreImpl,
-    drop_fn: Option<fn(*const dyn SemaphoreImpl)>,
+    semaphore_ptr: *const (dyn SemaphoreImpl + Sync),
+    drop_fn: Option<fn(*const (dyn SemaphoreImpl + Sync))>,
 }
 
 // Safety: Semaphore::single_threaded makes sure this struct is inert,
@@ -39,8 +48,8 @@ impl Semaphore {
     /// `semaphore_ptr` should be valid for the whole lifetime of the semaphore
     /// (until drop).
     pub unsafe fn new(
-        semaphore_ptr: *const dyn SemaphoreImpl,
-        drop_fn: Option<fn(*const dyn SemaphoreImpl)>,
+        semaphore_ptr: *const (dyn SemaphoreImpl + Sync),
+        drop_fn: Option<fn(*const (dyn SemaphoreImpl + Sync))>,
     ) -> Semaphore {
         Semaphore {
             semaphore_ptr,

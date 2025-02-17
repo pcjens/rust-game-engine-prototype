@@ -14,6 +14,7 @@ pub struct Queue<'a, T> {
 }
 
 impl<T> Queue<'_, T> {
+    /// Allocates room for `capacity` of `T` and creates a [`Queue`] using it.
     pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<Queue<'a, T>> {
         let uninit_slice = allocator.try_alloc_uninit_slice(capacity)?;
         Some(Queue {
@@ -23,6 +24,7 @@ impl<T> Queue<'_, T> {
         })
     }
 
+    /// Creates a [`Queue`] using the given backing memory.
     pub fn from_mut(buffer: &mut [MaybeUninit<T>]) -> Option<Queue<T>> {
         Some(Queue {
             initialized_offset: 0,
@@ -31,6 +33,8 @@ impl<T> Queue<'_, T> {
         })
     }
 
+    /// Pushes `value` to the back of the queue, returning it back if there's no
+    /// room.
     pub fn push_back(&mut self, value: T) -> Result<(), T> {
         if self.initialized_len >= self.uninit_slice.len() {
             return Err(value);
@@ -53,6 +57,8 @@ impl<T> Queue<'_, T> {
         Ok(())
     }
 
+    /// Removes and returns the value at the front of the queue, or None if the
+    /// queue is empty.
     pub fn pop_front(&mut self) -> Option<T> {
         if self.initialized_len == 0 {
             return None;
@@ -73,6 +79,8 @@ impl<T> Queue<'_, T> {
         Some(value)
     }
 
+    /// Returns a borrow of the value at the front of the queue without removing
+    /// it, or None if the queue is empty.
     pub fn peek_front(&mut self) -> Option<&mut T> {
         if self.initialized_len == 0 {
             return None;

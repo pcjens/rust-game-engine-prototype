@@ -7,6 +7,7 @@ use platform_abstraction_layer::{
     Pal, PixelFormat, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex,
 };
 
+/// Simple non-interactive [`Pal`] implementation for use in tests.
 #[derive(Debug)]
 pub struct TestPlatform {
     current_time: Cell<Duration>,
@@ -14,6 +15,10 @@ pub struct TestPlatform {
 }
 
 impl TestPlatform {
+    /// Creates a new [`TestPlatform`], which can be multi-threaded.
+    ///
+    /// Note that some platforms, like wasm32-unknown-emscripten, don't support
+    /// multithreading, which can lead to panics if `multi_threaded` is `true`.
     pub fn new(multi_threaded: bool) -> TestPlatform {
         TestPlatform {
             current_time: Cell::new(Duration::from_millis(0)),
@@ -21,6 +26,7 @@ impl TestPlatform {
         }
     }
 
+    /// Sets the time returned by [`TestPlatform::elapsed`] in milliseconds.
     pub fn set_elapsed_millis(&self, new_millis: u64) {
         self.current_time.set(Duration::from_millis(new_millis));
     }

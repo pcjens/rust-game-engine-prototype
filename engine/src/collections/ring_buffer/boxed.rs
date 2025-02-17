@@ -16,6 +16,11 @@ pub struct RingBox<T: 'static> {
 }
 
 impl<T> RingBox<T> {
+    /// Splits this [`RingBox`] into its raw parts. Can be combined back with
+    /// [`RingBox::from_parts`].
+    ///
+    /// Useful for cases where some API is expecting a [`Box`] and a deref isn't
+    /// enough.
     pub fn into_parts(self) -> (Box<T>, RingAllocationMetadata) {
         (self.boxed, self.metadata)
     }

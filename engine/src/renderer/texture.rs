@@ -13,7 +13,7 @@ use platform_abstraction_layer::BlendMode;
 use crate::{
     geom::Rect,
     resources::{
-        assets::TextureMipLevel, ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS,
+        texture::TextureMipLevel, ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS,
     },
 };
 
@@ -24,8 +24,15 @@ const CHUNK_HEIGHT: u16 = TEXTURE_CHUNK_DIMENSIONS.1;
 
 /// Render-time relevant parts of a texture.
 pub struct RenderableTexture<'a> {
+    /// A list of the texture's mipmaps, with index 0 being the original
+    /// texture, and the indices after that each having half the width and
+    /// height of the previous level.
     pub mip_chain: &'a [TextureMipLevel],
+    /// Should be set to true if the texture has any non-opaque pixels to avoid
+    /// rendering artifacts.
     pub transparent: bool,
+    /// The draw order used when drawing this texture. See
+    /// [`TexQuad::draw_order`].
     pub draw_order: u8,
 }
 

@@ -1,12 +1,13 @@
-pub mod assets;
+mod assets;
 mod chunks;
 mod deserialize;
 mod loader;
 mod serialize;
 
-use assets::{AudioClipAsset, TextureAsset};
+use assets::{audio_clip::AudioClipAsset, texture::TextureAsset};
 use platform_abstraction_layer::{Box, FileHandle, FileReadTask, Pal, PixelFormat};
 
+pub use assets::*;
 pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
 pub use deserialize::{deserialize, Deserialize};
 pub use loader::ResourceLoader;
@@ -30,9 +31,13 @@ pub const TEXTURE_CHUNK_FORMAT: PixelFormat = PixelFormat::Rgba;
 /// de/serializing the db file.
 #[derive(Clone, Copy)]
 pub struct ResourceDatabaseHeader {
+    /// The amount of regular chunks in the database.
     pub chunks: u32,
+    /// The amount of texture chunks in the database.
     pub texture_chunks: u32,
+    /// The amount of [`TextureAsset`]s in the database.
     pub textures: u32,
+    /// The amount of [`AudioClipAsset`]s in the database.
     pub audio_clips: u32,
 }
 
@@ -53,20 +58,23 @@ impl ResourceDatabaseHeader {
 
 /// The resource database.
 ///
-/// The internals are exposed for `import-asset`, but game code should mostly
-/// use this for the `find_*` and `get_*` functions to query for assets, which
-/// implement the relevant logic for each asset type.
+/// Game code should mostly use this for the `find_*` and `get_*` functions to
+/// query for assets, which implement the relevant logic for each asset type.
 pub struct ResourceDatabase {
     // Asset metadata
-    pub textures: FixedVec<'static, NamedAsset<TextureAsset>>,
-    pub audio_clips: FixedVec<'static, NamedAsset<AudioClipAsset>>,
+    textures: FixedVec<'static, NamedAsset<TextureAsset>>,
+    audio_clips: FixedVec<'static, NamedAsset<AudioClipAsset>>,
     // Chunk loading metadata
-    pub chunk_data_file: FileHandle,
-    pub chunk_data_offset: u64,
-    pub chunk_descriptors: FixedVec<'static, ChunkDescriptor>,
-    pub texture_chunk_descriptors: FixedVec<'static, TextureChunkDescriptor>,
+    chunk_data_file: FileHandle,
+    chunk_data_offset: u64,
+    chunk_descriptors: FixedVec<'static, ChunkDescriptor>,
+    texture_chunk_descriptors: FixedVec<'static, TextureChunkDescriptor>,
     // In-memory chunks
+    /// The regular chunks currently loaded in-memory. Loaded via
+    /// [`ResourceLoader`], usually by functions making use of an asset.
     pub chunks: SparseArray<'static, ChunkData>,
+    /// The texture chunks currently loaded in-memory. Loaded via
+    /// [`ResourceLoader`], usually by functions making use of an asset.
     pub texture_chunks: SparseArray<'static, TextureChunkData>,
 }
 
@@ -197,7 +205,9 @@ mod named_asset {
     /// database.
     #[derive(Debug)]
     pub struct NamedAsset<T> {
+        /// The unique name of the asset.
         pub name: ArrayString<ASSET_NAME_LENGTH>,
+        /// The asset itself.
         pub asset: T,
     }
 

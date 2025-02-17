@@ -7,6 +7,7 @@ use bytemuck::{Pod, Zeroable};
 /// corner.
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
+#[allow(missing_docs)]
 pub struct Vertex {
     pub x: f32,
     pub y: f32,
@@ -77,7 +78,11 @@ impl Vertex {
 pub struct DrawSettings {
     /// If None, the vertex colors are used to draw solid triangles.
     pub texture: Option<TextureRef>,
+    /// The blending mode of the draw, i.e. how the pixels are mixed from this
+    /// draw and any previous draws in the same area.
     pub blend_mode: BlendMode,
+    /// The filtering mode used to stretch or squeeze the texture when the
+    /// rendering resolution doesn't exactly match the texture.
     pub texture_filter: TextureFilter,
     /// The draw will only apply to pixels within this rectangle. Layout: `[x,
     /// y, width, height]`.
@@ -96,6 +101,8 @@ impl TextureRef {
         TextureRef(id)
     }
 
+    /// Returns the inner value passed into [`TextureRef::new`]. Generally only
+    /// relevant to the platform implementation.
     pub fn inner(self) -> u64 {
         self.0
     }
@@ -124,7 +131,13 @@ pub enum BlendMode {
 /// How the texture is filtered when magnified or minified.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TextureFilter {
+    /// No blending, just picks the pixel from the texture which is nearest to
+    /// the sampled position. When rendering at a higher resolution than the
+    /// texture, this keeps pixel art sharp.
     NearestNeighbor,
+    /// Linear blending between pixels, which blurs the texture when rendering
+    /// at a higher resolution than the texture itself, but avoids noisy
+    /// aliasing artifacts caused by [`TextureFilter::NearestNeighbor`].
     #[default]
     Linear,
 }
@@ -140,6 +153,11 @@ pub enum PixelFormat {
 }
 
 impl PixelFormat {
+    /// Returns the amount of bytes each pixel takes up in a pixel buffer if
+    /// that buffer is using this pixel format.
+    ///
+    /// E.g. for 8-bit RGBA, this returns 4, as each of the four channels takes
+    /// up eight bits.
     pub const fn bytes_per_pixel(self) -> usize {
         match self {
             PixelFormat::Rgba => 4,

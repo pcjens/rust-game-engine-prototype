@@ -15,6 +15,8 @@ impl FileHandle {
         FileHandle(id)
     }
 
+    /// Returns the inner value passed into [`FileHandle::new`]. Generally only
+    /// relevant to the platform implementation.
     pub fn inner(self) -> u64 {
         self.0
     }
@@ -28,6 +30,9 @@ pub struct FileReadTask {
 }
 
 impl FileReadTask {
+    /// Creates a new [`FileReadTask`] with the task id differentiating
+    /// different [`FileReadTask`]s. The platform implementation should create
+    /// and keep track of these.
     pub fn new(file: FileHandle, task_id: u64, buffer: Box<[u8]>) -> FileReadTask {
         FileReadTask {
             file,
@@ -36,14 +41,18 @@ impl FileReadTask {
         }
     }
 
+    /// Returns the [`FileHandle`] this task is using.
     pub fn file(&self) -> FileHandle {
         self.file
     }
 
+    /// Returns the task id for this particular task, the same one passed into
+    /// [`FileReadTask::new`].
     pub fn task_id(&self) -> u64 {
         self.task_id
     }
 
+    /// Returns the size of the buffer, i.e. the amount of bytes read by this task.
     pub fn read_size(&self) -> usize {
         self.buffer.len()
     }

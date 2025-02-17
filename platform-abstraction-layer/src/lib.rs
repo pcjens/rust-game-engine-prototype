@@ -1,4 +1,15 @@
+//! This crate mainly revolves around the [`Pal`] trait, which can be
+//! implemented to provide a "platform implementation" for the game engine.
+//! Otherwise, this crate mostly contains some low-level parts of the engine
+//! which are necessarily needed to implement [`Pal`], such as some
+//! multithreading utilities.
+//!
+//! This is split off of the main engine crate so that the engine and the
+//! platform implementation can be compiled independently, which appears to
+//! speed up compilation time.
+
 #![no_std]
+#![warn(missing_docs)]
 
 mod boxed;
 pub mod channel;

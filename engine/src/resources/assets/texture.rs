@@ -1,3 +1,8 @@
+//! Asset type for individual images that can be rendered as-is.
+//!
+//! Not really suitable for use as a texture atlas, due to color bleeding
+//! issues.
+
 use core::ops::Range;
 
 use arrayvec::ArrayVec;
@@ -33,6 +38,9 @@ pub const MAX_MIPS: usize = 12;
 /// share a single texture chunk.
 #[derive(Debug)]
 pub enum TextureMipLevel {
+    /// A texture contained within a single chunk. Unlike the other variant,
+    /// these textures might not be located in the top-left corner of the chunk,
+    /// so this variant has an offset field.
     SingleChunkTexture {
         /// Offset from the topmost and leftmost chunks where the actual texture
         /// starts.
@@ -43,19 +51,20 @@ pub enum TextureMipLevel {
         /// render is described by the `offset` and `size` fields.
         texture_chunk: u32,
     },
+    /// A texture split between multiple texture chunks.
+    ///
+    /// Chunks are allocated for a multi-chunk texture starting from the
+    /// top-left, row by row. Each chunk has a 1px border (copied from the edge
+    /// of the texture, creating a kind of clamp-to-edge effect), inside which
+    /// is the actual texture. The chunks on the right and bottom edges of the
+    /// texture are the only ones that don't occupy their texture chunk
+    /// entirely, they instead occupy only up to the texture's `width` and
+    /// `height` plus the border, effectively taking up a `width + 2` by `height
+    /// + 2` region from the top left corner of those chunks due to the border.
     MultiChunkTexture {
         /// The dimensions of the texture in pixels.
         size: (u16, u16),
         /// The chunks the texture is made up of.
-        ///
-        /// Chunks are allocated for a multi-chunk texture starting from the
-        /// top-left, row by row. Each chunk has a 1px clamp-to-edge border,
-        /// inside which is the actual texture. The chunks on the right and
-        /// bottom edges of the texture are the only ones that don't occupy
-        /// their texture chunk entirely, they instead occupy only up to the
-        /// texture's `width` and `height` plus the border, effectively taking
-        /// up a `width + 2` by `height + 2` region from the top left corner of
-        /// those chunks due to the border.
         texture_chunks: Range<u32>,
     },
 }

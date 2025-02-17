@@ -3,7 +3,9 @@ use core::time::Duration;
 use arrayvec::ArrayVec;
 use platform_abstraction_layer::{Button, Event, InputDevice};
 
-const EVENT_QUEUE_TIMEOUT: Duration = Duration::from_millis(200);
+/// The amount of time [`QueuedEvent`]s are held in the [`EventQueue`] without
+/// being handled.
+pub const EVENT_QUEUE_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// A queue of input events to be processed by [`InputDeviceState::update`].
 pub type EventQueue = ArrayVec<QueuedEvent, 1000>;
@@ -11,11 +13,16 @@ pub type EventQueue = ArrayVec<QueuedEvent, 1000>;
 /// Input event that happened at some point in the past, waiting to be used as a
 /// trigger for an [`ActionState`], or to be timed out.
 pub struct QueuedEvent {
+    /// The event itself.
     pub event: Event,
+    /// Timestamp of when the event happened.
+    // TODO: don't use Duration as a timestamp type in general
     pub timestamp: Duration,
 }
 
 impl QueuedEvent {
+    /// Returns true if the time between this event and the given timestamp is
+    /// greater than [`EVENT_QUEUE_TIMEOUT`].
     pub fn timed_out(&self, timestamp: Duration) -> bool {
         if let Some(time_since_event) = timestamp.checked_sub(self.timestamp) {
             time_since_event >= EVENT_QUEUE_TIMEOUT
@@ -78,6 +85,11 @@ pub struct InputDeviceState<const N: usize> {
 }
 
 impl<const N: usize> InputDeviceState<N> {
+    /// Checks the event queue for any events that could be consumed by this
+    /// [`InputDeviceState`], and consumes any such events to trigger actions.
+    ///
+    /// Also resets the [`ActionState::pressed`] status of
+    /// [`ActionKind::Instant`] actions.
     pub fn update(&mut self, event_queue: &mut EventQueue) {
         // Reset any instant actions to "not pressed"
         for action in &mut self.actions {

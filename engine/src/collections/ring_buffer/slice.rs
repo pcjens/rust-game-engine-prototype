@@ -15,6 +15,11 @@ pub struct RingSlice<T: 'static> {
 }
 
 impl<T> RingSlice<T> {
+    /// Splits this [`RingSlice`] into its raw parts. Can be combined back with
+    /// [`RingSlice::from_parts`].
+    ///
+    /// Useful for cases where some API is expecting a [`Box`] and a deref isn't
+    /// enough.
     pub fn into_parts(self) -> (Box<[T]>, RingAllocationMetadata) {
         (self.slice, self.metadata)
     }

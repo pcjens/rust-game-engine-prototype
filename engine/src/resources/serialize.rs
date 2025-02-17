@@ -3,11 +3,14 @@ use core::ops::Range;
 use arrayvec::{ArrayString, ArrayVec};
 
 use super::{
-    assets::{AudioClipAsset, TextureAsset, TextureMipLevel, MAX_MIPS},
+    audio_clip::AudioClipAsset,
     chunks::{ChunkDescriptor, TextureChunkDescriptor},
+    texture::{TextureAsset, TextureMipLevel, MAX_MIPS},
     NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
 
+/// Trait for describing how a type can be serialized into a constant-size byte
+/// slice.
 pub trait Serialize {
     /// The length of the buffer passed into [`Serialize::serialize`].
     const SERIALIZED_SIZE: usize;
@@ -148,6 +151,8 @@ impl Serialize for TextureMipLevel {
 // Serialization helpers, at the bottom because they're very long, just so they
 // compile to something sane in debug builds.
 
+/// Serializes the data into a byte slice, with the write starting from the
+/// cursor, and advances the cursor by the amount of bytes written.
 #[inline(always)]
 pub fn serialize<S: Serialize>(value: &S, dst: &mut [u8], cursor: &mut usize) {
     value.serialize(&mut dst[*cursor..(*cursor + S::SERIALIZED_SIZE)]);

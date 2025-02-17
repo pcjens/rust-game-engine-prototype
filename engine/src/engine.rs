@@ -11,7 +11,7 @@ use crate::{
     input::{ActionKind, ActionState, EventQueue, InputDeviceState, QueuedEvent},
     multithreading::{self, parallelize},
     renderer::DrawQueue,
-    resources::{assets::TextureHandle, ResourceDatabase, ResourceLoader},
+    resources::{texture::TextureHandle, ResourceDatabase, ResourceLoader},
 };
 
 #[repr(usize)]
@@ -95,9 +95,6 @@ impl EngineCallbacks for Engine<'_> {
         let timestamp = platform.elapsed();
         self.frame_arena.reset();
 
-        self.event_queue
-            .retain(|queued| !queued.timed_out(timestamp));
-
         self.resource_loader
             .finish_reads(&mut self.resource_db, platform);
 
@@ -120,10 +117,16 @@ impl EngineCallbacks for Engine<'_> {
 
         let mut action_test = false;
 
+        // Handle input
         if let Some(input) = &mut self.test_input {
             input.update(&mut self.event_queue);
             action_test = input.actions[TestInput::Act as usize].pressed;
         }
+
+        // Clean up timed out events (note: this should happen *after* handling
+        // input, to avoid missing inputs due to lag spikes)
+        self.event_queue
+            .retain(|queued| !queued.timed_out(timestamp));
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
         let (screen_width, _) = platform.draw_area();

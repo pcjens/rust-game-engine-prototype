@@ -1,3 +1,5 @@
+//! Asset type for individual tracks of audio.
+
 use core::ops::Range;
 
 use super::{gen_asset_handle_code, Asset};
@@ -13,8 +15,11 @@ gen_asset_handle_code!(
 /// Playable audio track.
 #[derive(Debug)]
 pub struct AudioClipAsset {
+    /// The sample rate of the audio.
     pub samples_per_second: u32,
+    /// The amount of samples in the chunks.
     pub samples: u32,
+    /// The chunks containing the samples.
     pub chunks: Range<u32>,
 }
 

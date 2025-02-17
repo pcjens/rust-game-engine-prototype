@@ -2,14 +2,15 @@ use core::{ops::Range, str};
 
 use arrayvec::{ArrayString, ArrayVec};
 
-use crate::resources::assets::MAX_MIPS;
-
 use super::{
-    assets::{AudioClipAsset, TextureAsset, TextureMipLevel},
+    audio_clip::AudioClipAsset,
     chunks::{ChunkDescriptor, TextureChunkDescriptor},
+    texture::{TextureAsset, TextureMipLevel, MAX_MIPS},
     NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
 
+/// Trait for describing how a type can be parsed from a constant-size byte
+/// slice.
 pub trait Deserialize {
     /// The length of the buffer passed into [`Deserialize::deserialize`].
     const SERIALIZED_SIZE: usize;
@@ -138,6 +139,8 @@ impl Deserialize for TextureMipLevel {
 // Serialization helpers, at the bottom because they're very long, just so they
 // compile to something sane in debug builds.
 
+/// Deserializes the data from a byte slice into `D`, reading from the given
+/// cursor, and advancing it by the amount of bytes read.
 #[inline(always)]
 pub fn deserialize<D: Deserialize>(src: &[u8], cursor: &mut usize) -> D {
     let value = D::deserialize(&src[*cursor..(*cursor + D::SERIALIZED_SIZE)]);
