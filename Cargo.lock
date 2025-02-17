@@ -161,6 +161,7 @@ dependencies = [
  "bpaf",
  "engine",
  "image",
+ "platform-abstraction-layer",
  "serde",
  "serde_json",
  "tracing",

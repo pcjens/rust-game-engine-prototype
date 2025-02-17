@@ -89,7 +89,7 @@ pub struct Database {
 impl Database {
     pub fn new(db_file: Option<&[u8]>) -> anyhow::Result<Database> {
         if let Some(db) = db_file {
-            debug!("Parsing database file.");
+            debug!("Parsing the database.");
 
             let mut cursor = 0;
             let header = read_deserializable::<ResourceDatabaseHeader>(db, &mut cursor)
@@ -110,6 +110,10 @@ impl Database {
             }
 
             let chunk_data = &db[header.chunk_data_offset() as usize..];
+            debug!(
+                "The database seems to have {} bytes of chunk data.",
+                chunk_data.len(),
+            );
 
             macro_rules! read_deserializable_vec {
                 ($asset_type:ty, $header:expr, $field:ident) => {{

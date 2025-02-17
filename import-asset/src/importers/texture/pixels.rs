@@ -1,8 +1,8 @@
 use core::ops::{Index, IndexMut};
+use std::fmt::Debug;
 
+use engine::resources::TEXTURE_CHUNK_FORMAT;
 use platform_abstraction_layer::PixelFormat;
-
-use crate::resources::TEXTURE_CHUNK_FORMAT;
 
 use super::BPP;
 
@@ -13,6 +13,16 @@ pub struct TexPixels<'a> {
     pub stride: usize,
     pub width: usize,
     pub height: usize,
+}
+
+impl Debug for TexPixels<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TexPixels")
+            .field("stride", &self.stride)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TexPixels<'_> {
@@ -157,7 +167,7 @@ impl IndexMut<((usize, usize), usize)> for TexPixels<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::resources::TEXTURE_CHUNK_FORMAT;
+    use engine::resources::TEXTURE_CHUNK_FORMAT;
 
     use super::TexPixels;
 

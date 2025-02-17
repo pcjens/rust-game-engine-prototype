@@ -34,17 +34,17 @@ fn main() -> anyhow::Result<()> {
     // `file_lock` feature is in FCP, so it might be possible relatively soon.
     info!("Reading database from: {}", opts.database.display());
     let db_file = fs::read(&opts.database).ok();
-    let mut database =
-        Database::new(db_file.as_deref()).context("Database file should be readable")?;
+    let mut database = Database::new(db_file.as_deref()).context("Failed to read database file")?;
 
     process_command(&opts.command, &mut settings, &mut database)?;
 
     info!("Writing database to: {}", opts.database.display());
-    let mut db_file =
-        BufWriter::new(File::create(&opts.database).context("Database file should be writable")?);
+    let mut db_file = BufWriter::new(
+        File::create(&opts.database).context("Failed to open database file for writing")?,
+    );
     database
         .write_into(&mut db_file)
-        .expect("the modified database should be able to be written into the file");
+        .context("Failed to write the database back into the file")?;
 
     if original_settings != settings {
         info!("Saving new settings to: {}", opts.settings.display());

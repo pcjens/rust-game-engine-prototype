@@ -10,10 +10,3 @@ platform-abstraction-layer = { version = "0.1.0", path = "../platform-abstractio
 
 [dev-dependencies]
 libc = { version = "0.2.168", default-features = false }
-
-[features]
-default = []
-
-# Enables asset conditioning functions and brings in `std`, used by
-# import-asset.
-asset-conditioning = []

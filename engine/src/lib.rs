@@ -1,6 +1,10 @@
+//! TODO: write a outline of the engine here
+
 #![no_std]
+// #![warn(missing_docs)]
 
 #[cfg(any(test, doctest))]
+/// A simple platform implementation for use in tests.
 pub mod test_platform;
 
 /// Low-level memory allocators used for all dynamic allocation in the engine.
