@@ -147,10 +147,15 @@ impl EngineCallbacks for Engine<'_> {
             offset += w + 20.0;
         }
 
+        // /Testing area ends, the following is "end of frame" stuff
+
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 
         self.resource_loader
             .dispatch_reads(&self.resource_db, platform);
+
+        let audio_pos = platform.audio_playback_position();
+        platform.update_audio_buffer(audio_pos, &[[0, 0]; 48000]);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {

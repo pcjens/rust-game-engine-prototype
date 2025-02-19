@@ -30,6 +30,12 @@ pub use render::*;
 pub use semaphore::*;
 pub use thread_pool::{TaskChannel, ThreadState};
 
+/// Sample rate for the audio data played back by the engine.
+pub const AUDIO_SAMPLE_RATE: u64 = 48000;
+
+/// The amount of channels of audio data played back by the engine.
+pub const AUDIO_CHANNELS: usize = 2;
+
 /// Shorthand for an [`ArrayVec`] of [`InputDevice`].
 ///
 /// Exported so that platforms don't need to explicitly depend on [`arrayvec`]
@@ -153,6 +159,22 @@ pub trait Pal {
     /// running on, it'll panic instead, with a message about a thread pool
     /// thread panicking.
     fn spawn_pool_thread(&self, channels: [TaskChannel; 2]) -> ThreadState;
+
+    /// Passes a buffer of audio samples to be played back, and the playback
+    /// position where the samples start.
+    ///
+    /// Each sample should be a tuple containing the left and right channels'
+    /// audio samples for stereo playback, in that order.
+    ///
+    /// The playback position where the platform will start reading can be
+    /// queried with [`Pal::audio_playback_position`].
+    fn update_audio_buffer(&self, first_position: u64, samples: &[[i16; AUDIO_CHANNELS]]);
+
+    /// Returns the playback position of the next sample the platform will play.
+    ///
+    /// Any samples submitted with [`Pal::update_audio_buffer`] before this
+    /// position will be ignored.
+    fn audio_playback_position(&self) -> u64;
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

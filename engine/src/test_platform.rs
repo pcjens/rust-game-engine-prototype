@@ -4,7 +4,8 @@ use core::{cell::Cell, fmt::Arguments, time::Duration};
 
 use platform_abstraction_layer::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
-    Pal, PixelFormat, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex,
+    Pal, PixelFormat, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex, AUDIO_CHANNELS,
+    AUDIO_SAMPLE_RATE,
 };
 
 /// Simple non-interactive [`Pal`] implementation for use in tests.
@@ -145,6 +146,22 @@ impl Pal for TestPlatform {
             })
             .unwrap();
         ThreadState::new(task_sender, result_receiver)
+    }
+
+    fn update_audio_buffer(&self, first_position: u64, samples: &[[i16; AUDIO_CHANNELS]]) {
+        let current_position = self.audio_playback_position();
+        assert!(
+            first_position <= current_position,
+            "audio playback underrun",
+        );
+        assert!(
+            first_position + samples.len() as u64 > current_position,
+            "only received outdated samples, the audio buffer is too short",
+        );
+    }
+
+    fn audio_playback_position(&self) -> u64 {
+        (self.current_time.get().as_micros() * AUDIO_SAMPLE_RATE as u128 / 1_000_000) as u64
     }
 
     fn input_devices(&self) -> InputDevices {

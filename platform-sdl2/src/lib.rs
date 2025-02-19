@@ -9,16 +9,17 @@ use std::{
     process::exit,
     ptr::{addr_of, null_mut},
     str::FromStr,
-    sync::{Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
 };
 
 use platform_abstraction_layer::{
     self as pal, ActionCategory, Button, DrawSettings, EngineCallbacks, FileHandle, FileReadTask,
-    InputDevice, InputDevices, Pal, Vertex,
+    InputDevice, InputDevices, Pal, Vertex, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
 };
 use sdl2::{
+    audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired},
     controller::Button as SdlButton,
     event::Event,
     keyboard::{Keycode, Mod, Scancode},
@@ -26,7 +27,7 @@ use sdl2::{
     rect::Rect,
     render::{Texture, TextureAccess, TextureCreator, WindowCanvas},
     video::WindowContext,
-    Sdl, TimerSubsystem,
+    AudioSubsystem, Sdl, TimerSubsystem,
 };
 use sdl2_sys::{
     SDL_BlendMode, SDL_Color, SDL_GameController, SDL_GameControllerGetType,
@@ -52,10 +53,14 @@ struct FileHolder {
     tasks: Vec<(u64, FileReadHandle)>,
 }
 
+type SharedAudioBuffer = Arc<Mutex<(u64, Vec<[i16; AUDIO_CHANNELS]>)>>;
+
 /// The [`Pal`] impl for the SDL2 based platform.
 pub struct Sdl2Pal {
     sdl_context: Sdl,
     time: TimerSubsystem,
+    _audio: AudioSubsystem,
+    audio_device: Option<AudioDevice<AudioCallbackImpl>>,
     canvas: RefCell<WindowCanvas>,
     exit_requested: Cell<bool>,
     texture_creator: &'static TextureCreator<WindowContext>,
@@ -64,6 +69,20 @@ pub struct Sdl2Pal {
     /// used for this platform are indices to this list.
     hids: RefCell<Vec<Hid>>,
     files: RefCell<Vec<FileHolder>>,
+    shared_audio_buffer: SharedAudioBuffer,
+}
+
+impl Drop for Sdl2Pal {
+    fn drop(&mut self) {
+        if let Some(audio_device) = self.audio_device.take() {
+            // Letting the AudioDevice drop normally seems to segfault. The
+            // issue seems to be that the user data in the audio device contains
+            // a mutex, and some glibc mutex assert is being tripped. This way
+            // we get the mutex (in AudioCallbackImpl) back to Rust-land, to be
+            // dropped as it should.
+            audio_device.close_and_get_callback();
+        }
+    }
 }
 
 impl Sdl2Pal {
@@ -92,15 +111,39 @@ impl Sdl2Pal {
 
         let texture_creator = Box::leak(Box::new(canvas.texture_creator()));
 
+        let audio = sdl_context
+            .audio()
+            .expect("SDL audio subsystem should be able to init");
+
+        let shared_audio_buffer = Arc::new(Mutex::new((0, Vec::new())));
+        let audio_device = match audio.open_playback(
+            None,
+            &AudioSpecDesired {
+                freq: Some(AUDIO_SAMPLE_RATE as i32),
+                channels: Some(2),
+                samples: None,
+            },
+            |spec| AudioCallbackImpl::new(spec, shared_audio_buffer.clone()),
+        ) {
+            Ok(device) => Some(device),
+            Err(err) => {
+                eprintln!("Failed to open audio device, continuing without playback: {err}");
+                None
+            }
+        };
+
         Sdl2Pal {
             sdl_context,
             time,
+            _audio: audio,
+            audio_device,
             canvas: RefCell::new(canvas),
             exit_requested: Cell::new(false),
             texture_creator,
             textures: RefCell::new(Vec::new()),
             hids: RefCell::new(vec![Hid::Keyboard]),
             files: RefCell::new(Vec::new()),
+            shared_audio_buffer,
         }
     }
 
@@ -559,6 +602,31 @@ impl Pal for Sdl2Pal {
         pal::ThreadState::new(task_sender, result_receiver)
     }
 
+    fn update_audio_buffer(&self, first_position: u64, mut samples: &[[i16; AUDIO_CHANNELS]]) {
+        let mut shared = self.shared_audio_buffer.lock().unwrap();
+        let played_position = shared.0;
+        let dst_samples = &mut shared.1;
+        dst_samples.clear();
+
+        if let Some(missed_samples) = first_position.checked_sub(played_position) {
+            // Underrun, fill the missing samples with silence
+            for _ in 0..missed_samples {
+                dst_samples.push([0; AUDIO_CHANNELS]);
+            }
+        }
+
+        if let Some(already_played_samples) = played_position.checked_sub(first_position) {
+            let start = (already_played_samples as usize).min(samples.len());
+            samples = &samples[start..];
+        }
+
+        shared.1.extend_from_slice(samples);
+    }
+
+    fn audio_playback_position(&self) -> u64 {
+        self.shared_audio_buffer.lock().unwrap().0
+    }
+
     fn input_devices(&self) -> InputDevices {
         let mut devices = InputDevices::new();
         {
@@ -668,4 +736,53 @@ fn button_for_scancode(scancode: Scancode) -> Button {
 
 fn button_for_gamepad(gamepad_button: SdlButton) -> Button {
     Button::new((2 << 32) | gamepad_button as u64)
+}
+
+// Audio helpers:
+
+struct AudioCallbackImpl {
+    shared_audio_buffer: SharedAudioBuffer,
+}
+
+impl AudioCallbackImpl {
+    fn new(spec: AudioSpec, shared_audio_buffer: SharedAudioBuffer) -> AudioCallbackImpl {
+        assert_eq!(
+            AUDIO_SAMPLE_RATE as i32, spec.freq,
+            "platform-sdl2 doesn't support resampling audio",
+        );
+
+        assert_eq!(
+            AUDIO_CHANNELS as u8, spec.channels,
+            "platform-sdl2 doesn't support resampling audio",
+        );
+
+        AudioCallbackImpl {
+            shared_audio_buffer,
+        }
+    }
+}
+
+impl AudioCallback for AudioCallbackImpl {
+    type Channel = i16;
+    fn callback(&mut self, dst_samples: &mut [Self::Channel]) {
+        let mut src = self.shared_audio_buffer.lock().unwrap();
+        let src_samples = &src.1;
+
+        let mut samples_played_back = 0;
+        for (src, dst) in src_samples
+            .iter()
+            .zip(dst_samples.chunks_exact_mut(AUDIO_CHANNELS))
+        {
+            dst.copy_from_slice(src);
+            samples_played_back += 1;
+        }
+
+        let leftover_dst = &mut dst_samples[samples_played_back as usize * 2..];
+        if !leftover_dst.is_empty() {
+            leftover_dst.fill(0);
+            samples_played_back += leftover_dst.len() as u64 / 2;
+        }
+
+        src.0 += samples_played_back;
+    }
 }
