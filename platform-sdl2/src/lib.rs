@@ -125,7 +125,10 @@ impl Sdl2Pal {
             },
             |spec| AudioCallbackImpl::new(spec, shared_audio_buffer.clone()),
         ) {
-            Ok(device) => Some(device),
+            Ok(device) => {
+                device.resume();
+                Some(device)
+            }
             Err(err) => {
                 eprintln!("Failed to open audio device, continuing without playback: {err}");
                 None

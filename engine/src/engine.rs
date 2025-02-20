@@ -2,7 +2,8 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use platform_abstraction_layer::{
-    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Pal,
+    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Pal, AUDIO_CHANNELS,
+    AUDIO_SAMPLE_RATE,
 };
 
 use crate::{
@@ -40,6 +41,7 @@ pub struct Engine<'eng> {
 
     test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
     test_texture: TextureHandle,
+    test_input_time: Duration,
 }
 
 impl<'eng> Engine<'eng> {
@@ -86,6 +88,7 @@ impl<'eng> Engine<'eng> {
 
             test_input: None,
             test_texture,
+            test_input_time: platform.elapsed(),
         }
     }
 }
@@ -123,10 +126,9 @@ impl EngineCallbacks for Engine<'_> {
             action_test = input.actions[TestInput::Act as usize].pressed;
         }
 
-        // Clean up timed out events (note: this should happen *after* handling
-        // input, to avoid missing inputs due to lag spikes)
-        self.event_queue
-            .retain(|queued| !queued.timed_out(timestamp));
+        if action_test && platform.elapsed() - self.test_input_time > Duration::from_millis(100) {
+            self.test_input_time = platform.elapsed();
+        }
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
         let (screen_width, _) = platform.draw_area();
@@ -149,13 +151,32 @@ impl EngineCallbacks for Engine<'_> {
 
         // /Testing area ends, the following is "end of frame" stuff
 
+        self.event_queue
+            .retain(|queued| !queued.timed_out(timestamp));
+
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 
         self.resource_loader
             .dispatch_reads(&self.resource_db, platform);
 
+        let samples_since_input = ((platform.elapsed() - self.test_input_time).as_micros()
+            * AUDIO_SAMPLE_RATE as u128
+            / 1_000_000) as u64;
+        let attenuation_inverse = samples_since_input.div_ceil(AUDIO_SAMPLE_RATE / 20) as i64;
         let audio_pos = platform.audio_playback_position();
-        platform.update_audio_buffer(audio_pos, &[[0, 0]; 48000]);
+        let mut buf = [[0; AUDIO_CHANNELS]; AUDIO_SAMPLE_RATE as usize];
+        for (t, sample) in buf.iter_mut().enumerate() {
+            // TODO: replace with a more natural sounding noise to detect issues easier
+            fn triangle(x: u64) -> i64 {
+                let x = (x % AUDIO_SAMPLE_RATE) as i64;
+                let amplitude = i16::MAX as i64;
+                (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
+            }
+            let t = audio_pos + t as u64;
+            let s = (triangle(t * 220) / attenuation_inverse.max(1)) as i16 / 20;
+            *sample = [s, s];
+        }
+        platform.update_audio_buffer(audio_pos, &buf);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {
