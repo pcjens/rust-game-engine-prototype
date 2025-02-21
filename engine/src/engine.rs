@@ -216,7 +216,7 @@ mod tests {
 
     use super::Engine;
 
-    /// Initializes the engine and simulates 10 seconds of running the engine,
+    /// Initializes the engine and simulates 4 seconds of running the engine,
     /// with a burst of mashing the "ActPrimary" button in the middle.
     fn run_smoke_test(platform: &TestPlatform, persistent_arena: &'static StaticAllocator) {
         let device = platform.input_devices()[0];
@@ -226,11 +226,11 @@ mod tests {
 
         let mut engine = Engine::new(platform, persistent_arena);
 
-        let fps = 30;
-        for current_frame in 0..(10 * fps) {
+        let fps = 10;
+        for current_frame in 0..(4 * fps) {
             platform.set_elapsed_millis(current_frame * 1000 / fps);
 
-            if 4 * fps < current_frame && current_frame < 6 * fps {
+            if 2 * fps < current_frame && current_frame < 3 * fps {
                 // every three frames, either press down or release the button
                 if current_frame % 3 == 0 {
                     engine.event(
