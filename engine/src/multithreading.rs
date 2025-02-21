@@ -50,6 +50,9 @@ pub fn create_thread_pool(
 /// Runs the function on multiple threads, splitting the data into one part for
 /// each thread.
 ///
+/// The function also gets the offset of the specific subslice it got, relative
+/// to the start of `data`.
+///
 /// The return value is the size of the chunks `data` was split into. The same
 /// slices can be acquired by calling `chunks` or `chunks_mut` on `data` and
 /// passing it in as the chunk size.
@@ -58,18 +61,19 @@ pub fn create_thread_pool(
 /// the given function is not called and the data is not touched.
 #[track_caller]
 #[must_use]
-pub fn parallelize<T: 'static + Sync>(
-    thread_pool: &mut ThreadPool,
-    data: &mut [T],
-    func: fn(&mut [T]),
-) -> Option<usize> {
-    struct Task<T: Sync> {
+pub fn parallelize<T, F>(thread_pool: &mut ThreadPool, data: &mut [T], func: F) -> Option<usize>
+where
+    T: 'static + Sync,
+    F: 'static + Fn(&mut [T], usize),
+{
+    struct Task<T: Sync, F: Fn(&mut [T], usize)> {
         data: *mut [T],
-        func: fn(&mut [T]),
+        func: *const F,
+        data_offset: usize,
     }
 
-    struct TaskProxy<T: 'static + Sync> {
-        handle: TaskHandle<Task<T>>,
+    struct TaskProxy<T: 'static + Sync, F: 'static + Fn(&mut [T], usize)> {
+        handle: TaskHandle<Task<T, F>>,
         metadata: RingAllocationMetadata,
     }
 
@@ -79,8 +83,8 @@ pub fn parallelize<T: 'static + Sync>(
 
     let max_tasks = thread_pool.thread_count().min(MAX_THREADS);
 
-    let mut backing_task_buffer = ArrayVec::<MaybeUninit<Task<T>>, MAX_THREADS>::new();
-    let mut backing_task_proxies = ArrayVec::<MaybeUninit<TaskProxy<T>>, MAX_THREADS>::new();
+    let mut backing_task_buffer = ArrayVec::<MaybeUninit<Task<T, F>>, MAX_THREADS>::new();
+    let mut backing_task_proxies = ArrayVec::<MaybeUninit<TaskProxy<T, F>>, MAX_THREADS>::new();
     for _ in 0..max_tasks {
         backing_task_buffer.push(MaybeUninit::uninit());
         backing_task_proxies.push(MaybeUninit::uninit());
@@ -94,6 +98,10 @@ pub fn parallelize<T: 'static + Sync>(
 
     thread_pool.reset_thread_counter();
 
+    // Shadow `func` to ensure that the value doesn't get dropped until the end
+    // of this function, since this borrow is shared with the threads.
+    let func = &func;
+
     let chunk_size = data.len().div_ceil(max_tasks);
     for (i, data_part) in data.chunks_mut(chunk_size).enumerate() {
         // Shouldn't ever trip, but if it does, we'd much rather crash here than
@@ -105,6 +113,7 @@ pub fn parallelize<T: 'static + Sync>(
             .allocate_box(Task {
                 data: &raw mut *data_part,
                 func,
+                data_offset: i * chunk_size,
             })
             .ok()
             .unwrap() // does not panic: task_buffer is guaranteed to have capacity via the assert at the start of this loop body
@@ -129,7 +138,10 @@ pub fn parallelize<T: 'static + Sync>(
                 //   definitely no others creating any kind of borrow of this
                 //   particular chunk.
                 let data = unsafe { &mut *task.data };
-                (task.func)(data);
+                // Safety: same logic as for the data, except that this
+                // reference is shared, which is valid because it's a
+                // const-pointer and we borrow it immutably.
+                unsafe { (*task.func)(data, task.data_offset) };
             })
             .ok()
             .unwrap(); // does not panic: thread_pool is guaranteed to have capacity, it's empty and we're only spawning thread_count tasks
@@ -174,7 +186,7 @@ mod tests {
         let mut thread_pool = create_thread_pool(ARENA, &platform, 1).unwrap();
 
         let mut data = [1, 2, 3, 4];
-        parallelize(&mut thread_pool, &mut data, |data| {
+        parallelize(&mut thread_pool, &mut data, |data, _| {
             for n in data {
                 *n *= *n;
             }
@@ -191,7 +203,7 @@ mod tests {
         let mut thread_pool = create_thread_pool(ARENA, &platform, 1).unwrap();
 
         let mut data = [1, 2, 3, 4];
-        parallelize(&mut thread_pool, &mut data, |data| {
+        parallelize(&mut thread_pool, &mut data, |data, _| {
             for n in data {
                 *n *= *n;
             }

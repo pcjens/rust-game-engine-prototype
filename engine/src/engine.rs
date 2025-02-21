@@ -106,18 +106,6 @@ impl EngineCallbacks for Engine<'_> {
 
         // Testing area follows, could be considered "game code" for now:
 
-        let mut test_numbers = [1, 2, 3, 4];
-        parallelize(&mut self.thread_pool, &mut test_numbers, |numbers| {
-            for number in numbers {
-                *number *= *number;
-            }
-        })
-        .unwrap();
-        assert!(test_numbers
-            .iter()
-            .enumerate()
-            .all(|(i, num)| *num == (i + 1).pow(2)));
-
         let mut action_test = false;
 
         // Handle input
@@ -165,17 +153,20 @@ impl EngineCallbacks for Engine<'_> {
         let attenuation_inverse = samples_since_input.div_ceil(AUDIO_SAMPLE_RATE / 20) as i64;
         let audio_pos = platform.audio_playback_position();
         let mut buf = [[0; AUDIO_CHANNELS]; AUDIO_SAMPLE_RATE as usize];
-        for (t, sample) in buf.iter_mut().enumerate() {
-            // TODO: replace with a more natural sounding noise to detect issues easier
-            fn triangle(x: u64) -> i64 {
-                let x = (x % AUDIO_SAMPLE_RATE) as i64;
-                let amplitude = i16::MAX as i64;
-                (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
+        parallelize(&mut self.thread_pool, &mut buf, move |buf, offset| {
+            for (t, sample) in buf.iter_mut().enumerate() {
+                // TODO: replace with a more natural sounding noise to detect issues easier
+                fn triangle(x: u64) -> i64 {
+                    let x = (x % AUDIO_SAMPLE_RATE) as i64;
+                    let amplitude = i16::MAX as i64;
+                    (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
+                }
+                let t = audio_pos + offset as u64 + t as u64;
+                let s = (triangle(t * 220) / attenuation_inverse.max(1)) as i16 / 20;
+                *sample = [s, s];
             }
-            let t = audio_pos + t as u64;
-            let s = (triangle(t * 220) / attenuation_inverse.max(1)) as i16 / 20;
-            *sample = [s, s];
-        }
+        })
+        .unwrap();
         platform.update_audio_buffer(audio_pos, &buf);
     }
 
