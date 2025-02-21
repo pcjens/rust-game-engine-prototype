@@ -58,6 +58,7 @@ impl<'eng> Engine<'eng> {
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
+        // - Audio buffer size (ideally should be somewhat based on the platform's buffer size)
         // Maybe an EngineConfig struct that has a const function for
         // calculating the memory requirements, so you could
         // "compile-time-static-allocate" the exactly correct amount of memory?
@@ -152,7 +153,7 @@ impl EngineCallbacks for Engine<'_> {
             / 1_000_000) as u64;
         let attenuation_inverse = samples_since_input.div_ceil(AUDIO_SAMPLE_RATE / 20) as i64;
         let audio_pos = platform.audio_playback_position();
-        let mut buf = [[0; AUDIO_CHANNELS]; AUDIO_SAMPLE_RATE as usize];
+        let mut buf = [[0; AUDIO_CHANNELS]; 1024];
         parallelize(&mut self.thread_pool, &mut buf, move |buf, offset| {
             for (t, sample) in buf.iter_mut().enumerate() {
                 // TODO: replace with a more natural sounding noise to detect issues easier
@@ -217,7 +218,7 @@ mod tests {
 
         let mut engine = Engine::new(platform, persistent_arena);
 
-        let fps = 10;
+        let fps = 5;
         for current_frame in 0..(4 * fps) {
             platform.set_elapsed_millis(current_frame * 1000 / fps);
 
