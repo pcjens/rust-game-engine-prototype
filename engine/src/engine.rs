@@ -8,6 +8,7 @@ use platform_abstraction_layer::{
 
 use crate::{
     allocators::{LinearAllocator, StaticAllocator},
+    collections::FixedVec,
     geom::Rect,
     input::{ActionKind, ActionState, EventQueue, InputDeviceState, QueuedEvent},
     multithreading::{self, parallelize},
@@ -32,8 +33,11 @@ pub struct Engine<'eng> {
     /// Linear allocator for any frame-internal dynamic allocation needs.
     frame_arena: LinearAllocator<'eng>,
     /// Thread pool for splitting compute-heavy workloads to multiple threads.
-    #[allow(unused)]
     thread_pool: ThreadPool,
+    /// Buffer for storing audio samples sent to the platform each frame.
+    ///
+    /// TODO: move this to a proper audio subsystem
+    audio_buffer: FixedVec<'static, [i16; AUDIO_CHANNELS]>,
     /// Queued up events from the platform layer. Discarded after being used by
     /// the game to trigger an action via [`InputDeviceState`], or after a
     /// timeout if not.
@@ -53,7 +57,11 @@ impl<'eng> Engine<'eng> {
     ///   requires, e.g. the resource database. Needs to outlive the engine so
     ///   that engine internals can borrow from it, so it's passed in here
     ///   instead of being created behind the scenes.
-    pub fn new(platform: &'eng dyn Pal, persistent_arena: &'static StaticAllocator) -> Self {
+    pub fn new(
+        platform: &'eng dyn Pal,
+        persistent_arena: &'static StaticAllocator,
+        audio_buffer_size: usize,
+    ) -> Self {
         // TODO: Parameters that should probably be exposed to be tweakable by
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
@@ -78,12 +86,17 @@ impl<'eng> Engine<'eng> {
         let resource_loader = ResourceLoader::new(persistent_arena, staging_size, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
+        let mut audio_buffer = FixedVec::new(persistent_arena, audio_buffer_size)
+            .expect("persistent arena should have enough memory for the audio buffer");
+        audio_buffer.fill_with_zeroes();
+
         let test_texture = resource_db.find_texture("testing texture").unwrap();
 
         Engine {
             resource_db,
             resource_loader,
             frame_arena,
+            audio_buffer,
             thread_pool,
             event_queue: ArrayVec::new(),
 
@@ -153,22 +166,25 @@ impl EngineCallbacks for Engine<'_> {
             / 1_000_000) as u64;
         let attenuation_inverse = samples_since_input.div_ceil(AUDIO_SAMPLE_RATE / 20) as i64;
         let audio_pos = platform.audio_playback_position();
-        let mut buf = [[0; AUDIO_CHANNELS]; 1024];
-        parallelize(&mut self.thread_pool, &mut buf, move |buf, offset| {
-            for (t, sample) in buf.iter_mut().enumerate() {
-                // TODO: replace with a more natural sounding noise to detect issues easier
-                fn triangle(x: u64) -> i64 {
-                    let x = (x % AUDIO_SAMPLE_RATE) as i64;
-                    let amplitude = i16::MAX as i64;
-                    (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
+        parallelize(
+            &mut self.thread_pool,
+            &mut self.audio_buffer,
+            move |buf, offset| {
+                for (t, sample) in buf.iter_mut().enumerate() {
+                    // TODO: replace with a more natural sounding noise to detect issues easier
+                    fn triangle(x: u64) -> i64 {
+                        let x = (x % AUDIO_SAMPLE_RATE) as i64;
+                        let amplitude = i16::MAX as i64;
+                        (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
+                    }
+                    let t = audio_pos + offset as u64 + t as u64;
+                    let s = (triangle(t * 220) / attenuation_inverse.max(1)) as i16 / 20;
+                    *sample = [s, s];
                 }
-                let t = audio_pos + offset as u64 + t as u64;
-                let s = (triangle(t * 220) / attenuation_inverse.max(1)) as i16 / 20;
-                *sample = [s, s];
-            }
-        })
+            },
+        )
         .unwrap();
-        platform.update_audio_buffer(audio_pos, &buf);
+        platform.update_audio_buffer(audio_pos, &self.audio_buffer);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {
@@ -216,9 +232,9 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        let mut engine = Engine::new(platform, persistent_arena);
+        let mut engine = Engine::new(platform, persistent_arena, 128);
 
-        let fps = 5;
+        let fps = 10;
         for current_frame in 0..(4 * fps) {
             platform.set_elapsed_millis(current_frame * 1000 / fps);
 

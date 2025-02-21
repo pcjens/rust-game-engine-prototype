@@ -55,7 +55,7 @@ pub fn create_thread_pool(
 ///
 /// The return value is the size of the chunks `data` was split into. The same
 /// slices can be acquired by calling `chunks` or `chunks_mut` on `data` and
-/// passing it in as the chunk size.
+/// passing it in as the chunk size. If the input slice is empty, 0 is returned.
 ///
 /// Returns `None` if the thread pool already has pending tasks. In this case,
 /// the given function is not called and the data is not touched.
@@ -79,6 +79,10 @@ where
 
     if thread_pool.has_pending() {
         return None;
+    }
+
+    if data.is_empty() {
+        return Some(0);
     }
 
     let max_tasks = thread_pool.thread_count().min(MAX_THREADS);
