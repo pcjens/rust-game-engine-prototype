@@ -1,6 +1,7 @@
 use core::ops::Range;
 
 use arrayvec::{ArrayString, ArrayVec};
+use platform_abstraction_layer::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 
 use super::{
     audio_clip::AudioClipAsset,
@@ -47,7 +48,7 @@ impl Serialize for TextureChunkDescriptor {
 }
 
 impl Serialize for ResourceDatabaseHeader {
-    const SERIALIZED_SIZE: usize = 13 + u32::SERIALIZED_SIZE * 4;
+    const SERIALIZED_SIZE: usize = 18 + u32::SERIALIZED_SIZE * 4;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
@@ -59,6 +60,8 @@ impl Serialize for ResourceDatabaseHeader {
             serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.0, dst, &mut cursor);
             serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.1, dst, &mut cursor);
             serialize::<u8>(&(TEXTURE_CHUNK_FORMAT as u8), dst, &mut cursor);
+            serialize::<u32>(&AUDIO_SAMPLE_RATE, dst, &mut cursor);
+            serialize::<u8>(&(AUDIO_CHANNELS as u8), dst, &mut cursor);
         }
 
         let ResourceDatabaseHeader {
@@ -88,16 +91,11 @@ impl<S: Serialize> Serialize for NamedAsset<S> {
 
 impl Serialize for AudioClipAsset {
     const SERIALIZED_SIZE: usize =
-        u32::SERIALIZED_SIZE * 2 + <Range<u32> as Serialize>::SERIALIZED_SIZE;
+        u32::SERIALIZED_SIZE + <Range<u32> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
-        let AudioClipAsset {
-            samples_per_second,
-            samples,
-            chunks,
-        } = self;
-        serialize::<u32>(samples_per_second, dst, &mut cursor);
+        let AudioClipAsset { samples, chunks } = self;
         serialize::<u32>(samples, dst, &mut cursor);
         serialize::<Range<u32>>(chunks, dst, &mut cursor);
     }

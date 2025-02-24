@@ -5,6 +5,12 @@
       "command": "add_texture",
       "name": "testing texture",
       "file": "example/resources/kellot.jpeg"
+    },
+    {
+      "command": "add_audio_clip",
+      "name": "test audio clip",
+      "file": "example/resources/tone.flac",
+      "track": null
     }
   ]
 }

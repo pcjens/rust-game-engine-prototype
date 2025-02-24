@@ -97,6 +97,20 @@ fn process_command(
                 db.textures.push(asset_and_data);
             }
         }
+
+        Command::AddAudioClip { name, file, track } => {
+            info!("Importing audio clip \"{}\" from: {}", name, file.display());
+            let mut related_chunk_data = RelatedChunkData::empty();
+            let name = ArrayString::from_str(name).unwrap();
+            let asset = importers::audio_clip::import(file, *track, &mut related_chunk_data)
+                .context("Failed to import audio clip")?;
+            let asset_and_data = (NamedAsset { name, asset }, related_chunk_data);
+            if let Some(existing_asset) = db.audio_clips.iter_mut().find(|a| a.0.name == name) {
+                *existing_asset = asset_and_data;
+            } else {
+                db.audio_clips.push(asset_and_data);
+            }
+        }
     }
 
     // In case the command operated on an asset, update the command in the import settings.

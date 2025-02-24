@@ -34,7 +34,7 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
     let width = image.width() as u16;
     let height = image.height() as u16;
 
-    if width * height == 0 {
+    if width == 0 || height == 0 {
         return Err(anyhow::anyhow!("Texture must have at least one pixel"));
     }
 

@@ -619,6 +619,11 @@ impl Pal for Sdl2Pal {
         }
 
         if let Some(already_played_samples) = played_position.checked_sub(first_position) {
+            // TODO: fade in if already_played_samples > 0, because it means the
+            // engine may have started playing back new sounds after
+            // `first_position` which we did not play back (as `played_position`
+            // is after it).
+
             let start = (already_played_samples as usize).min(samples.len());
             samples = &samples[start..];
         }

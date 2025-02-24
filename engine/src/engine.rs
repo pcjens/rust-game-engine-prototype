@@ -36,6 +36,14 @@ pub struct Engine<'eng> {
     thread_pool: ThreadPool,
     /// Buffer for storing audio samples sent to the platform each frame.
     ///
+    /// Note that this isn't "buffer" in the sense of pro audio "buffer size"
+    /// parameters where the latency rises as the size grows: the actual latency
+    /// depends on the platform implementation and its audio buffer size. This
+    /// buffer is rewritten every frame to match "whatever noises would play
+    /// over the next N milliseconds, starting from this frame," and then sent
+    /// to the platform so it can consume from it until it gets another update
+    /// next frame.
+    ///
     /// TODO: move this to a proper audio subsystem
     audio_buffer: FixedVec<'static, [i16; AUDIO_CHANNELS]>,
     /// Queued up events from the platform layer. Discarded after being used by
@@ -60,13 +68,13 @@ impl<'eng> Engine<'eng> {
     pub fn new(
         platform: &'eng dyn Pal,
         persistent_arena: &'static StaticAllocator,
-        audio_buffer_size: usize,
+        audio_window_size: usize,
     ) -> Self {
         // TODO: Parameters that should probably be exposed to be tweakable by
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
-        // - Audio buffer size (ideally should be somewhat based on the platform's buffer size)
+        // - Audio window size
         // Maybe an EngineConfig struct that has a const function for
         // calculating the memory requirements, so you could
         // "compile-time-static-allocate" the exactly correct amount of memory?
@@ -86,7 +94,7 @@ impl<'eng> Engine<'eng> {
         let resource_loader = ResourceLoader::new(persistent_arena, staging_size, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
-        let mut audio_buffer = FixedVec::new(persistent_arena, audio_buffer_size)
+        let mut audio_buffer = FixedVec::new(persistent_arena, audio_window_size)
             .expect("persistent arena should have enough memory for the audio buffer");
         audio_buffer.fill_with_zeroes();
 
@@ -161,10 +169,12 @@ impl EngineCallbacks for Engine<'_> {
         self.resource_loader
             .dispatch_reads(&self.resource_db, platform);
 
-        let samples_since_input = ((platform.elapsed() - self.test_input_time).as_micros()
-            * AUDIO_SAMPLE_RATE as u128
-            / 1_000_000) as u64;
-        let attenuation_inverse = samples_since_input.div_ceil(AUDIO_SAMPLE_RATE / 20) as i64;
+        // TODO: add a system for synchronizing game time with audio playback
+        // time (and decide how to handle lagspikes, which shouldn't progress
+        // game time a lot, but they definitely do progress audio playback time)
+
+        // TODO: add a proper system that maintains a list of playing sounds
+
         let audio_pos = platform.audio_playback_position();
         parallelize(
             &mut self.thread_pool,
@@ -172,13 +182,13 @@ impl EngineCallbacks for Engine<'_> {
             move |buf, offset| {
                 for (t, sample) in buf.iter_mut().enumerate() {
                     // TODO: replace with a more natural sounding noise to detect issues easier
-                    fn triangle(x: u64) -> i64 {
+                    fn triangle(x: u32) -> i64 {
                         let x = (x % AUDIO_SAMPLE_RATE) as i64;
                         let amplitude = i16::MAX as i64;
                         (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
                     }
-                    let t = audio_pos + offset as u64 + t as u64;
-                    let s = (triangle(t * 220) / attenuation_inverse.max(1)) as i16 / 20;
+                    let t = audio_pos as u32 + (offset + t) as u32;
+                    let s = triangle(t * 220) as i16 / 20;
                     *sample = [s, s];
                 }
             },

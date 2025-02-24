@@ -31,7 +31,7 @@ pub use semaphore::*;
 pub use thread_pool::{TaskChannel, ThreadState};
 
 /// Sample rate for the audio data played back by the engine.
-pub const AUDIO_SAMPLE_RATE: u64 = 48000;
+pub const AUDIO_SAMPLE_RATE: u32 = 48000;
 
 /// The amount of channels of audio data played back by the engine.
 pub const AUDIO_CHANNELS: usize = 2;

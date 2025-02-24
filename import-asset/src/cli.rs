@@ -12,15 +12,27 @@ pub enum Command {
     /// Reimports all assets in the settings file
     #[bpaf(command("reimport"))]
     Reimport {},
-    /// Adds a newtexture into the resource database and saves the settings
+    /// Adds a new texture into the resource database
     #[bpaf(command("add-texture"))]
     AddTexture {
         /// The name of the texture (used to load it in game code)
-        #[bpaf(complete_shell(ShellComp::File { mask: None }))]
         name: ArrayString<ASSET_NAME_LENGTH>,
-        /// The image file to import as a texture
-        #[bpaf(complete_shell(ShellComp::File { mask: None }))]
+        /// The image file to import
+        #[bpaf(argument("FILE"), complete_shell(ShellComp::File { mask: None }))]
         file: PathBuf,
+    },
+    /// Adds a new audio clip into the resource database
+    #[bpaf(command("add-audio"))]
+    AddAudioClip {
+        /// The name of the audio clip (used to load it in game code)
+        name: ArrayString<ASSET_NAME_LENGTH>,
+        /// The audio file to import
+        #[bpaf(argument("FILE"), complete_shell(ShellComp::File { mask: None }))]
+        file: PathBuf,
+        /// The track number to import from the audio file, with the first track
+        /// being number 0 (defaults to a format-dependent "default track")
+        #[bpaf(argument("NUMBER"))]
+        track: Option<usize>,
     },
 }
 
@@ -31,6 +43,7 @@ impl Command {
         match self {
             Command::Reimport {} => None,
             Command::AddTexture { name, .. } => Some(name),
+            Command::AddAudioClip { name, .. } => Some(name),
         }
     }
 }

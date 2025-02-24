@@ -1,6 +1,7 @@
 use core::{ops::Range, str};
 
 use arrayvec::{ArrayString, ArrayVec};
+use platform_abstraction_layer::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 
 use super::{
     audio_clip::AudioClipAsset,
@@ -45,7 +46,7 @@ impl Deserialize for TextureChunkDescriptor {
 }
 
 impl Deserialize for ResourceDatabaseHeader {
-    const SERIALIZED_SIZE: usize = 13 + u32::SERIALIZED_SIZE * 4;
+    const SERIALIZED_SIZE: usize = 18 + u32::SERIALIZED_SIZE * 4;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
@@ -62,6 +63,10 @@ impl Deserialize for ResourceDatabaseHeader {
             assert_eq!(TEXTURE_CHUNK_DIMENSIONS.1, texchunk_height);
             let texchunk_format = deserialize::<u8>(src, &mut cursor);
             assert_eq!(TEXTURE_CHUNK_FORMAT as u8, texchunk_format);
+            let audio_sample_rate = deserialize::<u32>(src, &mut cursor);
+            assert_eq!(AUDIO_SAMPLE_RATE, audio_sample_rate);
+            let audio_channels = deserialize::<u8>(src, &mut cursor);
+            assert_eq!((AUDIO_CHANNELS as u8), audio_channels);
         }
 
         Self {
@@ -88,12 +93,11 @@ impl<D: Deserialize> Deserialize for NamedAsset<D> {
 
 impl Deserialize for AudioClipAsset {
     const SERIALIZED_SIZE: usize =
-        u32::SERIALIZED_SIZE * 2 + <Range<u32> as Deserialize>::SERIALIZED_SIZE;
+        u32::SERIALIZED_SIZE + <Range<u32> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
         Self {
-            samples_per_second: deserialize::<u32>(src, &mut cursor),
             samples: deserialize::<u32>(src, &mut cursor),
             chunks: deserialize::<Range<u32>>(src, &mut cursor),
         }
