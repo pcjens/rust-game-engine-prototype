@@ -98,7 +98,7 @@ impl Pal for TestPlatform {
     }
 
     fn finish_file_read(&self, task: FileReadTask) -> Result<Box<[u8]>, Box<[u8]>> {
-        static RESOURCES_DB: &[u8] = include_bytes!("../../resources.db");
+        static RESOURCES_DB: &[u8] = include_bytes!("../../example/resources.db");
         if task.file().inner() != 4321 {
             // Safety: this impl never shares the buffer anywhere.
             return Err(unsafe { task.into_inner() });
