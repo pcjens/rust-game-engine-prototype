@@ -2,6 +2,8 @@
 name = "example"
 version = "0.1.0"
 edition = "2021"
+authors = ["Jens Pitkänen <jens.pitkanen@helsinki.fi>"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 engine = { version = "0.1.0", path = "../engine" }
