@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 mod assets;
 mod chunks;
 mod deserialize;

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #[cfg(feature = "sdl2")]
 fn main() {
     let platform = platform_sdl2::Sdl2Pal::new("example game");

@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+
 A crate containing shared traits and types between [engine](../engine) and the
 platform implementation crates (e.g. [platform-sdl2](../platform-sdl2)).
 

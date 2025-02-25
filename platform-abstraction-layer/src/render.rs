@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use bytemuck::{Pod, Zeroable};
 
 /// Vertex describing a 2D point with a texture coordinate and a color.

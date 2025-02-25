@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Asset type for individual images that can be rendered as-is.
 //!
 //! Not really suitable for use as a texture atlas, due to color bleeding

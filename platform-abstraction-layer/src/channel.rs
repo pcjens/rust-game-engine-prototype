@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Static memory based single-producer single-consumer channel for
 //! communication between threads.
 

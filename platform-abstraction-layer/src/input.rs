@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /// An input event sent by the platform to the engine for handling.
 pub enum Event {
     /// Emitted when a digital input (a button, or a key, but not a thumbstick)

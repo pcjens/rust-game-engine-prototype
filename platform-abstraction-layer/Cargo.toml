@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 [package]
 name = "platform-abstraction-layer"
 version = "0.1.0"

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 pub mod texture;
 
 use platform_abstraction_layer::{BlendMode, DrawSettings, Pal, TextureFilter, TextureRef, Vertex};

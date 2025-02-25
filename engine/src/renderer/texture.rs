@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Texture drawing specifics.
 //!
 //! This is the "runtime-half" of TextureAsset, the other half being the

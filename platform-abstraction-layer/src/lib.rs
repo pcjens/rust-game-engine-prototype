@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! This crate mainly revolves around the [`Pal`] trait, which can be
 //! implemented to provide a "platform implementation" for the game engine.
 //! Otherwise, this crate mostly contains some low-level parts of the engine

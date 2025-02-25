@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2025 Jens Pitkänen <jens.pitkanen@helsinki.fi>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use core::num::NonZeroU32;
 
 use bytemuck::Zeroable;
