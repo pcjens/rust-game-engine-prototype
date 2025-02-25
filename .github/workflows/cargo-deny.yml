@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: NONE
+#
+# SPDX-License-Identifier: CC0-1.0
+
+# This is a license, security advisory, and dependency source verification job,
+# using the cargo-deny tool. Note that the reuse.yml action only checks that
+# *this* repository conforms to the SPDX spec, while this job checks that our
+# dependencies have acceptable licenses.
+#
+# Since advisories might be found without any code changes in this repository,
+# this job runs once every Thursday, even without any commits during the week.
+
+name: cargo-deny
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "28 3 * * 4"
+
+jobs:
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: EmbarkStudios/cargo-deny-action@v2

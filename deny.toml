@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: NONE
+#
+# SPDX-License-Identifier: CC0-1.0
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "i686-unknown-linux-gnu",
+    "i686-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "wasm32-unknown-emscripten",
+]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+ignore = []
+
+[licenses]
+# This engine is GPL 3.0 (or later) licensed, so all its dependencies should be
+# GPL compatible.
+allow = [
+    "GPL-3.0", # Compatible! https://www.gnu.org/licenses/license-list.en.html#GNUGPLv3
+    "Apache-2.0", # Compatible: https://www.gnu.org/licenses/license-list.en.html#apache2
+    "MIT", # Compatible: https://www.gnu.org/licenses/license-list.en.html#Expat
+    "BSD-3-Clause", # Compatible: https://www.gnu.org/licenses/license-list.en.html#ModifiedBSD
+    "MPL-2.0", # Compatible: https://www.gnu.org/licenses/license-list.en.html#MPL-2.0
+    "Zlib", # Compatible: https://www.gnu.org/licenses/license-list.en.html#ZLib
+]
+confidence-threshold = 1.0
+exceptions = [
+    # Pretty sure this one's compatible, but sadly there's no entry in the GNU
+    # license list. Unicode says it's based on MIT
+    # (https://www.unicode.org/policies/licensing_policy.html) and the older
+    # version of the license seems to be *less* permissive and is still
+    # compatible on the list
+    # (https://www.gnu.org/licenses/license-list.en.html#Unicode), so I'm
+    # leaning towards it being compatible. In any case, it's just this one
+    # crate, and since it's not *clearly* compatible, let's at least limit it to
+    # this one crate that can be scrutinized for compatibility if it's relevant.
+    { allow = ["Unicode-3.0"], crate = "unicode-ident" },
+]
+
+[licenses.private]
+ignore = false
+registries = []
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = []
+gitlab = []
+bitbucket = []
