@@ -12,7 +12,7 @@ use core::{
 };
 
 use bytemuck::{fill_zeroes, Zeroable};
-use platform_abstraction_layer::Box;
+use platform::Box;
 
 use crate::allocators::LinearAllocator;
 

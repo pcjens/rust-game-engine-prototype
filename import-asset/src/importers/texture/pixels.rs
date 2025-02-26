@@ -6,7 +6,7 @@ use core::ops::{Index, IndexMut};
 use std::fmt::Debug;
 
 use engine::resources::TEXTURE_CHUNK_FORMAT;
-use platform_abstraction_layer::PixelFormat;
+use platform::PixelFormat;
 
 use super::BPP;
 

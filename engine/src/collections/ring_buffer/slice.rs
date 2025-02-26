@@ -4,7 +4,7 @@
 
 use core::ops::{Deref, DerefMut};
 
-use platform_abstraction_layer::Box;
+use platform::Box;
 
 use super::RingAllocationMetadata;
 

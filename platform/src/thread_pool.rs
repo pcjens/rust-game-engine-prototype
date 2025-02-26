@@ -10,7 +10,7 @@
 //! simply running the task in [`ThreadPool::join_task`].
 //!
 //! This module doesn't do any allocation, and isn't very usable on its own,
-//! it's intended to be used  alongsideplatform-provided threading functions, by
+//! it's intended to be used alongside platform-provided threading functions, by
 //! the engine, to construct multithreading utilities.
 
 use core::{marker::PhantomData, mem::transmute};

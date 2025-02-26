@@ -5,7 +5,6 @@
 use core::ops::Range;
 
 use arrayvec::{ArrayString, ArrayVec};
-use platform_abstraction_layer::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 
 use super::{
     audio_clip::AudioClipAsset,
@@ -59,6 +58,8 @@ impl Serialize for ResourceDatabaseHeader {
 
         {
             use crate::resources::*;
+            use platform::*;
+
             serialize::<u32>(&RESOURCE_DB_MAGIC_NUMBER, dst, &mut cursor);
             serialize::<u32>(&CHUNK_SIZE, dst, &mut cursor);
             serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.0, dst, &mut cursor);

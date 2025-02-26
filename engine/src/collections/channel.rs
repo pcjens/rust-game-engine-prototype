@@ -7,7 +7,7 @@ use core::{
     sync::atomic::AtomicUsize,
 };
 
-use platform_abstraction_layer::{
+use platform::{
     channel::{channel_from_parts, CachePadded, Receiver, Sender, SyncUnsafeCell},
     Pal,
 };

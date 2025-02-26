@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use platform_abstraction_layer::{FileReadTask, Pal};
+use platform::{FileReadTask, Pal};
 
 use crate::{
     allocators::StaticAllocator,

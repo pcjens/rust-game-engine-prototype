@@ -5,7 +5,7 @@
 use core::time::Duration;
 
 use arrayvec::ArrayVec;
-use platform_abstraction_layer::{Button, Event, InputDevice};
+use platform::{Button, Event, InputDevice};
 
 /// The amount of time [`QueuedEvent`]s are held in the [`EventQueue`] without
 /// being handled.
@@ -47,9 +47,9 @@ impl QueuedEvent {
 /// ### Example
 /// ```
 /// # let mut event_queue = engine::input::EventQueue::new();
-/// # let a_device_from_platform = platform_abstraction_layer::InputDevice::new(0);
-/// # let button_from_platform = platform_abstraction_layer::Button::new(0);
-/// # let another_button_from_platform = platform_abstraction_layer::Button::new(0);
+/// # let a_device_from_platform = platform::InputDevice::new(0);
+/// # let button_from_platform = platform::Button::new(0);
+/// # let another_button_from_platform = platform::Button::new(0);
 /// use engine::input::{InputDeviceState, ActionState, ActionKind};
 ///
 /// #[repr(usize)]

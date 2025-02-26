@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Context;
 use engine::resources::{audio_clip::AudioClipAsset, ChunkDescriptor, CHUNK_SIZE};
-use platform_abstraction_layer::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
+use platform::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 use symphonia::{
     core::{
         audio::{AudioBuffer, Channels, Signal, SignalSpec},

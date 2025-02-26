@@ -6,7 +6,7 @@ extern crate std;
 
 use core::{cell::Cell, fmt::Arguments, time::Duration};
 
-use platform_abstraction_layer::{
+use platform::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
     Pal, PixelFormat, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex, AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
@@ -204,14 +204,12 @@ mod semaphore {
     use std::boxed::Box;
     use std::sync::{Condvar, Mutex};
 
-    use platform_abstraction_layer as pal;
-
     struct Semaphore {
         value: Mutex<u32>,
         condvar: Condvar,
     }
 
-    impl pal::SemaphoreImpl for Semaphore {
+    impl platform::SemaphoreImpl for Semaphore {
         fn increment(&self) {
             let mut value_lock = self.value.lock().unwrap();
             *value_lock += 1;
@@ -227,13 +225,13 @@ mod semaphore {
         }
     }
 
-    pub fn create() -> pal::Semaphore {
+    pub fn create() -> platform::Semaphore {
         let semaphore: &'static mut Semaphore = Box::leak(Box::new(Semaphore {
             value: Mutex::new(0),
             condvar: Condvar::new(),
         }));
         // Safety: the semaphore is definitely valid for the entire lifetime of
         // the semaphore, since we have a static borrow of it.
-        unsafe { pal::Semaphore::new(semaphore, None) }
+        unsafe { platform::Semaphore::new(semaphore, None) }
     }
 }

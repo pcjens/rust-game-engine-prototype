@@ -5,7 +5,7 @@
 use core::time::Duration;
 
 use arrayvec::ArrayVec;
-use platform_abstraction_layer::{
+use platform::{
     thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Pal, AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
 };
@@ -232,7 +232,7 @@ impl EngineCallbacks for Engine<'_> {
 
 #[cfg(test)]
 mod tests {
-    use platform_abstraction_layer::{ActionCategory, EngineCallbacks, Event, Pal};
+    use platform::{ActionCategory, EngineCallbacks, Event, Pal};
 
     use crate::{allocators::StaticAllocator, static_allocator, test_platform::TestPlatform};
 

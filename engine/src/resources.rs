@@ -9,7 +9,7 @@ mod loader;
 mod serialize;
 
 use assets::{audio_clip::AudioClipAsset, texture::TextureAsset};
-use platform_abstraction_layer::{Box, FileHandle, FileReadTask, Pal, PixelFormat};
+use platform::{Box, FileHandle, FileReadTask, Pal, PixelFormat};
 
 pub use assets::*;
 pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};

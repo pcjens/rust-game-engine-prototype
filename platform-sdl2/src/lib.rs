@@ -18,9 +18,9 @@ use std::{
     time::Duration,
 };
 
-use platform_abstraction_layer::{
-    self as pal, ActionCategory, Button, DrawSettings, EngineCallbacks, FileHandle, FileReadTask,
-    InputDevice, InputDevices, Pal, Vertex, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+use platform::{
+    ActionCategory, Button, DrawSettings, EngineCallbacks, FileHandle, FileReadTask, InputDevice,
+    InputDevices, Pal, Vertex, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
 };
 use sdl2::{
     audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired},
@@ -241,7 +241,7 @@ impl Sdl2Pal {
                         ..
                     } => {
                         engine.event(
-                            pal::Event::DigitalInputPressed(
+                            platform::Event::DigitalInputPressed(
                                 InputDevice::new(0),
                                 button_for_scancode(scancode),
                             ),
@@ -256,7 +256,7 @@ impl Sdl2Pal {
                         ..
                     } => {
                         engine.event(
-                            pal::Event::DigitalInputReleased(
+                            platform::Event::DigitalInputReleased(
                                 InputDevice::new(0),
                                 button_for_scancode(scancode),
                             ),
@@ -272,7 +272,10 @@ impl Sdl2Pal {
                     } => {
                         if let Some(device) = self.get_input_device_by_sdl_joystick_id(which) {
                             engine.event(
-                                pal::Event::DigitalInputPressed(device, button_for_gamepad(button)),
+                                platform::Event::DigitalInputPressed(
+                                    device,
+                                    button_for_gamepad(button),
+                                ),
                                 Duration::from_millis(timestamp as u64),
                                 self,
                             );
@@ -286,7 +289,7 @@ impl Sdl2Pal {
                     } => {
                         if let Some(device) = self.get_input_device_by_sdl_joystick_id(which) {
                             engine.event(
-                                pal::Event::DigitalInputReleased(
+                                platform::Event::DigitalInputReleased(
                                     device,
                                     button_for_gamepad(button),
                                 ),
@@ -359,13 +362,13 @@ impl Pal for Sdl2Pal {
                 .clip_area
                 .map(|[x, y, w, h]| Rect::new(x as i32, y as i32, w as u32, h as u32));
             let blend_mode = match settings.blend_mode {
-                pal::BlendMode::None => SDL_BlendMode::SDL_BLENDMODE_NONE,
-                pal::BlendMode::Blend => SDL_BlendMode::SDL_BLENDMODE_BLEND,
-                pal::BlendMode::Add => SDL_BlendMode::SDL_BLENDMODE_ADD,
+                platform::BlendMode::None => SDL_BlendMode::SDL_BLENDMODE_NONE,
+                platform::BlendMode::Blend => SDL_BlendMode::SDL_BLENDMODE_BLEND,
+                platform::BlendMode::Add => SDL_BlendMode::SDL_BLENDMODE_ADD,
             };
             let scale_mode = match settings.texture_filter {
-                pal::TextureFilter::NearestNeighbor => SDL_ScaleMode::SDL_ScaleModeNearest,
-                pal::TextureFilter::Linear => SDL_ScaleMode::SDL_ScaleModeLinear,
+                platform::TextureFilter::NearestNeighbor => SDL_ScaleMode::SDL_ScaleModeNearest,
+                platform::TextureFilter::Linear => SDL_ScaleMode::SDL_ScaleModeLinear,
             };
             let texture = if let Some(texture_index) = settings.texture {
                 let i = texture_index.inner() as usize;
@@ -411,11 +414,11 @@ impl Pal for Sdl2Pal {
         &self,
         width: u16,
         height: u16,
-        format: pal::PixelFormat,
-    ) -> Option<pal::TextureRef> {
+        format: platform::PixelFormat,
+    ) -> Option<platform::TextureRef> {
         let fmt = match format {
             // Unsure why ABGR8888 reads `[r, g, b, a, r, ...]` correctly, but here we are.
-            pal::PixelFormat::Rgba => PixelFormatEnum::ABGR8888,
+            platform::PixelFormat::Rgba => PixelFormatEnum::ABGR8888,
         };
         let texture = self
             .texture_creator
@@ -427,12 +430,12 @@ impl Pal for Sdl2Pal {
             textures.push(texture);
             idx
         };
-        Some(pal::TextureRef::new(texture_index as u64))
+        Some(platform::TextureRef::new(texture_index as u64))
     }
 
     fn update_texture(
         &self,
-        texture: platform_abstraction_layer::TextureRef,
+        texture: platform::TextureRef,
         x: u16,
         y: u16,
         width: u16,
@@ -473,7 +476,7 @@ impl Pal for Sdl2Pal {
         &self,
         file: FileHandle,
         first_byte: u64,
-        buffer: pal::Box<[u8]>,
+        buffer: platform::Box<[u8]>,
     ) -> FileReadTask {
         // This is not an efficient implementation, it's a proof of concept.
         let id = {
@@ -509,7 +512,10 @@ impl Pal for Sdl2Pal {
         file.tasks[idx].1.is_finished()
     }
 
-    fn finish_file_read(&self, task: FileReadTask) -> Result<pal::Box<[u8]>, pal::Box<[u8]>> {
+    fn finish_file_read(
+        &self,
+        task: FileReadTask,
+    ) -> Result<platform::Box<[u8]>, platform::Box<[u8]>> {
         let written_buffer = {
             let mut files = self.files.borrow_mut();
             let file = files
@@ -538,13 +544,13 @@ impl Pal for Sdl2Pal {
         Ok(written_buffer)
     }
 
-    fn create_semaphore(&self) -> pal::Semaphore {
+    fn create_semaphore(&self) -> platform::Semaphore {
         struct Semaphore {
             value: Mutex<u32>,
             condvar: Condvar,
         }
 
-        impl pal::SemaphoreImpl for Semaphore {
+        impl platform::SemaphoreImpl for Semaphore {
             fn increment(&self) {
                 let mut value_lock = self.value.lock().unwrap();
                 *value_lock += 1;
@@ -567,7 +573,7 @@ impl Pal for Sdl2Pal {
 
         // Safety: the semaphore is definitely valid for the entire lifetime of
         // the semaphore, since we have a static borrow of it.
-        unsafe { pal::Semaphore::new(semaphore, None) }
+        unsafe { platform::Semaphore::new(semaphore, None) }
     }
 
     fn available_parallelism(&self) -> usize {
@@ -576,7 +582,7 @@ impl Pal for Sdl2Pal {
             .unwrap_or(1)
     }
 
-    fn spawn_pool_thread(&self, channels: [pal::TaskChannel; 2]) -> pal::ThreadState {
+    fn spawn_pool_thread(&self, channels: [platform::TaskChannel; 2]) -> platform::ThreadState {
         let [(task_sender, mut task_receiver), (mut result_sender, result_receiver)] = channels;
         thread::Builder::new()
             .name("threadpool".to_string())
@@ -606,7 +612,7 @@ impl Pal for Sdl2Pal {
                 }
             })
             .unwrap();
-        pal::ThreadState::new(task_sender, result_receiver)
+        platform::ThreadState::new(task_sender, result_receiver)
     }
 
     fn update_audio_buffer(&self, first_position: u64, mut samples: &[[i16; AUDIO_CHANNELS]]) {

@@ -4,7 +4,7 @@
 
 pub mod texture;
 
-use platform_abstraction_layer::{BlendMode, DrawSettings, Pal, TextureFilter, TextureRef, Vertex};
+use platform::{BlendMode, DrawSettings, Pal, TextureFilter, TextureRef, Vertex};
 
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 

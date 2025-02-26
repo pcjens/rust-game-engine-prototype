@@ -4,7 +4,7 @@
 
 [workspace]
 members = [
-    "platform-abstraction-layer",
+    "platform",
     "engine",
     "import-asset",
     "platform-sdl2",

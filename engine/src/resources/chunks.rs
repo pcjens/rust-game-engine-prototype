@@ -4,7 +4,7 @@
 
 use core::ops::Range;
 
-use platform_abstraction_layer::{Pal, TextureRef};
+use platform::{Pal, TextureRef};
 
 use crate::resources::CHUNK_SIZE;
 #[allow(unused_imports)] // used in docs

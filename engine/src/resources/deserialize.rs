@@ -5,7 +5,6 @@
 use core::{ops::Range, str};
 
 use arrayvec::{ArrayString, ArrayVec};
-use platform_abstraction_layer::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 
 use super::{
     audio_clip::AudioClipAsset,
@@ -57,6 +56,8 @@ impl Deserialize for ResourceDatabaseHeader {
 
         {
             use crate::resources::*;
+            use platform::*;
+
             let magic = deserialize::<u32>(src, &mut cursor);
             assert_eq!(RESOURCE_DB_MAGIC_NUMBER, magic);
             let chunk_size = deserialize::<u32>(src, &mut cursor);

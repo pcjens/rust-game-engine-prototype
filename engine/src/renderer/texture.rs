@@ -12,7 +12,7 @@
 
 use core::ops::Range;
 
-use platform_abstraction_layer::BlendMode;
+use platform::BlendMode;
 
 use crate::{
     geom::Rect,

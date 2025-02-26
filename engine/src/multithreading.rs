@@ -5,7 +5,7 @@
 use core::mem::MaybeUninit;
 
 use arrayvec::ArrayVec;
-use platform_abstraction_layer::{
+use platform::{
     thread_pool::{TaskHandle, ThreadPool},
     Pal, TaskChannel, ThreadState,
 };
