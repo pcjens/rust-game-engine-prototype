@@ -9,14 +9,14 @@ use core::{
 
 use platform::{
     channel::{channel_from_parts, CachePadded, Receiver, Sender, SyncUnsafeCell},
-    Pal,
+    Platform,
 };
 
 use crate::allocators::LinearAllocator;
 
 /// Creates a single-producer single-consumer channel.
 pub fn channel<T: Sync>(
-    platform: &dyn Pal,
+    platform: &dyn Platform,
     allocator: &'static LinearAllocator,
     capacity: usize,
 ) -> Option<(Sender<T>, Receiver<T>)> {

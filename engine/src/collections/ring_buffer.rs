@@ -225,13 +225,13 @@ impl<T> RingBuffer<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{allocators::StaticAllocator, static_allocator};
+    use crate::allocators::{static_allocator, LinearAllocator};
 
     use super::RingBuffer;
 
     #[test]
     fn works_at_all() {
-        static ALLOC: &StaticAllocator = static_allocator!(1);
+        static ALLOC: &LinearAllocator = static_allocator!(1);
         let mut ring = RingBuffer::<u8>::new(ALLOC, 1).unwrap();
         let mut slice = ring.allocate(1).unwrap();
         slice[0] = 123;
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn wraps_when_full() {
-        static ALLOC: &StaticAllocator = static_allocator!(10);
+        static ALLOC: &LinearAllocator = static_allocator!(10);
         let mut ring = RingBuffer::<u8>::new(ALLOC, 10).unwrap();
 
         let first_half = ring.allocate(4).unwrap();
@@ -257,8 +257,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn panics_on_free_with_wrong_buffer_identity() {
-        static ALLOC_0: &StaticAllocator = static_allocator!(1);
-        static ALLOC_1: &StaticAllocator = static_allocator!(1);
+        static ALLOC_0: &LinearAllocator = static_allocator!(1);
+        static ALLOC_1: &LinearAllocator = static_allocator!(1);
 
         let mut ring0 = RingBuffer::<u8>::new(ALLOC_0, 1).unwrap();
         let mut ring1 = RingBuffer::<u8>::new(ALLOC_1, 1).unwrap();

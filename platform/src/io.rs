@@ -5,7 +5,7 @@
 use crate::Box;
 
 #[allow(unused_imports)] // used in docs
-use super::Pal;
+use super::Platform;
 
 /// Platform-specific file handle.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,7 +62,7 @@ impl FileReadTask {
     }
 
     /// Deconstructs this into the inner buffer. Intended for platform layers
-    /// implementing [`Pal::finish_file_read`].
+    /// implementing [`Platform::finish_file_read`].
     ///
     /// ### Safety
     ///

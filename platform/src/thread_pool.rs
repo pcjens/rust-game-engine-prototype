@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[allow(unused_imports)] // used by docs
-use crate::Pal;
+use crate::Platform;
 
 /// Handle to a running or waiting task on a [`ThreadPool`].
 ///
@@ -106,13 +106,13 @@ pub type TaskReceiver = Receiver<TaskInFlight>;
 /// Channel used by [`ThreadPool`] for communicating with the processing
 /// threads.
 ///
-/// Passed into [`Pal::spawn_pool_thread`].
+/// Passed into [`Platform::spawn_pool_thread`].
 pub type TaskChannel = (TaskSender, TaskReceiver);
 
 /// State held by [`ThreadPool`] for sending and receiving [`TaskInFlight`]s
 /// between it and a thread.
 ///
-/// Returned from [`Pal::spawn_pool_thread`], multiple of these are used to
+/// Returned from [`Platform::spawn_pool_thread`], multiple of these are used to
 /// create a [`ThreadPool`].
 pub struct ThreadState {
     /// For sending tasks to the thread.
@@ -322,7 +322,7 @@ impl ThreadPool {
 mod tests {
     extern crate alloc;
 
-    use crate::{self as pal, channel::leak_channel};
+    use crate::channel::leak_channel;
     use alloc::boxed::Box;
 
     use super::{TaskInFlight, ThreadPool, ThreadState};
@@ -338,13 +338,14 @@ mod tests {
         let (tx, rx) = leak_channel::<TaskInFlight>(1);
         let thread_state = ThreadState::new(tx, rx);
         let threads = Box::leak(Box::new([thread_state]));
-        let mut thread_pool = ThreadPool::new(pal::Box::from_mut(threads)).unwrap();
+        let mut thread_pool = ThreadPool::new(crate::Box::from_mut(threads)).unwrap();
 
         let mut data = ExampleData(0);
         {
             // Safety: `data` is dropped after this scope, and this Box does not
             // leave this scope, so `data` outlives this Box.
-            let data_boxed: pal::Box<ExampleData> = unsafe { pal::Box::from_ptr(&raw mut data) };
+            let data_boxed: crate::Box<ExampleData> =
+                unsafe { crate::Box::from_ptr(&raw mut data) };
             assert_eq!(0, data_boxed.0);
 
             let handle = thread_pool.spawn_task(data_boxed, |n| n.0 = 1).unwrap();

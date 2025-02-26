@@ -4,7 +4,7 @@
 
 use core::ops::Range;
 
-use platform::{Pal, TextureRef};
+use platform::{Platform, TextureRef};
 
 use crate::resources::CHUNK_SIZE;
 #[allow(unused_imports)] // used in docs
@@ -56,7 +56,7 @@ pub struct TextureChunkData(pub TextureRef);
 impl TextureChunkData {
     /// Creates a new texture chunk from a newly created platform-dependent
     /// texture.
-    pub fn empty(platform: &dyn Pal) -> Option<TextureChunkData> {
+    pub fn empty(platform: &dyn Platform) -> Option<TextureChunkData> {
         let (w, h) = TEXTURE_CHUNK_DIMENSIONS;
         let format = TEXTURE_CHUNK_FORMAT;
         Some(TextureChunkData(platform.create_texture(w, h, format)?))
@@ -68,7 +68,7 @@ impl TextureChunkData {
         &mut self,
         descriptor: &TextureChunkDescriptor,
         buffer: &[u8],
-        platform: &dyn Pal,
+        platform: &dyn Platform,
     ) {
         platform.update_texture(
             self.0,

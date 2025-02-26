@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! This crate mainly revolves around the [`Pal`] trait, which can be
+//! This crate mainly revolves around the [`Platform`] trait, which can be
 //! implemented to provide a "platform implementation" for the game engine.
 //! Otherwise, this crate mostly contains some low-level parts of the engine
-//! which are necessarily needed to implement [`Pal`], such as some
+//! which are necessarily needed to implement [`Platform`], such as some
 //! multithreading utilities.
 //!
 //! This is split off of the main engine crate so that the engine and the
@@ -43,44 +43,45 @@ pub const AUDIO_CHANNELS: usize = 2;
 /// Shorthand for an [`ArrayVec`] of [`InputDevice`].
 ///
 /// Exported so that platforms don't need to explicitly depend on [`arrayvec`]
-/// just for the [`Pal::input_devices`] typing.
+/// just for the [`Platform::input_devices`] typing.
 pub type InputDevices = ArrayVec<InputDevice, 15>;
 
-/// The "engine side" of [Pal], for passing the engine to the platform layer
-/// implementation for event and update callbacks.
+/// The "engine side" of [Platform], for passing the engine to the platform
+/// layer implementation for event and update callbacks.
 ///
 /// This is not the most ideal design, ideally it'd just all be downstream from
 /// Engine, but emscripten as a platform is very much designed around callbacks
 /// instead of a regular game loop the engine could own. So here we are.
 pub trait EngineCallbacks {
     /// Run one iteration of the game loop.
-    fn iterate(&mut self, platform: &dyn Pal);
+    fn iterate(&mut self, platform: &dyn Platform);
     /// Handle an event. The duration passed in should refer to the time the
-    /// event happened, using the same clock as [`Pal::elapsed`].
-    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal);
+    /// event happened, using the same clock as [`Platform::elapsed`].
+    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Platform);
 }
 
-/// "Platform abstraction layer": a trait for using platform-dependent features
-/// from the engine without depending on any platform directly. A full
-/// implementation should implement this trait, and also call the engine's
-/// "iterate" and "event" methods at appropriate times.
+/// A trait for using platform-dependent features from the engine without
+/// depending on any platform implementation directly. A platform implementation
+/// should implement this trait, and also call the engine's "iterate" and
+/// "event" methods at appropriate times.
 ///
 /// All the functions have a `&self` parameter, so that the methods can access
 /// some (possibly internally mutable) state, but still keeping the platform
 /// object as widely usable as possible (a "platform" is about as global an
 /// object as you get). Also, none of these functions are (supposed to be) hot,
-/// and this trait is object safe, so using &dyn [`Pal`] should be fine
+/// and this trait is object safe, so using &dyn [`Platform`] should be fine
 /// performance-wise, and will hopefully help with compilation times by avoiding
 /// generics.
-pub trait Pal {
+pub trait Platform {
     /// Get the current screen size. Could be physical pixels, could be
     /// "logical" pixels, depends on the platform, but it's the same coordinate
-    /// system as the [`Vertex`]es passed into [`Pal::draw_triangles`].
+    /// system as the [`Vertex`]es passed into [`Platform::draw_triangles`].
     fn draw_area(&self) -> (f32, f32);
 
     /// Get the current screen scale factor. When multiplied with
-    /// [`Pal::draw_area`] should match the resolution of the framebuffer (i.e.
-    /// the resolution which textures should match for pixel perfect rendering).
+    /// [`Platform::draw_area`] should match the resolution of the framebuffer
+    /// (i.e. the resolution which textures should match for pixel perfect
+    /// rendering).
     fn draw_scale_factor(&self) -> f32;
 
     /// Render out a pile of triangles.
@@ -117,9 +118,9 @@ pub trait Pal {
     /// offset `first_byte`.
     ///
     /// Implementations can assume that `'a` will last until
-    /// [`Pal::finish_file_read`] is called with the task returned from this
-    /// function, since [`FileReadTask`] can't (safely) be dropped without it
-    /// getting called.
+    /// [`Platform::finish_file_read`] is called with the task returned from
+    /// this function, since [`FileReadTask`] can't (safely) be dropped without
+    /// it getting called.
     #[must_use]
     fn begin_file_read(&self, file: FileHandle, first_byte: u64, buffer: Box<[u8]>)
         -> FileReadTask;
@@ -171,12 +172,12 @@ pub trait Pal {
     /// audio samples for stereo playback, in that order.
     ///
     /// The playback position where the platform will start reading can be
-    /// queried with [`Pal::audio_playback_position`].
+    /// queried with [`Platform::audio_playback_position`].
     fn update_audio_buffer(&self, first_position: u64, samples: &[[i16; AUDIO_CHANNELS]]);
 
     /// Returns the playback position of the next sample the platform will play.
     ///
-    /// Any samples submitted with [`Pal::update_audio_buffer`] before this
+    /// Any samples submitted with [`Platform::update_audio_buffer`] before this
     /// position will be ignored.
     fn audio_playback_position(&self) -> u64;
 

@@ -7,7 +7,7 @@ use core::mem::MaybeUninit;
 use arrayvec::ArrayVec;
 use platform::{
     thread_pool::{TaskHandle, ThreadPool},
-    Pal, TaskChannel, ThreadState,
+    Platform, TaskChannel, ThreadState,
 };
 
 use crate::{
@@ -29,7 +29,7 @@ pub const MAX_THREADS: usize = 128;
 /// thread, and requires the thread pool to be passed in empty.
 pub fn create_thread_pool(
     allocator: &'static LinearAllocator,
-    platform: &dyn Pal,
+    platform: &dyn Platform,
     task_queue_length: usize,
 ) -> Option<ThreadPool> {
     let thread_count = platform.available_parallelism().min(MAX_THREADS);
@@ -182,14 +182,14 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        allocators::{static_allocator, StaticAllocator},
+        allocators::{static_allocator, LinearAllocator},
         multithreading::{create_thread_pool, parallelize},
         test_platform::TestPlatform,
     };
 
     #[test]
     fn parallelize_works_singlethreaded() {
-        static ARENA: &StaticAllocator = static_allocator!(10_000);
+        static ARENA: &LinearAllocator = static_allocator!(10_000);
         let platform = TestPlatform::new(false);
         let mut thread_pool = create_thread_pool(ARENA, &platform, 1).unwrap();
 
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "emscripten"))]
     fn parallelize_works_multithreaded() {
-        static ARENA: &StaticAllocator = static_allocator!(10_000);
+        static ARENA: &LinearAllocator = static_allocator!(10_000);
         let platform = TestPlatform::new(true);
         let mut thread_pool = create_thread_pool(ARENA, &platform, 1).unwrap();
 

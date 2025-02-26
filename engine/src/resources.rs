@@ -9,7 +9,7 @@ mod loader;
 mod serialize;
 
 use assets::{audio_clip::AudioClipAsset, texture::TextureAsset};
-use platform::{Box, FileHandle, FileReadTask, Pal, PixelFormat};
+use platform::{Box, FileHandle, FileReadTask, PixelFormat, Platform};
 
 pub use assets::*;
 pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
@@ -18,7 +18,7 @@ pub use loader::ResourceLoader;
 pub use serialize::{serialize, Serialize};
 
 use crate::{
-    allocators::{LinearAllocator, StaticAllocator},
+    allocators::LinearAllocator,
     collections::{FixedVec, SparseArray},
 };
 
@@ -84,8 +84,8 @@ pub struct ResourceDatabase {
 
 impl ResourceDatabase {
     pub(crate) fn new(
-        platform: &dyn Pal,
-        arena: &'static StaticAllocator,
+        platform: &dyn Platform,
+        arena: &'static LinearAllocator,
         file: FileHandle,
         max_loaded_chunks: u32,
         max_loaded_texture_chunks: u32,
@@ -165,7 +165,7 @@ fn sorted<T: Ord>(mut input: FixedVec<'_, T>) -> FixedVec<'_, T> {
 fn deserialize_from_file<'eng, D: Deserialize>(
     alloc: &'eng LinearAllocator,
     file_read: FileReadTask,
-    platform: &dyn Pal,
+    platform: &dyn Platform,
 ) -> Option<FixedVec<'eng, D>> {
     let file_bytes = platform
         .finish_file_read(file_read)
@@ -182,7 +182,7 @@ fn deserialize_from_file<'eng, D: Deserialize>(
 }
 
 fn alloc_file_buf<D: Deserialize>(
-    arena: &'static StaticAllocator,
+    arena: &'static LinearAllocator,
     count: u32,
 ) -> Option<Box<[u8]>> {
     let file_size = count as usize * D::SERIALIZED_SIZE;

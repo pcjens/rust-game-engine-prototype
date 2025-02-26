@@ -6,12 +6,12 @@ use core::time::Duration;
 
 use arrayvec::ArrayVec;
 use platform::{
-    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Pal, AUDIO_CHANNELS,
+    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Platform, AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
 };
 
 use crate::{
-    allocators::{LinearAllocator, StaticAllocator},
+    allocators::LinearAllocator,
     collections::FixedVec,
     geom::Rect,
     input::{ActionKind, ActionState, EventQueue, InputDeviceState, QueuedEvent},
@@ -70,8 +70,8 @@ impl<'eng> Engine<'eng> {
     ///   that engine internals can borrow from it, so it's passed in here
     ///   instead of being created behind the scenes.
     pub fn new(
-        platform: &'eng dyn Pal,
-        persistent_arena: &'static StaticAllocator,
+        platform: &'eng dyn Platform,
+        persistent_arena: &'static LinearAllocator,
         audio_window_size: usize,
     ) -> Self {
         // TODO: Parameters that should probably be exposed to be tweakable by
@@ -120,7 +120,7 @@ impl<'eng> Engine<'eng> {
 }
 
 impl EngineCallbacks for Engine<'_> {
-    fn iterate(&mut self, platform: &dyn Pal) {
+    fn iterate(&mut self, platform: &dyn Platform) {
         let timestamp = platform.elapsed();
         self.frame_arena.reset();
 
@@ -201,7 +201,7 @@ impl EngineCallbacks for Engine<'_> {
         platform.update_audio_buffer(audio_pos, &self.audio_buffer);
     }
 
-    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Pal) {
+    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Platform) {
         match event {
             Event::DigitalInputPressed(device, _) | Event::DigitalInputReleased(device, _) => {
                 {
@@ -232,15 +232,15 @@ impl EngineCallbacks for Engine<'_> {
 
 #[cfg(test)]
 mod tests {
-    use platform::{ActionCategory, EngineCallbacks, Event, Pal};
+    use platform::{ActionCategory, EngineCallbacks, Event, Platform};
 
-    use crate::{allocators::StaticAllocator, static_allocator, test_platform::TestPlatform};
+    use crate::{allocators::LinearAllocator, static_allocator, test_platform::TestPlatform};
 
     use super::Engine;
 
     /// Initializes the engine and simulates 4 seconds of running the engine,
     /// with a burst of mashing the "ActPrimary" button in the middle.
-    fn run_smoke_test(platform: &TestPlatform, persistent_arena: &'static StaticAllocator) {
+    fn run_smoke_test(platform: &TestPlatform, persistent_arena: &'static LinearAllocator) {
         let device = platform.input_devices()[0];
         let button = platform
             .default_button_for_action(ActionCategory::ActPrimary, device)
@@ -274,7 +274,7 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "emscripten"))]
     fn smoke_test_multithreaded() {
-        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(64 * 1024 * 1024);
+        static PERSISTENT_ARENA: &LinearAllocator = static_allocator!(64 * 1024 * 1024);
         run_smoke_test(&TestPlatform::new(true), PERSISTENT_ARENA);
     }
 
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn smoke_test_singlethreaded() {
-        static PERSISTENT_ARENA: &StaticAllocator = static_allocator!(64 * 1024 * 1024);
+        static PERSISTENT_ARENA: &LinearAllocator = static_allocator!(64 * 1024 * 1024);
         run_smoke_test(&TestPlatform::new(false), PERSISTENT_ARENA);
     }
 }

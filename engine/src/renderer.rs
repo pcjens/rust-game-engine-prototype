@@ -4,7 +4,7 @@
 
 pub mod texture;
 
-use platform::{BlendMode, DrawSettings, Pal, TextureFilter, TextureRef, Vertex};
+use platform::{BlendMode, DrawSettings, Platform, TextureFilter, TextureRef, Vertex};
 
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 
@@ -17,10 +17,10 @@ use crate::resources::texture::TextureAsset;
 #[derive(Debug)]
 pub struct TexQuad {
     /// The top-left coordinate of the quad in the same coordinate system as
-    /// what [`Pal::draw_area`] returns.
+    /// what [`Platform::draw_area`] returns.
     pub position_top_left: (f32, f32),
     /// The bottom-right coordinate of the quad in the same coordinate system as
-    /// what [`Pal::draw_area`] returns.
+    /// what [`Platform::draw_area`] returns.
     pub position_bottom_right: (f32, f32),
     /// The top-left texture coordinate of the quad, each axis between 0..1,
     /// with (0, 0) describing the top-left corner of the texture.
@@ -55,8 +55,8 @@ impl TexQuad {
 pub struct DrawQueue<'frm> {
     /// Textured quads to draw.
     pub quads: FixedVec<'frm, TexQuad>,
-    /// [`Pal::draw_scale_factor`], stored here because all textured rendering
-    /// functionality needs it.
+    /// [`Platform::draw_scale_factor`], stored here because all textured
+    /// rendering functionality needs it.
     pub scale_factor: f32,
 }
 
@@ -75,7 +75,7 @@ impl<'frm> DrawQueue<'frm> {
 
     /// Calls the platform draw functions to draw everything queued up until
     /// this point.
-    pub fn dispatch_draw(&mut self, allocator: &LinearAllocator, platform: &dyn Pal) {
+    pub fn dispatch_draw(&mut self, allocator: &LinearAllocator, platform: &dyn Platform) {
         'draw_quads: {
             if self.quads.is_empty() {
                 break 'draw_quads;

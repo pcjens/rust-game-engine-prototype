@@ -15,7 +15,7 @@ use bytemuck::{fill_zeroes, Zeroable};
 use platform::Box;
 
 #[allow(unused_imports)] // used in docs
-use crate::allocators::{static_allocator, StaticAllocator};
+use crate::allocators::static_allocator;
 
 /// A linear allocator with a constant capacity. Can allocate memory regions
 /// with any size or alignment (within the capacity) very fast, but individual
@@ -42,12 +42,18 @@ impl Debug for LinearAllocator<'_> {
     }
 }
 
+/// Safety: the only non-Sync part of [`LinearAllocator`] is backing memory
+/// pointer, which is fine to access from multiple threads simultaneously as the
+/// regions of memory accessed via the pointer are distinct on every access, due
+/// to the atomic incrementing of [`LinearAllocator::allocated`].
+unsafe impl Sync for LinearAllocator<'_> {}
+
 impl LinearAllocator<'_> {
     /// Creates a new [`LinearAllocator`] with `capacity` bytes of backing
     /// memory. Returns None if allocating the memory fails or if `capacity`
     /// overflows `isize`.
     ///
-    /// See [`StaticAllocator`] for bootstrapping one of these.
+    /// See [`static_allocator`] for bootstrapping one of these.
     pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<LinearAllocator<'a>> {
         if capacity > isize::MAX as usize {
             // Practically never happens, but asserting this here helps avoid a
@@ -67,9 +73,6 @@ impl LinearAllocator<'_> {
 
     /// Creates  a new [`LinearAllocator`] with as many bytes of backing memory
     /// as there are in the given slice.
-    ///
-    /// This is the unsafe machinery behind [`static_allocator`], and as such it
-    /// fulfills the safety requirements of [`StaticAllocator::from_allocator`].
     ///
     /// Only the first [`isize::MAX`] bytes of the slice are used if it's longer
     /// than that.

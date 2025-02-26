@@ -8,11 +8,11 @@ use core::{cell::Cell, fmt::Arguments, time::Duration};
 
 use platform::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
-    Pal, PixelFormat, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex, AUDIO_CHANNELS,
+    PixelFormat, Platform, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex, AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
 };
 
-/// Simple non-interactive [`Pal`] implementation for use in tests.
+/// Simple non-interactive [`Platform`] implementation for use in tests.
 #[derive(Debug)]
 pub struct TestPlatform {
     current_time: Cell<Duration>,
@@ -37,7 +37,7 @@ impl TestPlatform {
     }
 }
 
-impl Pal for TestPlatform {
+impl Platform for TestPlatform {
     fn draw_area(&self) -> (f32, f32) {
         (320.0, 240.0)
     }

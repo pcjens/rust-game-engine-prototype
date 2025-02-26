@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use platform::{FileReadTask, Pal};
+use platform::{FileReadTask, Platform};
 
 use crate::{
-    allocators::StaticAllocator,
+    allocators::LinearAllocator,
     collections::{Queue, RingAllocationMetadata, RingBuffer, RingSlice},
 };
 
@@ -56,7 +56,7 @@ impl ResourceLoader {
     /// [`ResourceDatabase::largest_chunk_source`].
     #[track_caller]
     pub fn new(
-        arena: &'static StaticAllocator,
+        arena: &'static LinearAllocator,
         staging_buffer_size: usize,
         resource_db: &ResourceDatabase,
     ) -> Option<ResourceLoader> {
@@ -110,7 +110,7 @@ impl ResourceLoader {
     }
 
     /// Starts file read operations for the queued up chunk loading requests.
-    pub fn dispatch_reads(&mut self, resources: &ResourceDatabase, platform: &dyn Pal) {
+    pub fn dispatch_reads(&mut self, resources: &ResourceDatabase, platform: &dyn Platform) {
         while let Some(LoadRequest { size, .. }) = self.to_load_queue.peek_front() {
             let Some(staging_slice) = self.staging_buffer.allocate(*size) else {
                 break;
@@ -141,7 +141,7 @@ impl ResourceLoader {
 
     /// Checks for finished file read requests and writes their results into the
     /// resource database.
-    pub fn finish_reads(&mut self, resources: &mut ResourceDatabase, platform: &dyn Pal) {
+    pub fn finish_reads(&mut self, resources: &mut ResourceDatabase, platform: &dyn Platform) {
         while let Some(LoadTask { file_read_task, .. }) = self.in_flight_queue.peek_front() {
             if !platform.is_file_read_finished(file_read_task) {
                 break;

@@ -20,7 +20,7 @@ use std::{
 
 use platform::{
     ActionCategory, Button, DrawSettings, EngineCallbacks, FileHandle, FileReadTask, InputDevice,
-    InputDevices, Pal, Vertex, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+    InputDevices, Platform, Vertex, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
 };
 use sdl2::{
     audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired},
@@ -59,8 +59,8 @@ struct FileHolder {
 
 type SharedAudioBuffer = Arc<Mutex<(u64, Vec<[i16; AUDIO_CHANNELS]>)>>;
 
-/// The [`Pal`] impl for the SDL2 based platform.
-pub struct Sdl2Pal {
+/// The [`Platform`] impl for the SDL2 based platform.
+pub struct Sdl2Platform {
     sdl_context: Sdl,
     time: TimerSubsystem,
     _audio: AudioSubsystem,
@@ -76,7 +76,7 @@ pub struct Sdl2Pal {
     shared_audio_buffer: SharedAudioBuffer,
 }
 
-impl Drop for Sdl2Pal {
+impl Drop for Sdl2Platform {
     fn drop(&mut self) {
         if let Some(audio_device) = self.audio_device.take() {
             // Letting the AudioDevice drop normally seems to segfault. The
@@ -89,8 +89,8 @@ impl Drop for Sdl2Pal {
     }
 }
 
-impl Sdl2Pal {
-    pub fn new(title: &str) -> Sdl2Pal {
+impl Sdl2Platform {
+    pub fn new(title: &str) -> Sdl2Platform {
         let sdl_context = sdl2::init().expect("SDL 2 library should be able to init");
 
         let video = sdl_context
@@ -139,7 +139,7 @@ impl Sdl2Pal {
             }
         };
 
-        Sdl2Pal {
+        Sdl2Platform {
             sdl_context,
             time,
             _audio: audio,
@@ -319,7 +319,7 @@ impl Sdl2Pal {
     }
 }
 
-impl Pal for Sdl2Pal {
+impl Platform for Sdl2Platform {
     fn draw_area(&self) -> (f32, f32) {
         let (w, h) = {
             let canvas = self.canvas.borrow();
@@ -450,7 +450,7 @@ impl Pal for Sdl2Pal {
                 pixels,
                 width as usize * bpp,
             ) {
-                println!("[Sdl2Pal::update_texure]: texture update failed: {err}");
+                println!("[Sdl2Platform::update_texure]: texture update failed: {err}");
             }
         }
     }
@@ -536,7 +536,7 @@ impl Pal for Sdl2Pal {
                     buffer
                 }
                 Err(err) => {
-                    println!("[Sdl2Pal::poll_file_read]: could not read file: {err}");
+                    println!("[Sdl2Platform::finish_file_read]: could not read file: {err}");
                     return Err(buffer);
                 }
             }
@@ -722,7 +722,7 @@ impl Pal for Sdl2Pal {
     }
 
     fn println(&self, message: Arguments) {
-        println!("[Sdl2Pal::println]: {message}");
+        println!("[Sdl2Platform::println]: {message}");
     }
 
     fn exit(&self, clean: bool) {

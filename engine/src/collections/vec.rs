@@ -189,7 +189,7 @@ mod tests {
     use arrayvec::ArrayString;
 
     use crate::{
-        allocators::{static_allocator, LinearAllocator, StaticAllocator},
+        allocators::{static_allocator, LinearAllocator},
         collections::FixedVec,
     };
 
@@ -219,7 +219,7 @@ mod tests {
         }
 
         const ALLOCATOR_SIZE: usize = size_of::<Element>() * COUNT + align_of::<Element>() - 1;
-        static ARENA: &StaticAllocator = static_allocator!(ALLOCATOR_SIZE);
+        static ARENA: &LinearAllocator = static_allocator!(ALLOCATOR_SIZE);
         let alloc = LinearAllocator::new(ARENA, ALLOCATOR_SIZE).unwrap();
         let mut vec: FixedVec<Element> = FixedVec::new(&alloc, COUNT).unwrap();
 
