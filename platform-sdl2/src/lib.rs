@@ -634,22 +634,31 @@ impl Platform for Sdl2Platform {
         let mut shared = self.shared_audio_buffer.lock().unwrap();
         let played_position = shared.position;
         let dst_samples = &mut shared.buffer;
-        dst_samples.clear();
 
-        if let Some(missed_samples) = first_position.checked_sub(played_position) {
-            // Underrun, fill the missing samples with silence
-            for _ in 0..missed_samples {
+        if first_position > played_position {
+            let not_provided_samples = (first_position - played_position) as usize;
+            let old_samples_to_use = not_provided_samples.min(dst_samples.len());
+            dst_samples.truncate(old_samples_to_use);
+            let missing_samples = not_provided_samples - old_samples_to_use;
+            // Fill the samples between the engine's previously provided buffer
+            // and this new one with silence (should be relatively rare)
+            for _ in 0..missing_samples {
                 dst_samples.push([0; AUDIO_CHANNELS]);
             }
+        } else {
+            dst_samples.clear();
         }
 
         if played_position > first_position {
+            let already_played_samples = (played_position - first_position) as usize;
             // TODO: fade in if already_played_samples > 0, because it means the
             // engine may have started playing back new sounds after
             // `first_position` which we did not play back (as `played_position`
-            // is after it).
+            // is after it). This can happen if the playback callback gets
+            // called between the Engine::iterate's beginning and when it calls
+            // this function.
 
-            let start = ((played_position - first_position) as usize).min(samples.len());
+            let start = already_played_samples.min(samples.len());
             samples = &samples[start..];
         }
 

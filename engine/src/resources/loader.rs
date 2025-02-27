@@ -105,6 +105,8 @@ impl ResourceLoader {
             return;
         }
 
+        // TODO: chunk eviction logic
+
         let chunk_source = match category {
             LoadCategory::Chunk => &resources.chunk_descriptors[chunk_index as usize].source_bytes,
             LoadCategory::TextureChunk => {

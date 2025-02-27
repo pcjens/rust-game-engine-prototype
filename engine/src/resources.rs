@@ -79,6 +79,7 @@ pub struct ResourceDatabase {
     // In-memory chunks
     /// The regular chunks currently loaded in-memory. Loaded via
     /// [`ResourceLoader`], usually by functions making use of an asset.
+    // TODO: expose chunks via getters that maintain LRU timestamps for eviction
     pub chunks: SparseArray<'static, ChunkData>,
     /// The texture chunks currently loaded in-memory. Loaded via
     /// [`ResourceLoader`], usually by functions making use of an asset.

@@ -39,7 +39,7 @@ pub struct Mixer {
     playback_buffer: FixedVec<'static, [i16; AUDIO_CHANNELS]>,
     /// The audio position where new sounds should start playing, updated at the
     /// start of each frame with [`Mixer::update_audio_sync`].
-    audio_position: u64,
+    playback_position: u64,
 }
 
 impl Mixer {
@@ -76,7 +76,7 @@ impl Mixer {
             playing_clips,
             channels,
             playback_buffer,
-            audio_position: 0,
+            playback_position: 0,
         })
     }
 
@@ -105,7 +105,7 @@ impl Mixer {
         let playing_clip = PlayingClip {
             channel,
             clip,
-            start_position: self.audio_position,
+            start_position: self.playback_position,
         };
 
         if !self.playing_clips.is_full() {
@@ -138,13 +138,13 @@ impl Mixer {
     ///
     /// Should be called at the start of the frame by the engine.
     pub fn update_audio_sync(&mut self, frame_elapsed: Duration, platform: &dyn Platform) {
-        let (playback_pos, playback_elapsed) = platform.audio_playback_position();
+        let (playback_position, playback_elapsed) = platform.audio_playback_position();
         if let Some(time_since_playback_pos) = frame_elapsed.checked_sub(playback_elapsed) {
             let frame_offset_from_playback_pos =
                 time_since_playback_pos.as_micros() * AUDIO_SAMPLE_RATE as u128 / 1_000_000;
-            self.audio_position = playback_pos + frame_offset_from_playback_pos as u64;
+            self.playback_position = playback_position + frame_offset_from_playback_pos as u64;
         } else {
-            self.audio_position = playback_pos;
+            self.playback_position = playback_position;
         }
     }
 
@@ -159,14 +159,12 @@ impl Mixer {
         resources: &ResourceDatabase,
         resource_loader: &mut ResourceLoader,
     ) {
-        let (playback_start, _) = platform.audio_playback_position();
-
         // Remove clips that have played to the end
         self.playing_clips
             .sort_unstable_by_key(|clip| Reverse(clip.get_end(resources)));
         if let Some(finished_clips_start_index) = (self.playing_clips)
             .iter()
-            .position(|clip| clip.get_end(resources) < playback_start)
+            .position(|clip| clip.get_end(resources) < self.playback_position)
         {
             self.playing_clips.truncate(finished_clips_start_index);
         }
@@ -178,11 +176,12 @@ impl Mixer {
             let volume = self.channels[clip.channel].volume;
             let asset = resources.get_audio_clip(clip.clip);
 
-            let skipped = playback_start.saturating_sub(clip.start_position) as u32;
-            let first_chunk = asset.chunks.start + skipped / AUDIO_SAMPLES_PER_CHUNK as u32;
+            let already_played = self.playback_position.saturating_sub(clip.start_position) as u32;
+            let first_chunk = asset.chunks.start + already_played / AUDIO_SAMPLES_PER_CHUNK as u32;
             let last_chunk = asset.chunks.start + asset.samples / AUDIO_SAMPLES_PER_CHUNK as u32;
 
-            let mut playback_offset = clip.start_position.saturating_sub(playback_start) as usize;
+            let mut playback_offset =
+                clip.start_position.saturating_sub(self.playback_position) as usize;
             for chunk_index in first_chunk..=last_chunk {
                 if self.playback_buffer.len() <= playback_offset {
                     break;
@@ -193,7 +192,7 @@ impl Mixer {
 
                 if let Some(chunk) = &resources.chunks.get(chunk_index) {
                     let chunk_samples = bytemuck::cast_slice::<u8, [i16; AUDIO_CHANNELS]>(&chunk.0);
-                    let first_sample_idx = (skipped.max(chunk_start) - chunk_start) as usize;
+                    let first_sample_idx = (already_played.max(chunk_start) - chunk_start) as usize;
                     let last_sample_idx = (asset.samples.min(chunk_end) - chunk_start) as usize;
                     render_audio_chunk(
                         &chunk_samples[first_sample_idx..last_sample_idx],
@@ -208,12 +207,12 @@ impl Mixer {
         }
 
         // Send the rendered audio to be played back
-        platform.update_audio_buffer(playback_start, &self.playback_buffer);
+        platform.update_audio_buffer(self.playback_position, &self.playback_buffer);
 
         // Queue up any missing audio chunks in preparation for the next frame
         for clip in &*self.playing_clips {
             let asset = resources.get_audio_clip(clip.clip);
-            let current_pos = playback_start.saturating_sub(clip.start_position);
+            let current_pos = self.playback_position.saturating_sub(clip.start_position);
             let current_chunk_index = (current_pos / AUDIO_SAMPLES_PER_CHUNK as u64) as u32;
             let next_chunk_index = current_chunk_index + 1;
 

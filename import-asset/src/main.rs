@@ -33,8 +33,8 @@ fn main() -> anyhow::Result<()> {
     let mut settings = settings::read(&opts.settings)?;
     let original_settings = settings.clone();
 
-    // TODO: would be nice if we could lock the file at this point if it exists,
-    // to avoid overwriting changes made in between here and the write. The
+    // TODO: lock the file at this point if it exists, to avoid overwriting
+    // changes made in between here and the write. The Rust standard library
     // `file_lock` feature is in FCP, so it might be possible relatively soon.
     info!("Reading database from: {}", opts.database.display());
     let db_file = fs::read(&opts.database).ok();
