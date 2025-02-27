@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use core::{cmp::Reverse, time::Duration};
+use core::cmp::Reverse;
 
-use platform::{thread_pool::ThreadPool, Platform, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
+use platform::{thread_pool::ThreadPool, Instant, Platform, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 
 use crate::{
     allocators::LinearAllocator,
@@ -137,9 +137,9 @@ impl Mixer {
     /// buffer.
     ///
     /// Should be called at the start of the frame by the engine.
-    pub fn update_audio_sync(&mut self, frame_elapsed: Duration, platform: &dyn Platform) {
-        let (playback_position, playback_elapsed) = platform.audio_playback_position();
-        if let Some(time_since_playback_pos) = frame_elapsed.checked_sub(playback_elapsed) {
+    pub fn update_audio_sync(&mut self, frame_timestamp: Instant, platform: &dyn Platform) {
+        let (playback_position, playback_timestamp) = platform.audio_playback_position();
+        if let Some(time_since_playback_pos) = frame_timestamp.duration_since(playback_timestamp) {
             let frame_offset_from_playback_pos =
                 time_since_playback_pos.as_micros() * AUDIO_SAMPLE_RATE as u128 / 1_000_000;
             self.playback_position = playback_position + frame_offset_from_playback_pos as u64;

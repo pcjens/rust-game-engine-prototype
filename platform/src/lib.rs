@@ -22,10 +22,11 @@ mod io;
 mod render;
 mod semaphore;
 pub mod thread_pool;
+mod time;
 
 use arrayvec::ArrayVec;
 
-use core::{fmt::Arguments, time::Duration};
+use core::fmt::Arguments;
 
 pub use boxed::*;
 pub use input::*;
@@ -33,6 +34,7 @@ pub use io::*;
 pub use render::*;
 pub use semaphore::*;
 pub use thread_pool::{TaskChannel, ThreadState};
+pub use time::*;
 
 /// Sample rate for the audio data played back by the engine.
 pub const AUDIO_SAMPLE_RATE: u32 = 48000;
@@ -55,9 +57,8 @@ pub type InputDevices = ArrayVec<InputDevice, 15>;
 pub trait EngineCallbacks {
     /// Run one iteration of the game loop.
     fn iterate(&mut self, platform: &dyn Platform);
-    /// Handle an event. The duration passed in should refer to the time the
-    /// event happened, using the same clock as [`Platform::elapsed`].
-    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Platform);
+    /// Handle an event.
+    fn event(&mut self, event: Event, timestamp: Instant, platform: &dyn Platform);
 }
 
 /// A trait for using platform-dependent features from the engine without
@@ -176,12 +177,11 @@ pub trait Platform {
     fn update_audio_buffer(&self, first_position: u64, samples: &[[i16; AUDIO_CHANNELS]]);
 
     /// Returns the playback position of the next sample the platform will play,
-    /// and the [`Platform::elapsed`] timestamp which it should be considered to
-    /// be synchronized with.
+    /// and the timestamp which it should be considered to be synchronized with.
     ///
     /// Any samples submitted with [`Platform::update_audio_buffer`] before this
     /// position will be ignored.
-    fn audio_playback_position(&self) -> (u64, Duration);
+    fn audio_playback_position(&self) -> (u64, Instant);
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;
@@ -194,8 +194,9 @@ pub trait Platform {
         device: InputDevice,
     ) -> Option<Button>;
 
-    /// Returns the amount of time elapsed since the platform was initialized.
-    fn elapsed(&self) -> Duration;
+    /// Returns the current point in time according to the platform
+    /// implementation.
+    fn now(&self) -> Instant;
 
     /// Print out a string. For very crude debugging.
     fn println(&self, message: Arguments);

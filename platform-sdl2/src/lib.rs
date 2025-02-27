@@ -61,8 +61,8 @@ struct AudioBufferState {
     /// The first audio playback position that will be played back in the next
     /// audio callback.
     position: u64,
-    /// The [`Platform::elapsed`] timestamp matching the `position`.
-    sync_elapsed: Duration,
+    /// The timestamp matching the `position`.
+    sync_timestamp: platform::Instant,
     /// The internal buffer of the samples to be played back, starting at
     /// the audio playback position in the `position` field.
     buffer: Vec<[i16; AUDIO_CHANNELS]>,
@@ -132,7 +132,7 @@ impl Sdl2Platform {
 
         let shared_audio_buffer = Arc::new(Mutex::new(AudioBufferState {
             position: 0,
-            sync_elapsed: current_elapsed(),
+            sync_timestamp: current_time(),
             buffer: Vec::new(),
         }));
         let audio_device = match audio.open_playback(
@@ -260,7 +260,8 @@ impl Sdl2Platform {
                                 InputDevice::new(0),
                                 button_for_scancode(scancode),
                             ),
-                            Duration::from_millis(timestamp as u64),
+                            platform::Instant::reference()
+                                + Duration::from_millis(timestamp as u64),
                             self,
                         );
                     }
@@ -275,7 +276,8 @@ impl Sdl2Platform {
                                 InputDevice::new(0),
                                 button_for_scancode(scancode),
                             ),
-                            Duration::from_millis(timestamp as u64),
+                            platform::Instant::reference()
+                                + Duration::from_millis(timestamp as u64),
                             self,
                         );
                     }
@@ -291,7 +293,8 @@ impl Sdl2Platform {
                                     device,
                                     button_for_gamepad(button),
                                 ),
-                                Duration::from_millis(timestamp as u64),
+                                platform::Instant::reference()
+                                    + Duration::from_millis(timestamp as u64),
                                 self,
                             );
                         }
@@ -308,7 +311,8 @@ impl Sdl2Platform {
                                     device,
                                     button_for_gamepad(button),
                                 ),
-                                Duration::from_millis(timestamp as u64),
+                                platform::Instant::reference()
+                                    + Duration::from_millis(timestamp as u64),
                                 self,
                             );
                         }
@@ -659,7 +663,7 @@ impl Platform for Sdl2Platform {
         dst_samples.extend_from_slice(samples);
     }
 
-    fn audio_playback_position(&self) -> (u64, Duration) {
+    fn audio_playback_position(&self) -> (u64, platform::Instant) {
         // Offset the playback position forwards enough that any new sounds
         // played by the engine don't start too early (which would pop)
         let latency_offset = {
@@ -671,7 +675,7 @@ impl Platform for Sdl2Platform {
         let audio_buffer = self.shared_audio_buffer.lock().unwrap();
         (
             audio_buffer.position + latency_offset,
-            audio_buffer.sync_elapsed,
+            audio_buffer.sync_timestamp,
         )
     }
 
@@ -745,8 +749,8 @@ impl Platform for Sdl2Platform {
         }
     }
 
-    fn elapsed(&self) -> Duration {
-        current_elapsed()
+    fn now(&self) -> platform::Instant {
+        current_time()
     }
 
     fn println(&self, message: Arguments) {
@@ -763,12 +767,12 @@ impl Platform for Sdl2Platform {
 
 // Timing helper:
 
-fn current_elapsed() -> Duration {
+fn current_time() -> platform::Instant {
     // Not using Instant even though we have std, to make timestamps between SDL
     // events and this consistent.
     // Safety: ffi call of a function without any special safety invariants, at
     // least according to the docs. Should be fine.
-    Duration::from_millis(unsafe { SDL_GetTicks64() })
+    platform::Instant::reference() + Duration::from_millis(unsafe { SDL_GetTicks64() })
 }
 
 // Keyboard/gamepad input helpers:
@@ -842,6 +846,6 @@ impl AudioCallback for AudioCallbackImpl {
         }
 
         src.position += samples_played_back;
-        src.sync_elapsed = current_elapsed();
+        src.sync_timestamp = current_time();
     }
 }

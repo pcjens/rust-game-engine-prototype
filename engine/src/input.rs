@@ -5,7 +5,7 @@
 use core::time::Duration;
 
 use arrayvec::ArrayVec;
-use platform::{Button, Event, InputDevice};
+use platform::{Button, Event, InputDevice, Instant};
 
 /// The amount of time [`QueuedEvent`]s are held in the [`EventQueue`] without
 /// being handled.
@@ -20,15 +20,14 @@ pub struct QueuedEvent {
     /// The event itself.
     pub event: Event,
     /// Timestamp of when the event happened.
-    // TODO: don't use Duration as a timestamp type in general
-    pub timestamp: Duration,
+    pub timestamp: Instant,
 }
 
 impl QueuedEvent {
     /// Returns true if the time between this event and the given timestamp is
     /// greater than [`EVENT_QUEUE_TIMEOUT`].
-    pub fn timed_out(&self, timestamp: Duration) -> bool {
-        if let Some(time_since_event) = timestamp.checked_sub(self.timestamp) {
+    pub fn timed_out(&self, timestamp: Instant) -> bool {
+        if let Some(time_since_event) = timestamp.duration_since(self.timestamp) {
             time_since_event >= EVENT_QUEUE_TIMEOUT
         } else {
             false

@@ -8,14 +8,14 @@ use core::{cell::Cell, fmt::Arguments, time::Duration};
 
 use platform::{
     ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
-    PixelFormat, Platform, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex, AUDIO_CHANNELS,
-    AUDIO_SAMPLE_RATE,
+    Instant, PixelFormat, Platform, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex,
+    AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
 };
 
 /// Simple non-interactive [`Platform`] implementation for use in tests.
 #[derive(Debug)]
 pub struct TestPlatform {
-    current_time: Cell<Duration>,
+    current_time: Cell<Instant>,
     threads: usize,
 }
 
@@ -26,14 +26,15 @@ impl TestPlatform {
     /// multithreading, which can lead to panics if `multi_threaded` is `true`.
     pub fn new(multi_threaded: bool) -> TestPlatform {
         TestPlatform {
-            current_time: Cell::new(Duration::from_millis(0)),
+            current_time: Cell::new(Instant::reference()),
             threads: if multi_threaded { 3 } else { 1 },
         }
     }
 
     /// Sets the time returned by [`TestPlatform::elapsed`] in milliseconds.
     pub fn set_elapsed_millis(&self, new_millis: u64) {
-        self.current_time.set(Duration::from_millis(new_millis));
+        self.current_time
+            .set(Instant::reference() + Duration::from_millis(new_millis));
     }
 }
 
@@ -164,9 +165,13 @@ impl Platform for TestPlatform {
         );
     }
 
-    fn audio_playback_position(&self) -> (u64, Duration) {
+    fn audio_playback_position(&self) -> (u64, Instant) {
         let time = self.current_time.get();
-        let pos = (time.as_micros() * AUDIO_SAMPLE_RATE as u128 / 1_000_000) as u64;
+        let micros = time
+            .duration_since(Instant::reference())
+            .unwrap()
+            .as_micros();
+        let pos = (micros * AUDIO_SAMPLE_RATE as u128 / 1_000_000) as u64;
         (pos, time)
     }
 
@@ -187,7 +192,7 @@ impl Platform for TestPlatform {
         }
     }
 
-    fn elapsed(&self) -> Duration {
+    fn now(&self) -> Instant {
         self.current_time.get()
     }
 

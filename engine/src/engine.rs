@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use core::time::Duration;
-
 use arrayvec::ArrayVec;
-use platform::{thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Platform};
+use platform::{
+    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Instant, Platform,
+};
 
 use crate::{
     allocators::LinearAllocator,
@@ -113,7 +113,7 @@ impl<'eng> Engine<'eng> {
 
 impl EngineCallbacks for Engine<'_> {
     fn iterate(&mut self, platform: &dyn Platform) {
-        let timestamp = platform.elapsed();
+        let timestamp = platform.now();
         self.frame_arena.reset();
 
         self.resource_loader
@@ -173,7 +173,7 @@ impl EngineCallbacks for Engine<'_> {
         self.resource_loader.dispatch_reads(platform);
     }
 
-    fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Platform) {
+    fn event(&mut self, event: Event, timestamp: Instant, platform: &dyn Platform) {
         match event {
             Event::DigitalInputPressed(device, _) | Event::DigitalInputReleased(device, _) => {
                 {
@@ -193,10 +193,7 @@ impl EngineCallbacks for Engine<'_> {
                     });
                 }
 
-                self.event_queue.push(QueuedEvent {
-                    event,
-                    timestamp: elapsed,
-                });
+                self.event_queue.push(QueuedEvent { event, timestamp });
             }
         }
     }
@@ -233,7 +230,7 @@ mod tests {
                         } else {
                             Event::DigitalInputReleased(device, button)
                         },
-                        platform.elapsed(),
+                        platform.now(),
                         platform,
                     );
                 }
