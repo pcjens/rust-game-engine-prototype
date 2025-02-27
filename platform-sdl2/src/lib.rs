@@ -643,13 +643,13 @@ impl Platform for Sdl2Platform {
             }
         }
 
-        if let Some(already_played_samples) = played_position.checked_sub(first_position) {
+        if played_position > first_position {
             // TODO: fade in if already_played_samples > 0, because it means the
             // engine may have started playing back new sounds after
             // `first_position` which we did not play back (as `played_position`
             // is after it).
 
-            let start = (already_played_samples as usize).min(samples.len());
+            let start = ((played_position - first_position) as usize).min(samples.len());
             samples = &samples[start..];
         }
 
@@ -818,6 +818,8 @@ impl AudioCallback for AudioCallbackImpl {
             dst.copy_from_slice(src);
             samples_played_back += 1;
         }
+
+        src.buffer.splice(0..samples_played_back as usize, None);
 
         let leftover_dst = &mut dst_samples[samples_played_back as usize * 2..];
         if !leftover_dst.is_empty() {
