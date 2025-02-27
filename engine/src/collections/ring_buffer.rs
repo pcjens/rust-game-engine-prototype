@@ -79,17 +79,22 @@ impl<T> RingBuffer<'_, T> {
     ///
     /// All allocations made from this [`RingBuffer`] must be passed back into
     /// [`RingBuffer::free`] before it is dropped, as the backing memory is only
-    /// borrowed for 'a.
+    /// borrowed for 'a, and the [`Box`] references could leak.
     #[allow(clippy::needless_lifetimes)]
-    pub unsafe fn from_mut<'a>(buffer: &'a mut [MaybeUninit<T>]) -> Option<RingBuffer<'a, T>> {
-        Some(RingBuffer {
+    pub unsafe fn from_mut<'a>(buffer: &'a mut [MaybeUninit<T>]) -> RingBuffer<'a, T> {
+        RingBuffer {
             buffer_lifetime: PhantomData,
             buffer_ptr: buffer.as_mut_ptr(),
             buffer_len: buffer.len(),
             allocated_offset: 0,
             allocated_len: 0,
             buffer_identifier: make_buffer_id(),
-        })
+        }
+    }
+
+    /// Returns how many elements can be allocated at maximum without freeing.
+    pub fn capacity(&self) -> usize {
+        self.buffer_len
     }
 
     /// If it fits, allocates `len` contiguous bytes and returns the offset and
@@ -223,9 +228,14 @@ impl<T> RingBuffer<'_, T> {
             self.buffer_identifier, boxed.metadata.buffer_identifier,
             "this box was not allocated from this ring buffer",
         );
-        if boxed.metadata.offset == self.allocated_offset {
+        let allocated_offset_with_padding =
+            (self.allocated_offset + boxed.metadata.padding) % self.buffer_len;
+        if boxed.metadata.offset == allocated_offset_with_padding {
             self.allocated_offset = (self.allocated_offset + 1) % self.buffer_len;
-            self.allocated_len -= 1;
+            self.allocated_len -= 1 + boxed.metadata.padding;
+            if self.allocated_len == 0 {
+                self.allocated_offset = 0;
+            }
             Ok(())
         } else {
             Err(boxed)

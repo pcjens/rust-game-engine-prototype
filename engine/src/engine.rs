@@ -15,7 +15,8 @@ use crate::{
     multithreading,
     renderer::DrawQueue,
     resources::{
-        audio_clip::AudioClipHandle, texture::TextureHandle, ResourceDatabase, ResourceLoader,
+        audio_clip::AudioClipHandle, texture::TextureHandle, FileReader, ResourceDatabase,
+        ResourceLoader,
     },
 };
 
@@ -54,42 +55,43 @@ impl<'eng> Engine<'eng> {
     ///
     /// - `platform`: the platform implementation to be used for this instance
     ///   of the engine.
-    /// - `persistent_arena`: an arena for all the persistent memory the engine
-    ///   requires, e.g. the resource database. Needs to outlive the engine so
-    ///   that engine internals can borrow from it, so it's passed in here
-    ///   instead of being created behind the scenes.
+    /// - `arena`: an arena for all the persistent memory the engine requires,
+    ///   e.g. the resource database. Needs to outlive the engine so that engine
+    ///   internals can borrow from it, so it's passed in here instead of being
+    ///   created behind the scenes.
     pub fn new(
         platform: &'eng dyn Platform,
-        persistent_arena: &'static LinearAllocator,
+        arena: &'static LinearAllocator,
         audio_window_size: usize,
     ) -> Self {
         // TODO: Parameters that should probably be exposed to be tweakable by
         // the game, but are hardcoded here:
         // - Frame arena (or its size)
-        // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
+        // - Asset index (depends on engine memory arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
         // - Audio window size
         // - Audio channel count
         // Maybe an EngineConfig struct that has a const function for
         // calculating the memory requirements, so you could
         // "compile-time-static-allocate" the exactly correct amount of memory?
 
-        let thread_pool = multithreading::create_thread_pool(persistent_arena, platform, 1)
-            .expect("persistent arena should have enough memory for the thread pool");
+        let thread_pool = multithreading::create_thread_pool(arena, platform, 1)
+            .expect("engine arena should have enough memory for the thread pool");
 
-        let frame_arena = LinearAllocator::new(persistent_arena, 8 * 1024 * 1024)
+        let frame_arena = LinearAllocator::new(arena, 8 * 1024 * 1024)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
-        let resource_db = ResourceDatabase::new(platform, persistent_arena, db_file, 512, 512)
-            .expect("persistent arena should have enough memory for the resource database");
-        let staging_size = 8 * 1024 * 1024;
-        let resource_loader = ResourceLoader::new(persistent_arena, staging_size, &resource_db)
-            .expect("persistent arena should have enough memory for the resource loader");
+        let mut res_reader = FileReader::new(arena, db_file, 8 * 1024 * 1024, 1024)
+            .expect("engine arena should have enough memory for the resource db file reader");
+        let resource_db = ResourceDatabase::new(platform, arena, &mut res_reader, 512, 512)
+            .expect("engine arena should have enough memory for the resource database");
+        let resource_loader = ResourceLoader::new(arena, res_reader, &resource_db)
+            .expect("engine arena should have enough memory for the resource loader");
 
-        let audio_mixer = Mixer::new(persistent_arena, 1, 64, audio_window_size)
-            .expect("persistent arena should have enough memory for the audio mixer");
+        let audio_mixer = Mixer::new(arena, 1, 64, audio_window_size)
+            .expect("engine arena should have enough memory for the audio mixer");
 
         let test_texture = resource_db.find_texture("testing texture").unwrap();
         let test_audio = resource_db.find_audio_clip("test audio clip").unwrap();
@@ -115,7 +117,7 @@ impl EngineCallbacks for Engine<'_> {
         self.frame_arena.reset();
 
         self.resource_loader
-            .finish_reads(&mut self.resource_db, platform);
+            .finish_reads(&mut self.resource_db, platform, 1);
 
         let scale_factor = platform.draw_scale_factor();
         let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
@@ -168,8 +170,7 @@ impl EngineCallbacks for Engine<'_> {
             &mut self.resource_loader,
         );
 
-        self.resource_loader
-            .dispatch_reads(&self.resource_db, platform);
+        self.resource_loader.dispatch_reads(platform);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Platform) {

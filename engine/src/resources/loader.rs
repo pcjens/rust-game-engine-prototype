@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use platform::{FileReadTask, Platform};
+use platform::Platform;
 
-use crate::{
-    allocators::LinearAllocator,
-    collections::{Queue, RingAllocationMetadata, RingBuffer, RingSlice},
+use crate::{allocators::LinearAllocator, collections::Queue};
+
+use super::{
+    file_reader::{FileReadError, FileReader},
+    ChunkData, ResourceDatabase, TextureChunkData,
 };
-
-use super::{ChunkData, ResourceDatabase, TextureChunkData};
 
 #[derive(Debug, PartialEq, Eq)]
 enum LoadCategory {
@@ -18,16 +18,7 @@ enum LoadCategory {
 }
 
 #[derive(Debug)]
-struct LoadRequest {
-    first_byte: u64,
-    size: usize,
-    chunk_index: u32,
-    category: LoadCategory,
-}
-
-struct LoadTask {
-    file_read_task: FileReadTask,
-    read_buffer_metadata: RingAllocationMetadata,
+struct ChunkReadInfo {
     chunk_index: u32,
     category: LoadCategory,
 }
@@ -44,41 +35,47 @@ struct LoadTask {
 /// Many asset usage related functions take this struct as a parameter for
 /// queueing up relevant chunks to be loaded.
 pub struct ResourceLoader {
-    staging_buffer: RingBuffer<'static, u8>,
-    to_load_queue: Queue<'static, LoadRequest>,
-    in_flight_queue: Queue<'static, LoadTask>,
+    file_reader: FileReader,
+    queued_reads: Queue<'static, ChunkReadInfo>,
 }
 
 impl ResourceLoader {
-    /// Creates a resource loader with the given amount of staging memory.
+    /// Creates a resource loader around the file reader.
     ///
-    /// `staging_buffer_size` should be at least
+    /// The file reader's `staging_buffer_size` should be at least
     /// [`ResourceDatabase::largest_chunk_source`].
     #[track_caller]
     pub fn new(
         arena: &'static LinearAllocator,
-        staging_buffer_size: usize,
+        file_reader: FileReader,
         resource_db: &ResourceDatabase,
     ) -> Option<ResourceLoader> {
         assert!(
-            staging_buffer_size as u64 >= resource_db.largest_chunk_source(),
-            "staging_buffer_size is smaller than the resource database's largest_chunk_source()",
+            file_reader.staging_buffer_size() as u64 >= resource_db.largest_chunk_source(),
+            "resource loader file reader's staging buffer size is smaller than the resource database's largest chunk source",
         );
 
         let total_chunks = resource_db.chunks.array_len() + resource_db.texture_chunks.array_len();
         Some(ResourceLoader {
-            staging_buffer: RingBuffer::new(arena, staging_buffer_size)?,
-            to_load_queue: Queue::new(arena, total_chunks)?,
-            in_flight_queue: Queue::new(arena, total_chunks)?,
+            file_reader,
+            queued_reads: Queue::new(arena, total_chunks)?,
         })
     }
 
     /// Queues the regular chunk at `chunk_index` to be loaded.
+    ///
+    /// Note that this doesn't necessarily actually queue up a read operation,
+    /// the chunk might not be queued for read if e.g. it's already been loaded,
+    /// it's already been queued, or if the queue can't fit the request.
     pub fn queue_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
         self.queue_load(chunk_index, LoadCategory::Chunk, resources);
     }
 
     /// Queues the texture chunk at `chunk_index` to be loaded.
+    ///
+    /// Note that this doesn't necessarily actually queue up a read operation,
+    /// the chunk might not be queued for read if e.g. it's already been loaded,
+    /// it's already been queued, or if the queue can't fit the request.
     pub fn queue_texture_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
         self.queue_load(chunk_index, LoadCategory::TextureChunk, resources);
     }
@@ -89,19 +86,18 @@ impl ResourceLoader {
         category: LoadCategory,
         resources: &ResourceDatabase,
     ) {
-        if category == LoadCategory::Chunk && resources.chunks.get(chunk_index).is_some()
-            || category == LoadCategory::TextureChunk
-                && resources.texture_chunks.get(chunk_index).is_some()
+        // Don't queue if the chunk has already been loaded.
+        if (category == LoadCategory::Chunk && resources.chunks.get(chunk_index).is_some())
+            || (category == LoadCategory::TextureChunk
+                && resources.texture_chunks.get(chunk_index).is_some())
         {
             return;
         }
 
-        if (self.to_load_queue.iter())
-            .any(|req| req.chunk_index == chunk_index && req.category == category)
-            || (self.in_flight_queue.iter())
-                .any(|req| req.chunk_index == chunk_index && req.category == category)
-        {
-            // Already in the queue or being read from the file.
+        // Don't queue if the chunk has already been queued.
+        let already_queued =
+            |read: &ChunkReadInfo| read.chunk_index == chunk_index && read.category == category;
+        if self.queued_reads.iter().any(already_queued) {
             return;
         }
 
@@ -113,74 +109,49 @@ impl ResourceLoader {
                 &resources.texture_chunk_descriptors[chunk_index as usize].source_bytes
             }
         };
-
-        self.to_load_queue
-            .push_back(LoadRequest {
-                first_byte: resources.chunk_data_offset + chunk_source.start,
-                size: (chunk_source.end - chunk_source.start) as usize,
-                chunk_index,
-                category,
-            })
-            .unwrap();
-    }
-
-    /// Starts file read operations for the queued up chunk loading requests.
-    pub fn dispatch_reads(&mut self, resources: &ResourceDatabase, platform: &dyn Platform) {
-        while let Some(LoadRequest { size, .. }) = self.to_load_queue.peek_front() {
-            let Some(staging_slice) = self.staging_buffer.allocate(*size) else {
-                break;
-            };
-            let (buffer, read_buffer_metadata) = staging_slice.into_parts();
-
-            let LoadRequest {
-                first_byte,
-                size: _,
-                chunk_index,
-                category,
-            } = self.to_load_queue.pop_front().unwrap();
-
-            let file_read_task =
-                platform.begin_file_read(resources.chunk_data_file, first_byte, buffer);
-
-            self.in_flight_queue
-                .push_back(LoadTask {
-                    file_read_task,
-                    read_buffer_metadata,
+        let first_byte = resources.chunk_data_offset + chunk_source.start;
+        let size = (chunk_source.end - chunk_source.start) as usize;
+        // Attempt to queue:
+        if !self.queued_reads.is_full() && self.file_reader.push_read(first_byte, size) {
+            self.queued_reads
+                .push_back(ChunkReadInfo {
                     chunk_index,
                     category,
                 })
-                .ok()
                 .unwrap();
         }
     }
 
+    /// Starts file read operations for the queued up chunk loading requests.
+    pub fn dispatch_reads(&mut self, platform: &dyn Platform) {
+        self.file_reader.dispatch_reads(platform);
+    }
+
     /// Checks for finished file read requests and writes their results into the
     /// resource database.
-    pub fn finish_reads(&mut self, resources: &mut ResourceDatabase, platform: &dyn Platform) {
-        while let Some(LoadTask { file_read_task, .. }) = self.in_flight_queue.peek_front() {
-            if !platform.is_file_read_finished(file_read_task) {
-                break;
-            }
+    ///
+    /// The `max_readers` parameter can be used to limit the time it takes to
+    /// run this function when the queue has a lot of reads to process.
+    pub fn finish_reads(
+        &mut self,
+        resources: &mut ResourceDatabase,
+        platform: &dyn Platform,
+        max_reads: usize,
+    ) {
+        for _ in 0..max_reads {
+            let read_result = self.file_reader.pop_read(platform, false, |source_bytes| {
+                let ChunkReadInfo {
+                    chunk_index,
+                    category,
+                    ..
+                } = self.queued_reads.pop_front().unwrap();
 
-            let LoadTask {
-                file_read_task,
-                read_buffer_metadata,
-                chunk_index,
-                category,
-            } = self.in_flight_queue.pop_front().unwrap();
-
-            let (buffer, read_success) = match platform.finish_file_read(file_read_task) {
-                Ok(buffer) => (buffer, true),
-                Err(buffer) => (buffer, false),
-            };
-
-            if read_success {
                 match category {
                     LoadCategory::Chunk => {
                         let desc = &resources.chunk_descriptors[chunk_index as usize];
                         let init_fn = || Some(ChunkData::empty());
                         if let Some(dst) = resources.chunks.insert(chunk_index, init_fn) {
-                            dst.update(desc, &buffer);
+                            dst.update(desc, source_bytes);
                         }
                     }
 
@@ -188,18 +159,22 @@ impl ResourceLoader {
                         let desc = &resources.texture_chunk_descriptors[chunk_index as usize];
                         let init_fn = || TextureChunkData::empty(platform);
                         if let Some(dst) = resources.texture_chunks.insert(chunk_index, init_fn) {
-                            dst.update(desc, &buffer, platform);
+                            dst.update(desc, source_bytes, platform);
                         }
                     }
                 }
-            } else {
-                platform.println(format_args!("failed to read {category:?} #{chunk_index}"));
-            }
+            });
 
-            // Safety: each LoadTask gets its parts from one RingSlice, and
-            // these are from this specific LoadTask, so these are a pair.
-            let slice = unsafe { RingSlice::from_parts(buffer, read_buffer_metadata) };
-            self.staging_buffer.free(slice).unwrap();
+            match read_result {
+                Ok(_) => {}
+                Err(FileReadError::NoReadsQueued | FileReadError::WouldBlock) => break,
+                Err(err) => {
+                    let info = self.queued_reads.pop_front().unwrap();
+                    platform.println(format_args!(
+                        "resource loader read ({info:?}) failed: {err:?}"
+                    ));
+                }
+            }
         }
     }
 }
