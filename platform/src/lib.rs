@@ -175,11 +175,13 @@ pub trait Platform {
     /// queried with [`Platform::audio_playback_position`].
     fn update_audio_buffer(&self, first_position: u64, samples: &[[i16; AUDIO_CHANNELS]]);
 
-    /// Returns the playback position of the next sample the platform will play.
+    /// Returns the playback position of the next sample the platform will play,
+    /// and the [`Platform::elapsed`] timestamp which it should be considered to
+    /// be synchronized with.
     ///
     /// Any samples submitted with [`Platform::update_audio_buffer`] before this
     /// position will be ignored.
-    fn audio_playback_position(&self) -> u64;
+    fn audio_playback_position(&self) -> (u64, Duration);
 
     /// Get a list of the currently connected input devices.
     fn input_devices(&self) -> InputDevices;

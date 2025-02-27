@@ -24,6 +24,8 @@ pub mod collections;
 pub mod geom;
 /// Input events and their translation into game-specific actions.
 pub mod input;
+/// Audio playback system and types.
+pub mod mixer;
 /// Utilities for splitting work to be processed in parallel.
 pub mod multithreading;
 /// Low-level graphics-related data structures and functionality.

@@ -153,7 +153,7 @@ impl Platform for TestPlatform {
     }
 
     fn update_audio_buffer(&self, first_position: u64, samples: &[[i16; AUDIO_CHANNELS]]) {
-        let current_position = self.audio_playback_position();
+        let (current_position, _) = self.audio_playback_position();
         assert!(
             first_position <= current_position,
             "audio playback underrun",
@@ -164,8 +164,10 @@ impl Platform for TestPlatform {
         );
     }
 
-    fn audio_playback_position(&self) -> u64 {
-        (self.current_time.get().as_micros() * AUDIO_SAMPLE_RATE as u128 / 1_000_000) as u64
+    fn audio_playback_position(&self) -> (u64, Duration) {
+        let time = self.current_time.get();
+        let pos = (time.as_micros() * AUDIO_SAMPLE_RATE as u128 / 1_000_000) as u64;
+        (pos, time)
     }
 
     fn input_devices(&self) -> InputDevices {

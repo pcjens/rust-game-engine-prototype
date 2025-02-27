@@ -5,19 +5,18 @@
 use core::time::Duration;
 
 use arrayvec::ArrayVec;
-use platform::{
-    thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Platform, AUDIO_CHANNELS,
-    AUDIO_SAMPLE_RATE,
-};
+use platform::{thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Platform};
 
 use crate::{
     allocators::LinearAllocator,
-    collections::FixedVec,
     geom::Rect,
     input::{ActionKind, ActionState, EventQueue, InputDeviceState, QueuedEvent},
-    multithreading::{self, parallelize},
+    mixer::Mixer,
+    multithreading,
     renderer::DrawQueue,
-    resources::{texture::TextureHandle, ResourceDatabase, ResourceLoader},
+    resources::{
+        audio_clip::AudioClipHandle, texture::TextureHandle, ResourceDatabase, ResourceLoader,
+    },
 };
 
 #[repr(usize)]
@@ -38,18 +37,8 @@ pub struct Engine<'eng> {
     frame_arena: LinearAllocator<'eng>,
     /// Thread pool for splitting compute-heavy workloads to multiple threads.
     thread_pool: ThreadPool,
-    /// Buffer for storing audio samples sent to the platform each frame.
-    ///
-    /// Note that this isn't "buffer" in the sense of pro audio "buffer size"
-    /// parameters where the latency rises as the size grows: the actual latency
-    /// depends on the platform implementation and its audio buffer size. This
-    /// buffer is rewritten every frame to match "whatever noises would play
-    /// over the next N milliseconds, starting from this frame," and then sent
-    /// to the platform so it can consume from it until it gets another update
-    /// next frame.
-    ///
-    /// TODO: move this to a proper audio subsystem
-    audio_buffer: FixedVec<'static, [i16; AUDIO_CHANNELS]>,
+    /// Mixer for playing back audio.
+    audio_mixer: Mixer,
     /// Queued up events from the platform layer. Discarded after being used by
     /// the game to trigger an action via [`InputDeviceState`], or after a
     /// timeout if not.
@@ -57,7 +46,7 @@ pub struct Engine<'eng> {
 
     test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
     test_texture: TextureHandle,
-    test_input_time: Duration,
+    test_audio: AudioClipHandle,
 }
 
 impl<'eng> Engine<'eng> {
@@ -79,6 +68,7 @@ impl<'eng> Engine<'eng> {
         // - Frame arena (or its size)
         // - Asset index (depends on persistent arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
         // - Audio window size
+        // - Audio channel count
         // Maybe an EngineConfig struct that has a const function for
         // calculating the memory requirements, so you could
         // "compile-time-static-allocate" the exactly correct amount of memory?
@@ -98,23 +88,23 @@ impl<'eng> Engine<'eng> {
         let resource_loader = ResourceLoader::new(persistent_arena, staging_size, &resource_db)
             .expect("persistent arena should have enough memory for the resource loader");
 
-        let mut audio_buffer = FixedVec::new(persistent_arena, audio_window_size)
-            .expect("persistent arena should have enough memory for the audio buffer");
-        audio_buffer.fill_with_zeroes();
+        let audio_mixer = Mixer::new(persistent_arena, 1, 64, audio_window_size)
+            .expect("persistent arena should have enough memory for the audio mixer");
 
         let test_texture = resource_db.find_texture("testing texture").unwrap();
+        let test_audio = resource_db.find_audio_clip("test audio clip").unwrap();
 
         Engine {
             resource_db,
             resource_loader,
             frame_arena,
-            audio_buffer,
+            audio_mixer,
             thread_pool,
             event_queue: ArrayVec::new(),
 
             test_input: None,
             test_texture,
-            test_input_time: platform.elapsed(),
+            test_audio,
         }
     }
 }
@@ -130,6 +120,8 @@ impl EngineCallbacks for Engine<'_> {
         let scale_factor = platform.draw_scale_factor();
         let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
 
+        self.audio_mixer.update_audio_sync(timestamp, platform);
+
         // Testing area follows, could be considered "game code" for now:
 
         let mut action_test = false;
@@ -140,20 +132,19 @@ impl EngineCallbacks for Engine<'_> {
             action_test = input.actions[TestInput::Act as usize].pressed;
         }
 
-        if action_test && platform.elapsed() - self.test_input_time > Duration::from_millis(100) {
-            self.test_input_time = platform.elapsed();
+        if action_test {
+            self.audio_mixer
+                .play_clip(0, self.test_audio, true, &self.resource_db);
         }
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
-        let (screen_width, _) = platform.draw_area();
-        let x = if action_test { -screen_width } else { 0.0 };
         let mut offset = 0.0;
         for mip in 0..9 {
             let scale = 1. / 2i32.pow(mip) as f32;
             let w = 319.0 * scale;
             let h = 400.0 * scale;
             let draw_success = test_texture.draw(
-                Rect::xywh(x + offset, 0.0, w, h),
+                Rect::xywh(offset, 0.0, w, h),
                 0,
                 &mut draw_queue,
                 &self.resource_db,
@@ -170,35 +161,15 @@ impl EngineCallbacks for Engine<'_> {
 
         draw_queue.dispatch_draw(&self.frame_arena, platform);
 
+        self.audio_mixer.render_audio(
+            &mut self.thread_pool,
+            platform,
+            &self.resource_db,
+            &mut self.resource_loader,
+        );
+
         self.resource_loader
             .dispatch_reads(&self.resource_db, platform);
-
-        // TODO: add a system for synchronizing game time with audio playback
-        // time (and decide how to handle lagspikes, which shouldn't progress
-        // game time a lot, but they definitely do progress audio playback time)
-
-        // TODO: add a proper system that maintains a list of playing sounds
-
-        let audio_pos = platform.audio_playback_position();
-        parallelize(
-            &mut self.thread_pool,
-            &mut self.audio_buffer,
-            move |buf, offset| {
-                for (t, sample) in buf.iter_mut().enumerate() {
-                    // TODO: replace with a more natural sounding noise to detect issues easier
-                    fn triangle(x: u32) -> i64 {
-                        let x = (x % AUDIO_SAMPLE_RATE) as i64;
-                        let amplitude = i16::MAX as i64;
-                        (amplitude - x * 2 * amplitude).abs() / AUDIO_SAMPLE_RATE as i64
-                    }
-                    let t = audio_pos as u32 + (offset + t) as u32;
-                    let s = triangle(t * 220) as i16 / 20;
-                    *sample = [s, s];
-                }
-            },
-        )
-        .unwrap();
-        platform.update_audio_buffer(audio_pos, &self.audio_buffer);
     }
 
     fn event(&mut self, event: Event, elapsed: Duration, platform: &dyn Platform) {
@@ -211,7 +182,7 @@ impl EngineCallbacks for Engine<'_> {
                         actions: [
                             // TestInput::Act
                             ActionState {
-                                kind: ActionKind::Held,
+                                kind: ActionKind::Instant,
                                 mapping: platform
                                     .default_button_for_action(ActionCategory::ActPrimary, device),
                                 disabled: false,

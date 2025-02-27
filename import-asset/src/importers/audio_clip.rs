@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::Context;
-use engine::resources::{audio_clip::AudioClipAsset, ChunkDescriptor, CHUNK_SIZE};
+use engine::resources::{audio_clip::AudioClipAsset, ChunkDescriptor, AUDIO_SAMPLES_PER_CHUNK};
 use platform::{AUDIO_CHANNELS, AUDIO_SAMPLE_RATE};
 use symphonia::{
     core::{
@@ -27,8 +27,6 @@ use tracing::{debug, trace};
 
 use crate::database::RelatedChunkData;
 
-const SAMPLES_PER_CHUNK: usize = CHUNK_SIZE as usize / size_of::<i16>();
-
 pub fn import(
     audio_path: &Path,
     track: Option<usize>,
@@ -37,7 +35,7 @@ pub fn import(
     let samples = read_audio_file(audio_path, track).context("Failed to read the audio file")?;
 
     let chunk_start = db.chunks.len() as u32;
-    for samples_chunk in samples.chunks(SAMPLES_PER_CHUNK) {
+    for samples_chunk in samples.chunks(AUDIO_SAMPLES_PER_CHUNK) {
         let chunk_data_start = db.chunk_data.stream_position().unwrap();
         db.chunk_data
             .write_all(bytemuck::cast_slice(samples_chunk))

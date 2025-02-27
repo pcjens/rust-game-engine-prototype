@@ -23,6 +23,7 @@ pub use slice::*;
 #[derive(Debug)]
 pub struct RingAllocationMetadata {
     pub(super) offset: usize,
+    pub(super) padding: usize,
     pub(super) buffer_identifier: usize,
 }
 
@@ -91,19 +92,21 @@ impl<T> RingBuffer<'_, T> {
         })
     }
 
-    fn allocate_offset(&mut self, len: usize) -> Option<usize> {
+    /// If it fits, allocates `len` contiguous bytes and returns the offset and
+    /// padding of the allocation.
+    fn allocate_offset(&mut self, len: usize) -> Option<(usize, usize)> {
         let allocated_end = self.allocated_offset + self.allocated_len;
         let padding_to_end = self.buffer_len - (allocated_end % self.buffer_len);
         if allocated_end + len <= self.buffer_len {
             // The allocation fits between the current allocated slice's end and
             // the end of the buffer
             self.allocated_len += len;
-            Some(allocated_end)
+            Some((allocated_end, 0))
         } else if self.allocated_len + padding_to_end + len <= self.buffer_len {
             // The slice fits even with padding added to the end so that the
             // allocated slice starts at the beginning
             self.allocated_len += padding_to_end + len;
-            Some(0)
+            Some((0, padding_to_end))
         } else {
             None
         }
@@ -114,7 +117,7 @@ impl<T: Zeroable> RingBuffer<'_, T> {
     /// Allocates and zeroes out a slice of the given length if there's enough
     /// contiguous free space.
     pub fn allocate(&mut self, len: usize) -> Option<RingSlice<T>> {
-        let offset = self.allocate_offset(len)?;
+        let (offset, padding) = self.allocate_offset(len)?;
 
         // Safety: The offset is smaller than the length of the backing slice,
         // so it's definitely safe to offset by.
@@ -140,6 +143,7 @@ impl<T: Zeroable> RingBuffer<'_, T> {
             slice,
             metadata: RingAllocationMetadata {
                 offset,
+                padding,
                 buffer_identifier: self.buffer_identifier,
             },
         })
@@ -158,10 +162,15 @@ impl<T: Zeroable> RingBuffer<'_, T> {
             self.buffer_identifier, slice.metadata.buffer_identifier,
             "this slice was not allocated from this ring buffer",
         );
-        if slice.metadata.offset == self.allocated_offset {
+        let allocated_offset_with_padding =
+            (self.allocated_offset + slice.metadata.padding) % self.buffer_len;
+        if slice.metadata.offset == allocated_offset_with_padding {
             let freed_len = slice.len();
-            self.allocated_offset += freed_len;
-            self.allocated_len -= freed_len;
+            self.allocated_offset = (self.allocated_offset + freed_len) % self.buffer_len;
+            self.allocated_len -= freed_len + slice.metadata.padding;
+            if self.allocated_len == 0 {
+                self.allocated_offset = 0;
+            }
             Ok(())
         } else {
             Err(slice)
@@ -172,7 +181,7 @@ impl<T: Zeroable> RingBuffer<'_, T> {
 impl<T> RingBuffer<'_, T> {
     /// Allocates space for one T if there's free space, and boxes it.
     pub fn allocate_box(&mut self, value: T) -> Result<RingBox<T>, T> {
-        let Some(offset) = self.allocate_offset(1) else {
+        let Some((offset, padding)) = self.allocate_offset(1) else {
             return Err(value);
         };
 
@@ -196,6 +205,7 @@ impl<T> RingBuffer<'_, T> {
             boxed,
             metadata: RingAllocationMetadata {
                 offset,
+                padding,
                 buffer_identifier: self.buffer_identifier,
             },
         })
@@ -214,7 +224,7 @@ impl<T> RingBuffer<'_, T> {
             "this box was not allocated from this ring buffer",
         );
         if boxed.metadata.offset == self.allocated_offset {
-            self.allocated_offset += 1;
+            self.allocated_offset = (self.allocated_offset + 1) % self.buffer_len;
             self.allocated_len -= 1;
             Ok(())
         } else {

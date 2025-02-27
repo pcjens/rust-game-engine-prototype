@@ -35,8 +35,8 @@ use sdl2::{
 };
 use sdl2_sys::{
     SDL_BlendMode, SDL_Color, SDL_GameController, SDL_GameControllerGetType,
-    SDL_GameControllerOpen, SDL_GameControllerType, SDL_RenderGeometryRaw, SDL_Renderer,
-    SDL_ScaleMode, SDL_SetTextureBlendMode, SDL_SetTextureScaleMode,
+    SDL_GameControllerOpen, SDL_GameControllerType, SDL_GetTicks64, SDL_RenderGeometryRaw,
+    SDL_Renderer, SDL_ScaleMode, SDL_SetTextureBlendMode, SDL_SetTextureScaleMode,
 };
 
 enum Hid {
@@ -57,12 +57,23 @@ struct FileHolder {
     tasks: Vec<(u64, FileReadHandle)>,
 }
 
-type SharedAudioBuffer = Arc<Mutex<(u64, Vec<[i16; AUDIO_CHANNELS]>)>>;
+struct AudioBufferState {
+    /// The first audio playback position that will be played back in the next
+    /// audio callback.
+    position: u64,
+    /// The [`Platform::elapsed`] timestamp matching the `position`.
+    sync_elapsed: Duration,
+    /// The internal buffer of the samples to be played back, starting at
+    /// the audio playback position in the `position` field.
+    buffer: Vec<[i16; AUDIO_CHANNELS]>,
+}
+
+type SharedAudioBuffer = Arc<Mutex<AudioBufferState>>;
 
 /// The [`Platform`] impl for the SDL2 based platform.
 pub struct Sdl2Platform {
     sdl_context: Sdl,
-    time: TimerSubsystem,
+    _time: TimerSubsystem,
     _audio: AudioSubsystem,
     audio_device: Option<AudioDevice<AudioCallbackImpl>>,
     canvas: RefCell<WindowCanvas>,
@@ -119,7 +130,11 @@ impl Sdl2Platform {
             .audio()
             .expect("SDL audio subsystem should be able to init");
 
-        let shared_audio_buffer = Arc::new(Mutex::new((0, Vec::new())));
+        let shared_audio_buffer = Arc::new(Mutex::new(AudioBufferState {
+            position: 0,
+            sync_elapsed: current_elapsed(),
+            buffer: Vec::new(),
+        }));
         let audio_device = match audio.open_playback(
             None,
             &AudioSpecDesired {
@@ -141,7 +156,7 @@ impl Sdl2Platform {
 
         Sdl2Platform {
             sdl_context,
-            time,
+            _time: time,
             _audio: audio,
             audio_device,
             canvas: RefCell::new(canvas),
@@ -617,8 +632,8 @@ impl Platform for Sdl2Platform {
 
     fn update_audio_buffer(&self, first_position: u64, mut samples: &[[i16; AUDIO_CHANNELS]]) {
         let mut shared = self.shared_audio_buffer.lock().unwrap();
-        let played_position = shared.0;
-        let dst_samples = &mut shared.1;
+        let played_position = shared.position;
+        let dst_samples = &mut shared.buffer;
         dst_samples.clear();
 
         if let Some(missed_samples) = first_position.checked_sub(played_position) {
@@ -638,11 +653,12 @@ impl Platform for Sdl2Platform {
             samples = &samples[start..];
         }
 
-        shared.1.extend_from_slice(samples);
+        dst_samples.extend_from_slice(samples);
     }
 
-    fn audio_playback_position(&self) -> u64 {
-        self.shared_audio_buffer.lock().unwrap().0
+    fn audio_playback_position(&self) -> (u64, Duration) {
+        let audio_buffer = self.shared_audio_buffer.lock().unwrap();
+        (audio_buffer.position, audio_buffer.sync_elapsed)
     }
 
     fn input_devices(&self) -> InputDevices {
@@ -716,9 +732,7 @@ impl Platform for Sdl2Platform {
     }
 
     fn elapsed(&self) -> Duration {
-        // Not using Instant even though we have std, to make timestamps between
-        // SDL events and this consistent.
-        Duration::from_millis(self.time.ticks64())
+        current_elapsed()
     }
 
     fn println(&self, message: Arguments) {
@@ -731,6 +745,16 @@ impl Platform for Sdl2Platform {
         }
         self.exit_requested.set(true);
     }
+}
+
+// Timing helper:
+
+fn current_elapsed() -> Duration {
+    // Not using Instant even though we have std, to make timestamps between SDL
+    // events and this consistent.
+    // Safety: ffi call of a function without any special safety invariants, at
+    // least according to the docs. Should be fine.
+    Duration::from_millis(unsafe { SDL_GetTicks64() })
 }
 
 // Keyboard/gamepad input helpers:
@@ -784,7 +808,7 @@ impl AudioCallback for AudioCallbackImpl {
     type Channel = i16;
     fn callback(&mut self, dst_samples: &mut [Self::Channel]) {
         let mut src = self.shared_audio_buffer.lock().unwrap();
-        let src_samples = &src.1;
+        let src_samples = &src.buffer;
 
         let mut samples_played_back = 0;
         for (src, dst) in src_samples
@@ -801,6 +825,7 @@ impl AudioCallback for AudioCallbackImpl {
             samples_played_back += leftover_dst.len() as u64 / 2;
         }
 
-        src.0 += samples_played_back;
+        src.position += samples_played_back;
+        src.sync_elapsed = current_elapsed();
     }
 }

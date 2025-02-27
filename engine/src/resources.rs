@@ -9,7 +9,7 @@ mod loader;
 mod serialize;
 
 use assets::{audio_clip::AudioClipAsset, texture::TextureAsset};
-use platform::{Box, FileHandle, FileReadTask, PixelFormat, Platform};
+use platform::{Box, FileHandle, FileReadTask, PixelFormat, Platform, AUDIO_CHANNELS};
 
 pub use assets::*;
 pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
@@ -30,6 +30,9 @@ pub const CHUNK_SIZE: u32 = 64 * 1024;
 pub const TEXTURE_CHUNK_DIMENSIONS: (u16, u16) = (128, 128);
 /// Pixel format of the dynamically allocated texture chunks.
 pub const TEXTURE_CHUNK_FORMAT: PixelFormat = PixelFormat::Rgba;
+
+/// The amount of audio samples that fit in each chunk.
+pub const AUDIO_SAMPLES_PER_CHUNK: usize = CHUNK_SIZE as usize / size_of::<[i16; AUDIO_CHANNELS]>();
 
 /// Basic info about a [`ResourceDatabase`] used in its initialization and for
 /// de/serializing the db file.

@@ -61,16 +61,19 @@ pub fn create_thread_pool(
 /// slices can be acquired by calling `chunks` or `chunks_mut` on `data` and
 /// passing it in as the chunk size. If the input slice is empty, 0 is returned.
 ///
-/// Returns `None` if the thread pool already has pending tasks. In this case,
-/// the given function is not called and the data is not touched.
+/// ### Panics
+///
+/// If the thread pool already has pending tasks. This shouldn't ever be the
+/// case when using the threadpool with just this function, as this function
+/// always consumes all tasks it spawns.
 #[track_caller]
-#[must_use]
-pub fn parallelize<T, F>(thread_pool: &mut ThreadPool, data: &mut [T], func: F) -> Option<usize>
+pub fn parallelize<T, F>(thread_pool: &mut ThreadPool, data: &mut [T], func: F) -> usize
 where
     T: 'static + Sync,
+    // TODO: relax this lifetime requirement to allow borrowing from the calling function
     F: 'static + Fn(&mut [T], usize),
 {
-    struct Task<T: Sync, F: Fn(&mut [T], usize)> {
+    struct Task<T: 'static + Sync, F: 'static + Fn(&mut [T], usize)> {
         data: *mut [T],
         func: *const F,
         data_offset: usize,
@@ -82,11 +85,11 @@ where
     }
 
     if thread_pool.has_pending() {
-        return None;
+        panic!("thread pool has pending tasks but was used in a parallellize() call");
     }
 
     if data.is_empty() {
-        return Some(0);
+        return 0;
     }
 
     let max_tasks = thread_pool.thread_count().min(MAX_THREADS);
@@ -176,7 +179,7 @@ where
         task_buffer.free_box(boxed).ok().unwrap();
     }
 
-    Some(chunk_size)
+    chunk_size
 }
 
 #[cfg(test)]
@@ -198,8 +201,7 @@ mod tests {
             for n in data {
                 *n *= *n;
             }
-        })
-        .unwrap();
+        });
         assert_eq!([1, 4, 9, 16], data);
     }
 
@@ -215,8 +217,7 @@ mod tests {
             for n in data {
                 *n *= *n;
             }
-        })
-        .unwrap();
+        });
         assert_eq!([1, 4, 9, 16], data);
     }
 

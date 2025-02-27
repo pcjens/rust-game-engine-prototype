@@ -23,7 +23,7 @@ macro_rules! gen_asset_handle_code {
             #[doc = "`], and can be resolved into a borrow of the asset itself with [`"]
             #[doc = concat!("ResourceDatabase::", stringify!($get_fn))]
             #[doc = "`]."]
-            #[derive(Clone, Copy)]
+            #[derive(Clone, Copy, Debug)]
             pub struct $handle_name(usize);
             impl $crate::resources::ResourceDatabase {
                 #[doc = "Returns a [`"]
