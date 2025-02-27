@@ -89,13 +89,13 @@ impl ResourceLoader {
         category: LoadCategory,
         resources: &ResourceDatabase,
     ) {
-        let chunk_source = match category {
-            LoadCategory::Chunk => &resources.chunk_descriptors[chunk_index as usize].source_bytes,
-            LoadCategory::TextureChunk => {
-                &resources.texture_chunk_descriptors[chunk_index as usize].source_bytes
-            }
-        };
-        let chunk_size = (chunk_source.end - chunk_source.start) as usize;
+        if category == LoadCategory::Chunk && resources.chunks.get(chunk_index).is_some()
+            || category == LoadCategory::TextureChunk
+                && resources.texture_chunks.get(chunk_index).is_some()
+        {
+            return;
+        }
+
         if (self.to_load_queue.iter())
             .any(|req| req.chunk_index == chunk_index && req.category == category)
             || (self.in_flight_queue.iter())
@@ -104,10 +104,18 @@ impl ResourceLoader {
             // Already in the queue or being read from the file.
             return;
         }
+
+        let chunk_source = match category {
+            LoadCategory::Chunk => &resources.chunk_descriptors[chunk_index as usize].source_bytes,
+            LoadCategory::TextureChunk => {
+                &resources.texture_chunk_descriptors[chunk_index as usize].source_bytes
+            }
+        };
+
         self.to_load_queue
             .push_back(LoadRequest {
                 first_byte: resources.chunk_data_offset + chunk_source.start,
-                size: chunk_size,
+                size: (chunk_source.end - chunk_source.start) as usize,
                 chunk_index,
                 category,
             })
