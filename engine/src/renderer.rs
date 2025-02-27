@@ -30,8 +30,6 @@ pub struct TexQuad {
     pub texcoord_bottom_right: (f32, f32),
     /// The drawing order of this particular textured quad. Quads with a lower
     /// draw order are rendered below others with a higher one.
-    // TODO: clarify possible opaque draw order optimizations here if they're
-    // ever implemented
     pub draw_order: u8,
     /// The blending mode (if any) to use to draw this texture above the other
     /// textures drawn below this one.

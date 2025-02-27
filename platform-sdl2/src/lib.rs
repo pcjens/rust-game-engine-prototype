@@ -657,7 +657,8 @@ impl Platform for Sdl2Platform {
             let already_played_samples = (played_position - first_position) as usize;
             let start = already_played_samples.min(samples.len());
             samples = &samples[start..];
-            // TODO: a very short fade would probably be good here, even though this should ~never happen
+            // TODO: a very short fade would probably be good here, even though
+            // this should ~never happen
         }
 
         dst_samples.extend_from_slice(samples);
