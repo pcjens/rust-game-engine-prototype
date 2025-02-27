@@ -55,6 +55,7 @@ type FileReadHandle = JoinHandle<Result<Vec<u8>, io::Error>>;
 struct FileHolder {
     path: PathBuf,
     tasks: Vec<(u64, FileReadHandle)>,
+    task_id_counter: u64,
 }
 
 struct AudioBufferState {
@@ -485,6 +486,7 @@ impl Platform for Sdl2Platform {
             files.push(FileHolder {
                 path,
                 tasks: Vec::new(),
+                task_id_counter: 0,
             });
             FileHandle::new(i)
         };
@@ -503,7 +505,8 @@ impl Platform for Sdl2Platform {
             let file = files
                 .get_mut(file.inner() as usize)
                 .expect("invalid FileHandle");
-            let id = file.tasks.len() as u64;
+            let id = file.task_id_counter;
+            file.task_id_counter += 1;
             let path = file.path.clone();
             let mut buffer_on_thread = vec![0; buffer.len()];
             file.tasks.push((

@@ -48,6 +48,7 @@ pub struct Engine<'eng> {
     test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
     test_texture: TextureHandle,
     test_audio: AudioClipHandle,
+    test_counter: u32,
 }
 
 impl<'eng> Engine<'eng> {
@@ -85,7 +86,7 @@ impl<'eng> Engine<'eng> {
             .expect("resources.db should exist and be readable");
         let mut res_reader = FileReader::new(arena, db_file, 8 * 1024 * 1024, 1024)
             .expect("engine arena should have enough memory for the resource db file reader");
-        let resource_db = ResourceDatabase::new(platform, arena, &mut res_reader, 512, 512)
+        let resource_db = ResourceDatabase::new(platform, arena, &mut res_reader, 16, 16)
             .expect("engine arena should have enough memory for the resource database");
         let resource_loader = ResourceLoader::new(arena, res_reader, &resource_db)
             .expect("engine arena should have enough memory for the resource loader");
@@ -107,6 +108,7 @@ impl<'eng> Engine<'eng> {
             test_input: None,
             test_texture,
             test_audio,
+            test_counter: 0,
         }
     }
 }
@@ -118,6 +120,9 @@ impl EngineCallbacks for Engine<'_> {
 
         self.resource_loader
             .finish_reads(&mut self.resource_db, platform, 1);
+
+        self.resource_db.chunks.increment_ages();
+        self.resource_db.texture_chunks.increment_ages();
 
         let scale_factor = platform.draw_scale_factor();
         let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
@@ -137,11 +142,15 @@ impl EngineCallbacks for Engine<'_> {
         if action_test {
             self.audio_mixer
                 .play_clip(0, self.test_audio, true, &self.resource_db);
+            self.test_counter += 1;
         }
 
         let test_texture = self.resource_db.get_texture(self.test_texture);
         let mut offset = 0.0;
         for mip in 0..9 {
+            if self.test_counter % 9 > mip {
+                continue;
+            }
             let scale = 1. / 2i32.pow(mip) as f32;
             let w = 319.0 * scale;
             let h = 400.0 * scale;
