@@ -651,23 +651,28 @@ impl Platform for Sdl2Platform {
 
         if played_position > first_position {
             let already_played_samples = (played_position - first_position) as usize;
-            // TODO: fade in if already_played_samples > 0, because it means the
-            // engine may have started playing back new sounds after
-            // `first_position` which we did not play back (as `played_position`
-            // is after it). This can happen if the playback callback gets
-            // called between the Engine::iterate's beginning and when it calls
-            // this function.
-
             let start = already_played_samples.min(samples.len());
             samples = &samples[start..];
+            // TODO: a very short fade would probably be good here, even though this should ~never happen
         }
 
         dst_samples.extend_from_slice(samples);
     }
 
     fn audio_playback_position(&self) -> (u64, Duration) {
+        // Offset the playback position forwards enough that any new sounds
+        // played by the engine don't start too early (which would pop)
+        let latency_offset = {
+            let canvas = self.canvas.borrow();
+            let fps = (canvas.window().display_mode().map(|dm| dm.refresh_rate)).unwrap_or(60);
+            AUDIO_SAMPLE_RATE as u64 / fps as u64
+        };
+
         let audio_buffer = self.shared_audio_buffer.lock().unwrap();
-        (audio_buffer.position, audio_buffer.sync_elapsed)
+        (
+            audio_buffer.position + latency_offset,
+            audio_buffer.sync_elapsed,
+        )
     }
 
     fn input_devices(&self) -> InputDevices {
