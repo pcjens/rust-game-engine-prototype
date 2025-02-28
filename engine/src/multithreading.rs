@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use core::mem::MaybeUninit;
+use core::{mem::MaybeUninit, slice};
 
 use arrayvec::ArrayVec;
 use platform::{
@@ -69,18 +69,18 @@ pub fn create_thread_pool(
 #[track_caller]
 pub fn parallelize<T, F>(thread_pool: &mut ThreadPool, data: &mut [T], func: F) -> usize
 where
-    T: 'static + Sync,
-    // TODO: relax this lifetime requirement to allow borrowing from the calling function
-    F: 'static + Fn(&mut [T], usize),
+    T: Sync,
+    F: Sync + Fn(&mut [T], usize),
 {
-    struct Task<T: 'static + Sync, F: 'static + Fn(&mut [T], usize)> {
-        data: *mut [T],
-        func: *const F,
+    struct Task {
+        data_ptr: *mut (),
+        data_len: usize,
+        func: *const (),
         data_offset: usize,
     }
 
-    struct TaskProxy<T: 'static + Sync, F: 'static + Fn(&mut [T], usize)> {
-        handle: TaskHandle<Task<T, F>>,
+    struct TaskProxy {
+        handle: TaskHandle<Task>,
         metadata: RingAllocationMetadata,
     }
 
@@ -94,8 +94,8 @@ where
 
     let max_tasks = thread_pool.thread_count().min(MAX_THREADS);
 
-    let mut backing_task_buffer = ArrayVec::<MaybeUninit<Task<T, F>>, MAX_THREADS>::new();
-    let mut backing_task_proxies = ArrayVec::<MaybeUninit<TaskProxy<T, F>>, MAX_THREADS>::new();
+    let mut backing_task_buffer = ArrayVec::<MaybeUninit<Task>, MAX_THREADS>::new();
+    let mut backing_task_proxies = ArrayVec::<MaybeUninit<TaskProxy>, MAX_THREADS>::new();
     for _ in 0..max_tasks {
         backing_task_buffer.push(MaybeUninit::uninit());
         backing_task_proxies.push(MaybeUninit::uninit());
@@ -111,7 +111,7 @@ where
 
     // Shadow `func` to ensure that the value doesn't get dropped until the end
     // of this function, since this borrow is shared with the threads.
-    let func = &func;
+    let func: *const F = &func;
 
     let chunk_size = data.len().div_ceil(max_tasks);
     for (i, data_part) in data.chunks_mut(chunk_size).enumerate() {
@@ -120,10 +120,13 @@ where
         assert!(i < max_tasks);
 
         // Allocate the thread pool task.
+        let data_ptr: *mut T = data_part.as_mut_ptr();
+        let data_len: usize = data_part.len();
         let (task, metadata) = task_buffer
             .allocate_box(Task {
-                data: &raw mut *data_part,
-                func,
+                data_ptr: data_ptr as *mut (),
+                data_len,
+                func: func as *const (),
                 data_offset: i * chunk_size,
             })
             .ok()
@@ -134,25 +137,29 @@ where
         // user-provided one.
         let handle = thread_pool
             .spawn_task(task, |task| {
+                let data_ptr = task.data_ptr as *mut T;
+                let data_len = task.data_len;
                 // Safety:
-                // - Pointer-validity-wise, this reference is ok to create as it
-                //   was created from a valid mutable borrow via &raw mut in the
-                //   first place.
-                // - Lifetime-wise, creating this borrow is valid because its
-                //   lifetime spans this function, and this function is run
-                //   within the lifetime of the `parallelize` function call due
-                //   to all tasks being joined before the end.
+                // - Type, pointer and length validity-wise, this slice is ok to
+                //   create as it was created from a slice of T in the first
+                //   place.
+                // - Lifetime-wise, creating this slice is valid because the
+                //   slice's lifetime spans this function, and this function is
+                //   run within the lifetime of the `parallelize` function call
+                //   due to all tasks being joined before the end, and the
+                //   original slice is valid for the entirety of `parallellize`.
                 // - Exclusive-access-wise, it's valid since the backing slice
                 //   is only used to split it with chunks_mut, and those chunks
                 //   are simply sent off to worker threads. Since this all
                 //   happens during parallelize() (see lifetime point), there's
                 //   definitely no others creating any kind of borrow of this
                 //   particular chunk.
-                let data = unsafe { &mut *task.data };
+                let data: &mut [T] = unsafe { slice::from_raw_parts_mut(data_ptr, data_len) };
+                let func = task.func as *const F;
                 // Safety: same logic as for the data, except that this
                 // reference is shared, which is valid because it's a
                 // const-pointer and we borrow it immutably.
-                unsafe { (*task.func)(data, task.data_offset) };
+                unsafe { (*func)(data, task.data_offset) };
             })
             .ok()
             .unwrap(); // does not panic: thread_pool is guaranteed to have capacity, it's empty and we're only spawning thread_count tasks
