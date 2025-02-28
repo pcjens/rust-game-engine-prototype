@@ -9,6 +9,7 @@ use platform::{thread_pool::ThreadPool, Instant, Platform, AUDIO_CHANNELS, AUDIO
 use crate::{
     allocators::LinearAllocator,
     collections::FixedVec,
+    multithreading::parallelize,
     resources::{
         audio_clip::AudioClipHandle, ResourceDatabase, ResourceLoader, AUDIO_SAMPLES_PER_CHUNK,
     },
@@ -154,7 +155,7 @@ impl Mixer {
     /// Should be called at the end of the frame by the engine.
     pub fn render_audio(
         &mut self,
-        _thread_pool: &mut ThreadPool,
+        thread_pool: &mut ThreadPool,
         platform: &dyn Platform,
         resources: &ResourceDatabase,
         resource_loader: &mut ResourceLoader,
@@ -171,40 +172,53 @@ impl Mixer {
 
         // Render
         self.playback_buffer.fill([0; AUDIO_CHANNELS]);
-        // TODO: use parallellize() here once it allows borrowing
-        for clip in &*self.playing_clips {
-            let volume = self.channels[clip.channel].volume;
-            let asset = resources.get_audio_clip(clip.clip);
+        parallelize(
+            thread_pool,
+            &mut self.playback_buffer,
+            |playback_buffer, offset| {
+                let playback_start = self.playback_position + offset as u64;
+                for clip in &*self.playing_clips {
+                    let volume = self.channels[clip.channel].volume;
+                    let asset = resources.get_audio_clip(clip.clip);
 
-            let already_played = self.playback_position.saturating_sub(clip.start_position) as u32;
-            let first_chunk = asset.chunks.start + already_played / AUDIO_SAMPLES_PER_CHUNK as u32;
-            let last_chunk = asset.chunks.start + asset.samples / AUDIO_SAMPLES_PER_CHUNK as u32;
+                    let already_played = playback_start.saturating_sub(clip.start_position) as u32;
+                    let first_chunk =
+                        asset.chunks.start + already_played / AUDIO_SAMPLES_PER_CHUNK as u32;
+                    let last_chunk =
+                        asset.chunks.start + asset.samples / AUDIO_SAMPLES_PER_CHUNK as u32;
 
-            let mut playback_offset =
-                clip.start_position.saturating_sub(self.playback_position) as usize;
-            for chunk_index in first_chunk..=last_chunk {
-                if self.playback_buffer.len() <= playback_offset {
-                    break;
+                    let mut playback_offset =
+                        clip.start_position.saturating_sub(playback_start) as usize;
+                    for chunk_index in first_chunk..=last_chunk {
+                        if playback_buffer.len() <= playback_offset {
+                            break;
+                        }
+
+                        let chunk_start = chunk_index * AUDIO_SAMPLES_PER_CHUNK as u32;
+                        let chunk_end = (chunk_index + 1) * AUDIO_SAMPLES_PER_CHUNK as u32;
+
+                        if let Some(chunk) = &resources.chunks.get(chunk_index) {
+                            let chunk_samples =
+                                bytemuck::cast_slice::<u8, [i16; AUDIO_CHANNELS]>(&chunk.0);
+                            let first_sample_idx =
+                                (already_played.max(chunk_start) - chunk_start) as usize;
+                            let last_sample_idx =
+                                (asset.samples.min(chunk_end) - chunk_start) as usize;
+                            if first_sample_idx < last_sample_idx {
+                                render_audio_chunk(
+                                    &chunk_samples[first_sample_idx..last_sample_idx],
+                                    &mut playback_buffer[playback_offset..],
+                                    volume,
+                                );
+                                playback_offset += last_sample_idx - first_sample_idx;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
                 }
-
-                let chunk_start = chunk_index * AUDIO_SAMPLES_PER_CHUNK as u32;
-                let chunk_end = (chunk_index + 1) * AUDIO_SAMPLES_PER_CHUNK as u32;
-
-                if let Some(chunk) = &resources.chunks.get(chunk_index) {
-                    let chunk_samples = bytemuck::cast_slice::<u8, [i16; AUDIO_CHANNELS]>(&chunk.0);
-                    let first_sample_idx = (already_played.max(chunk_start) - chunk_start) as usize;
-                    let last_sample_idx = (asset.samples.min(chunk_end) - chunk_start) as usize;
-                    render_audio_chunk(
-                        &chunk_samples[first_sample_idx..last_sample_idx],
-                        &mut self.playback_buffer[playback_offset..],
-                        volume,
-                    );
-                    playback_offset += last_sample_idx - first_sample_idx;
-                } else {
-                    break;
-                }
-            }
-        }
+            },
+        );
 
         // Send the rendered audio to be played back
         platform.update_audio_buffer(self.playback_position, &self.playback_buffer);
