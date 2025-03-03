@@ -36,4 +36,4 @@ pub mod resources;
 
 mod engine;
 
-pub use engine::Engine;
+pub use engine::{Engine, EngineLimits};

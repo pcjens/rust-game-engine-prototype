@@ -7,7 +7,8 @@ fn main() {
     let platform = platform_sdl2::Sdl2Platform::new("example game");
     static PERSISTENT_ARENA: &engine::allocators::LinearAllocator =
         engine::allocators::static_allocator!(64 * 1024 * 1024);
-    let mut engine = engine::Engine::new(&platform, PERSISTENT_ARENA, 8192);
+    let mut engine =
+        engine::Engine::new(&platform, PERSISTENT_ARENA, engine::EngineLimits::DEFAULT);
     platform.run_game_loop(&mut engine);
 }
 

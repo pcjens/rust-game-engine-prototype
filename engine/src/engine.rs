@@ -5,6 +5,7 @@
 use arrayvec::ArrayVec;
 use platform::{
     thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Instant, Platform,
+    AUDIO_SAMPLE_RATE,
 };
 
 use crate::{
@@ -24,6 +25,117 @@ use crate::{
 enum TestInput {
     Act,
     _Count,
+}
+
+#[allow(unused_imports)] // used in docs
+use crate::{
+    multithreading::parallelize,
+    resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT},
+};
+
+/// Parameters affecting the memory usage of the engine, used in
+/// [`Engine::new`].
+///
+/// Note that while this does cover most persistent memory allocations made by
+/// the engine during initialization, it doesn't (currently) cover everything.
+/// For example, the memory required by asset metadata is entirely dependent on
+/// the amount of assets in the resource database.
+#[derive(Clone, Copy)]
+pub struct EngineLimits {
+    /// The size of the frame arena allocator, in bytes. The frame arena is used
+    /// for per-frame memory allocations in rendering, audio playback, and
+    /// game-specific uses.
+    ///
+    /// Defaults to 8 MiB (`8 * 1024 * 1024`).
+    pub frame_arena_size: usize,
+    /// The maximum amount of concurrently loaded resource chunks. This count,
+    /// multiplied by [`CHUNK_SIZE`], is the amount of bytes allocated for
+    /// non-VRAM based asset memory, like audio clips being played.
+    ///
+    /// Defaults to 128.
+    pub resource_database_loaded_chunks_count: u32,
+    /// The maximum amount of concurrently loaded texture chunks. This,
+    /// depending on the platform, will control the amount of VRAM required by
+    /// the engine. Each texture chunk's memory requirements depend on the
+    /// platform, but each chunk contains texture data with the format and
+    /// resolution defined by [`TEXTURE_CHUNK_FORMAT`] and
+    /// [`TEXTURE_CHUNK_DIMENSIONS`].
+    ///
+    /// Defaults to 1024.
+    ///
+    /// Rationale for the default, just for reference: 1024 texture chunks with
+    /// 128x128 resolution, if stored in a tightly packed texture atlas, would
+    /// fit exactly in 4096x4096, which is a low enough resolution to be
+    /// supported pretty much anywhere with hardware acceleration (Vulkan's
+    /// minimum allowed limit is 4096, so any Vulkan-backed platform could
+    /// provide this).
+    pub resource_database_loaded_texture_chunks_count: u32,
+    /// The maximum amount of queued resource database reading operations. This
+    /// will generally increase disk read performance by having file reading
+    /// operations always queued up, but costs memory and might cause lagspikes
+    /// if there's too many chunks to load during a particular frame.
+    ///
+    /// Defaults to 128.
+    pub resource_database_read_queue_capacity: usize,
+    /// The size of the buffer used to read data from the resource database, in
+    /// bytes. Must be at least [`ResourceDatabase::largest_chunk_source`], but
+    /// ideally many times larger, to avoid capping out the buffer before the
+    /// read queue is even full.
+    ///
+    /// Defaults to 8 MiB (`8 * 1024 * 1024`).
+    pub resource_database_buffer_size: usize,
+    /// The amount of channels the engine's [`Mixer`] has. Each channel can be
+    /// individually controlled volume-wise, and all played sounds play on a
+    /// specific channel.
+    ///
+    /// Tip: create an enum for your game's audio channels, and use that enum
+    /// when playing back sounds, to have easily refactorable and semantically
+    /// meaningful channels. This count should cover all of the enum variants,
+    /// e.g. 3 for an enum with 3 variants for 0, 1, and 2.
+    ///
+    /// Defaults to 1.
+    pub audio_channel_count: usize,
+    /// The maximum amount of concurrently playing sounds. If more than this
+    /// amount of sounds are playing at a time, new sounds might displace old
+    /// sounds, or be ignored completely, depending on the parameters of the
+    /// sound playback function.
+    ///
+    /// Defaults to 64.
+    pub audio_concurrent_sounds_count: usize,
+    /// The amount of samples of audio rendered each frame. Note that this isn't
+    /// a traditional "buffer size", where increasing this would increase
+    /// latency: the engine can render a lot of audio ahead of time, to avoid
+    /// audio cutting off even if the game has lagspikes. In a normal 60 FPS
+    /// situation, this length could be 48000, but only the first 800 samples
+    /// would be used each frame. The sample rate of the audio is
+    /// [`AUDIO_SAMPLE_RATE`].
+    ///
+    /// Note that this window should be at least long enough to cover audio for
+    /// two frames, to avoid audio cutting off due to the platform's audio
+    /// callbacks outpacing the once-per-frame audio rendering we do. For a
+    /// pessimistic 30 FPS, this would be 3200. The default length is half a
+    /// second, i.e. `AUDIO_SAMPLE_RATE / 2`.
+    pub audio_window_length: usize,
+}
+
+impl EngineLimits {
+    /// The default configuration for the engine used in its unit tests.
+    pub const DEFAULT: EngineLimits = EngineLimits {
+        frame_arena_size: 8 * 1024 * 1024,
+        resource_database_loaded_chunks_count: 128,
+        resource_database_loaded_texture_chunks_count: 512,
+        resource_database_read_queue_capacity: 128,
+        resource_database_buffer_size: 8 * 1024 * 1024,
+        audio_channel_count: 1,
+        audio_concurrent_sounds_count: 64,
+        audio_window_length: (AUDIO_SAMPLE_RATE / 2) as usize,
+    };
+}
+
+impl Default for EngineLimits {
+    fn default() -> Self {
+        EngineLimits::DEFAULT
+    }
 }
 
 /// The top-level structure of the game engine which owns all the runtime state
@@ -57,42 +169,52 @@ impl<'eng> Engine<'eng> {
     /// - `platform`: the platform implementation to be used for this instance
     ///   of the engine.
     /// - `arena`: an arena for all the persistent memory the engine requires,
-    ///   e.g. the resource database. Needs to outlive the engine so that engine
-    ///   internals can borrow from it, so it's passed in here instead of being
-    ///   created behind the scenes.
+    ///   e.g. the resource database.
+    /// - `limits`: defines the limits for the various subsystems of the engine,
+    ///   for dialing in the appropriate tradeoffs between memory usage and game
+    ///   requirements.
     pub fn new(
         platform: &'eng dyn Platform,
         arena: &'static LinearAllocator,
-        audio_window_size: usize,
+        limits: EngineLimits,
     ) -> Self {
-        // TODO: Parameters that should probably be exposed to be tweakable by
-        // the game, but are hardcoded here:
-        // - Frame arena (or its size)
-        // - Asset index (depends on engine memory arena being big enough, the game might want to open the file, and the optimal chunk capacity is game-dependent)
-        // - Audio window size
-        // - Audio channel count
-        // Maybe an EngineConfig struct that has a const function for
-        // calculating the memory requirements, so you could
-        // "compile-time-static-allocate" the exactly correct amount of memory?
-
         let thread_pool = multithreading::create_thread_pool(arena, platform, 1)
             .expect("engine arena should have enough memory for the thread pool");
 
-        let frame_arena = LinearAllocator::new(arena, 8 * 1024 * 1024)
+        let frame_arena = LinearAllocator::new(arena, limits.frame_arena_size)
             .expect("should have enough memory for the frame arena");
 
         let db_file = platform
             .open_file("resources.db")
             .expect("resources.db should exist and be readable");
-        let mut res_reader = FileReader::new(arena, db_file, 8 * 1024 * 1024, 1024)
-            .expect("engine arena should have enough memory for the resource db file reader");
-        let resource_db = ResourceDatabase::new(platform, arena, &mut res_reader, 16, 16)
-            .expect("engine arena should have enough memory for the resource database");
+
+        let mut res_reader = FileReader::new(
+            arena,
+            db_file,
+            limits.resource_database_buffer_size,
+            limits.resource_database_read_queue_capacity,
+        )
+        .expect("engine arena should have enough memory for the resource db file reader");
+
+        let resource_db = ResourceDatabase::new(
+            platform,
+            arena,
+            &mut res_reader,
+            limits.resource_database_loaded_chunks_count,
+            limits.resource_database_loaded_texture_chunks_count,
+        )
+        .expect("engine arena should have enough memory for the resource database");
+
         let resource_loader = ResourceLoader::new(arena, res_reader, &resource_db)
             .expect("engine arena should have enough memory for the resource loader");
 
-        let audio_mixer = Mixer::new(arena, 1, 64, audio_window_size)
-            .expect("engine arena should have enough memory for the audio mixer");
+        let audio_mixer = Mixer::new(
+            arena,
+            limits.audio_channel_count,
+            limits.audio_concurrent_sounds_count,
+            limits.audio_window_length,
+        )
+        .expect("engine arena should have enough memory for the audio mixer");
 
         let test_texture = resource_db.find_texture("testing texture").unwrap();
         let test_audio = resource_db.find_audio_clip("test audio clip").unwrap();
@@ -119,7 +241,7 @@ impl EngineCallbacks for Engine<'_> {
         self.frame_arena.reset();
 
         self.resource_loader
-            .finish_reads(&mut self.resource_db, platform, 1);
+            .finish_reads(&mut self.resource_db, platform, 128);
 
         self.resource_db.chunks.increment_ages();
         self.resource_db.texture_chunks.increment_ages();
@@ -214,7 +336,7 @@ mod tests {
 
     use crate::{allocators::LinearAllocator, static_allocator, test_platform::TestPlatform};
 
-    use super::Engine;
+    use super::{Engine, EngineLimits};
 
     /// Initializes the engine and simulates 4 seconds of running the engine,
     /// with a burst of mashing the "ActPrimary" button in the middle.
@@ -224,7 +346,14 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        let mut engine = Engine::new(platform, persistent_arena, 128);
+        let mut engine = Engine::new(
+            platform,
+            persistent_arena,
+            EngineLimits {
+                audio_window_length: 128,
+                ..EngineLimits::DEFAULT
+            },
+        );
 
         let fps = 10;
         for current_frame in 0..(4 * fps) {
