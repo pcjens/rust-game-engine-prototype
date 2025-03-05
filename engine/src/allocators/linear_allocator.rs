@@ -61,7 +61,7 @@ impl LinearAllocator<'_> {
             return None;
         }
 
-        let buffer: &'a mut [MaybeUninit<u8>] = allocator.try_alloc_uninit_slice(capacity)?;
+        let buffer: &'a mut [MaybeUninit<u8>] = allocator.try_alloc_uninit_slice(capacity, None)?;
 
         Some(LinearAllocator {
             backing_mem_lifetime_holder: PhantomData,
@@ -118,7 +118,7 @@ impl LinearAllocator<'_> {
 
     /// Allocates memory for a `T` and returns a boxed version of it.
     pub fn try_alloc_box<T>(&'static self, value: T) -> Option<Box<T>> {
-        let slice = self.try_alloc_uninit_slice(1)?;
+        let slice = self.try_alloc_uninit_slice(1, None)?;
         let (allocation, _) = slice.split_first_mut().unwrap();
         let allocation = allocation.write(value);
         Some(Box::from_mut(allocation))
@@ -130,7 +130,7 @@ impl LinearAllocator<'_> {
         &'static self,
         len: usize,
     ) -> Option<Box<[T]>> {
-        let slice = self.try_alloc_uninit_slice::<T>(len)?;
+        let slice = self.try_alloc_uninit_slice::<T>(len, None)?;
         fill_zeroes(slice);
         // Safety: the whole slice is initialized by the fill_zeroes above.
         let slice = unsafe { transmute::<&mut [MaybeUninit<T>], &mut [T]>(slice) };
@@ -148,7 +148,7 @@ impl LinearAllocator<'_> {
         mut init: F,
         len: usize,
     ) -> Option<Box<[T]>> {
-        let slice = self.try_alloc_uninit_slice::<T>(len)?;
+        let slice = self.try_alloc_uninit_slice::<T>(len, None)?;
         for uninit in &mut *slice {
             uninit.write(init()?);
         }
@@ -165,8 +165,27 @@ impl LinearAllocator<'_> {
     /// "allocated" from the allocation offset. This means that once this
     /// returns `None`, subsequent allocations will always fail until
     /// [`LinearAllocator::reset`].
-    pub fn try_alloc_uninit_slice<'a, T>(&'a self, len: usize) -> Option<&'a mut [MaybeUninit<T>]> {
-        let reserved_bytes = len * size_of::<T>() + align_of::<T>() - 1;
+    ///
+    /// If `alignment` is Some, it will be used for alignment instead of `T`'s
+    /// alignment. If the resulting alignment would result in `T` being
+    /// unaligned, this function will panic.
+    pub fn try_alloc_uninit_slice<'a, T>(
+        &'a self,
+        len: usize,
+        alignment: Option<usize>,
+    ) -> Option<&'a mut [MaybeUninit<T>]> {
+        let alignment = if let Some(alignment) = alignment {
+            assert_eq!(
+                0,
+                alignment % align_of::<T>(),
+                "invalid manual alignment for allocation",
+            );
+            alignment
+        } else {
+            align_of::<T>()
+        };
+
+        let reserved_bytes = len * size_of::<T>() + alignment - 1;
         // This is a relaxed fetch_add since we don't really care about the
         // order of allocations, we don't have any other atomic operations to
         // order, all we care about is that we get distinct allocation offsets
@@ -191,7 +210,7 @@ impl LinearAllocator<'_> {
             unsafe { self.backing_mem_ptr.byte_add(allocation_unaligned_offset) };
 
         // Figure out the properly aligned offset of the new allocation.
-        let extra_offset_for_alignment = unaligned_allocation_ptr.align_offset(align_of::<T>());
+        let extra_offset_for_alignment = unaligned_allocation_ptr.align_offset(alignment);
         let allocation_aligned_offset =
             allocation_unaligned_offset.saturating_add(extra_offset_for_alignment);
 

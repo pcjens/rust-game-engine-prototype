@@ -23,7 +23,7 @@ pub fn channel<T: Sync>(
     type ChannelSlot<T> = SyncUnsafeCell<CachePadded<Option<T>>>;
 
     // +1 to capacity since we're using the last slot as the difference between empty and full.
-    let queue = allocator.try_alloc_uninit_slice::<ChannelSlot<T>>(capacity + 1)?;
+    let queue = allocator.try_alloc_uninit_slice::<ChannelSlot<T>>(capacity + 1, None)?;
     for slot in &mut *queue {
         slot.write(SyncUnsafeCell::new(CachePadded::new(None)));
     }
@@ -31,7 +31,7 @@ pub fn channel<T: Sync>(
     let queue =
         unsafe { transmute::<&mut [MaybeUninit<ChannelSlot<T>>], &mut [ChannelSlot<T>]>(queue) };
 
-    let offsets = allocator.try_alloc_uninit_slice::<AtomicUsize>(2)?;
+    let offsets = allocator.try_alloc_uninit_slice::<AtomicUsize>(2, None)?;
     for offset in &mut *offsets {
         offset.write(AtomicUsize::new(0));
     }
@@ -40,7 +40,7 @@ pub fn channel<T: Sync>(
         unsafe { transmute::<&mut [MaybeUninit<AtomicUsize>], &mut [AtomicUsize]>(offsets) };
     let (read, write) = offsets.split_at_mut(1);
 
-    let semaphore = allocator.try_alloc_uninit_slice(1)?;
+    let semaphore = allocator.try_alloc_uninit_slice(1, None)?;
     let semaphore = semaphore[0].write(platform.create_semaphore());
 
     Some(channel_from_parts(

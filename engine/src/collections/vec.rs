@@ -41,7 +41,23 @@ impl<T> FixedVec<'_, T> {
     /// type `T`. Returns None if the allocator does not have enough free space.
     pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<FixedVec<'a, T>> {
         let uninit_slice: &'a mut [MaybeUninit<T>] =
-            allocator.try_alloc_uninit_slice::<T>(capacity)?;
+            allocator.try_alloc_uninit_slice::<T>(capacity, None)?;
+        Some(FixedVec {
+            uninit_slice,
+            initialized_len: 0,
+        })
+    }
+
+    /// Like [`FixedVec::new`], but with a manually specified alignment.
+    ///
+    /// The given alignment must be a valid alignment for `T`.
+    pub fn with_alignment<'a>(
+        allocator: &'a LinearAllocator,
+        capacity: usize,
+        alignment: usize,
+    ) -> Option<FixedVec<'a, T>> {
+        let uninit_slice: &'a mut [MaybeUninit<T>] =
+            allocator.try_alloc_uninit_slice::<T>(capacity, Some(alignment))?;
         Some(FixedVec {
             uninit_slice,
             initialized_len: 0,
@@ -220,8 +236,7 @@ mod tests {
 
         const ALLOCATOR_SIZE: usize = size_of::<Element>() * COUNT + align_of::<Element>() - 1;
         static ARENA: &LinearAllocator = static_allocator!(ALLOCATOR_SIZE);
-        let alloc = LinearAllocator::new(ARENA, ALLOCATOR_SIZE).unwrap();
-        let mut vec: FixedVec<Element> = FixedVec::new(&alloc, COUNT).unwrap();
+        let mut vec: FixedVec<Element> = FixedVec::new(ARENA, COUNT).unwrap();
 
         // Fill once:
         assert_eq!(0, ELEMENT_COUNT.load(Ordering::Relaxed));
@@ -248,5 +263,23 @@ mod tests {
         // Drop:
         drop(vec);
         assert_eq!(0, ELEMENT_COUNT.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn zst_elements_work() {
+        #[derive(Debug, PartialEq)]
+        struct Zst;
+
+        static ARENA: &LinearAllocator = static_allocator!(0);
+        let alloc = LinearAllocator::new(ARENA, 0).unwrap();
+        let mut vec: FixedVec<Zst> = FixedVec::new(&alloc, 2).unwrap();
+
+        vec.push(Zst).unwrap();
+        vec.push(Zst).unwrap();
+        assert_eq!(Err(Zst), vec.push(Zst));
+        assert_eq!(2, vec.len());
+
+        vec.clear();
+        assert!(vec.is_empty());
     }
 }

@@ -62,7 +62,7 @@ impl<T> RingBuffer<'_, T> {
         allocator: &'static LinearAllocator,
         capacity: usize,
     ) -> Option<RingBuffer<'static, T>> {
-        let buffer = allocator.try_alloc_uninit_slice(capacity)?;
+        let buffer = allocator.try_alloc_uninit_slice(capacity, None)?;
         Some(RingBuffer {
             buffer_lifetime: PhantomData,
             buffer_ptr: buffer.as_mut_ptr(),

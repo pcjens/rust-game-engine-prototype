@@ -20,7 +20,7 @@ pub struct Queue<'a, T> {
 impl<T> Queue<'_, T> {
     /// Allocates room for `capacity` of `T` and creates a [`Queue`] using it.
     pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<Queue<'a, T>> {
-        let uninit_slice = allocator.try_alloc_uninit_slice(capacity)?;
+        let uninit_slice = allocator.try_alloc_uninit_slice(capacity, None)?;
         Some(Queue {
             initialized_offset: 0,
             initialized_len: 0,
