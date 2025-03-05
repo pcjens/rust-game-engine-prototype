@@ -20,6 +20,8 @@ pub mod allocators;
 /// Collection types for varying memory access patterns. Backing memory provided
 /// by allocators in the [allocators] module.
 pub mod collections;
+/// Runtime game object model types and functionality.
+pub mod game_objects;
 /// Geometry related types and operations.
 pub mod geom;
 /// Input events and their translation into game-specific actions.

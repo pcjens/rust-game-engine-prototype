@@ -6,6 +6,7 @@ use core::{
     fmt::Debug,
     mem::{needs_drop, transmute, MaybeUninit},
     ops::{Deref, DerefMut},
+    slice,
 };
 
 #[allow(unused_imports)] // mentioned in docs
@@ -157,6 +158,39 @@ impl<T: Zeroable> FixedVec<'_, T> {
         // valid for T (because it's Zeroable) => the whole slice is
         // initialized.
         self.initialized_len = self.uninit_slice.len();
+    }
+}
+
+impl<'a, T> FixedVec<'a, T> {
+    /// Splits the vec into two, returning the part with `length`.
+    ///
+    /// If `length` is greater than this array's capacity, returns `None`.
+    pub fn split_off_head(&mut self, length: usize) -> Option<FixedVec<'a, T>> {
+        if length > self.uninit_slice.len() {
+            return None;
+        }
+        let mid = length;
+        let len = self.uninit_slice.len();
+        let head_ptr = self.uninit_slice.as_mut_ptr();
+        // Safety: head_ptr is an aligned pointer to a valid slice, and mid is
+        // within that slice, so the resulting slice is a subslice of the
+        // original one from the start.
+        let head = unsafe { slice::from_raw_parts_mut(head_ptr, mid) };
+        // Safety: tail_ptr is an aligned pointer to a valid slice, offset by
+        // mid from the start of the slice, and len is the length of the slice,
+        // so the resulting slice is a subslice of the original one from the
+        // end. It also does not overlap with head, as the start pointer is
+        // offset by its length.
+        let tail = unsafe { slice::from_raw_parts_mut(head_ptr.add(mid), len - mid) };
+        let head_initialized = self.initialized_len.min(mid);
+        let tail_initialized = self.initialized_len.saturating_sub(mid);
+
+        self.initialized_len = tail_initialized;
+        self.uninit_slice = tail;
+        Some(FixedVec {
+            uninit_slice: head,
+            initialized_len: head_initialized,
+        })
     }
 }
 
