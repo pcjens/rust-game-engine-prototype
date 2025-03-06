@@ -149,6 +149,28 @@ impl<T> FixedVec<'_, T> {
     }
 }
 
+impl<T: Copy> FixedVec<'_, T> {
+    /// Appends the values from the slice to the back of the array in order. If
+    /// there's not enough capacity to extend by the whole slice, no values are
+    /// copied over, and this function returns `false`.
+    pub fn extend_from_slice(&mut self, slice: &[T]) -> bool {
+        // NOTE: The implementation of this function does the same steps as
+        // `FixedVec::push`, with the same safety implications, just for many
+        // values at a time.
+
+        if self.initialized_len + slice.len() > self.uninit_slice.len() {
+            return false;
+        }
+
+        for (src, dst) in (slice.iter()).zip(&mut self.uninit_slice[self.initialized_len..]) {
+            dst.write(*src);
+            self.initialized_len += 1;
+        }
+
+        true
+    }
+}
+
 impl<T: Zeroable> FixedVec<'_, T> {
     /// Fills out the rest of the array's capacity with zeroed values.
     pub fn fill_with_zeroes(&mut self) {

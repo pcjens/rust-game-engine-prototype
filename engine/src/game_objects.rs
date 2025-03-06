@@ -2,12 +2,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#![allow(warnings)] // TODO: write docs
+#![allow(missing_docs)] // TODO: write docs
 
 use core::any::{Any, TypeId};
 
 use arrayvec::ArrayVec;
-use bytemuck::Zeroable;
 
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 
@@ -66,13 +65,14 @@ pub struct SceneBuilder<'a> {
 }
 
 impl<'a> SceneBuilder<'a> {
+    #[track_caller]
     pub fn with_game_object_type<G: GameObject>(&'a mut self, count: usize) -> SceneBuilder<'a> {
         SceneBuilder {
             game_object_infos: GameObjectInfoLinkedList::Element {
                 next: &self.game_object_infos,
                 info: GameObjectInfo {
                     component_infos: G::component_infos(),
-                    game_object_type: G::zeroed().type_id(),
+                    game_object_type: TypeId::of::<G>(),
                     game_object_count: count,
                 },
             },
@@ -102,14 +102,14 @@ impl SceneBuilder<'_> {
         {
             for (j, component) in infos.iter().enumerate() {
                 let mut already_seen = false;
-                for previous_infos in (self.game_object_infos.into_iter())
+                'find_prev: for previous_infos in (self.game_object_infos.into_iter())
                     .take(i + 1)
                     .map(|info| &info.component_infos)
                 {
                     for previous_component in previous_infos.iter().take(j) {
                         if component.type_id == previous_component.type_id {
                             already_seen = true;
-                            break;
+                            break 'find_prev;
                         }
                     }
                 }
@@ -145,12 +145,11 @@ impl SceneBuilder<'_> {
         // Allocate the requested amount of memory for each component type
         let mut component_datas_by_type = FixedVec::new(temp_arena, distinct_components)?;
         for (component_info, total_count) in &*component_alloc_counts {
-            let mut data: FixedVec<u8> = FixedVec::with_alignment(
+            let data: FixedVec<u8> = FixedVec::with_alignment(
                 arena,
                 component_info.size * *total_count,
                 component_info.alignment,
             )?;
-            data.fill_with_zeroes();
             component_datas_by_type
                 .push((component_info.type_id, data))
                 .unwrap();
@@ -166,7 +165,7 @@ impl SceneBuilder<'_> {
             game_object_count,
         } in &self.game_object_infos
         {
-            let mut columns = FixedVec::new(arena, component_infos.len())?;
+            let mut columns = ArrayVec::new();
             for component in component_infos {
                 let alloc_for_type = {
                     let i = component_datas_by_type
@@ -175,21 +174,20 @@ impl SceneBuilder<'_> {
                     &mut component_datas_by_type[i].1
                 };
                 let data_size = *game_object_count * component.size;
-                let data = alloc_for_type.split_off_head(data_size).unwrap();
 
-                let col = ComponentColumn {
+                columns.push(ComponentColumn {
                     component_type: component.type_id,
-                    data,
-                };
-                columns.push(col).ok().unwrap();
+                    data: alloc_for_type.split_off_head(data_size).unwrap(),
+                });
             }
+
             let table = GameObjectTable {
                 game_object_type: *game_object_type,
                 columns,
             };
             game_object_tables.push(table).ok().unwrap();
         }
-        game_object_tables.sort_by_key(|table| table.game_object_type);
+        game_object_tables.sort_unstable_by_key(|table| table.game_object_type);
 
         Some(Scene { game_object_tables })
     }
@@ -202,47 +200,88 @@ struct ComponentColumn<'a> {
 
 struct GameObjectTable<'a> {
     game_object_type: TypeId,
-    columns: FixedVec<'a, ComponentColumn<'a>>,
+    columns: ArrayVec<ComponentColumn<'a>, MAX_COMPONENTS>,
 }
 
-pub trait GameObject: Zeroable + Any {
+pub trait GameObject: Any {
     fn component_infos() -> ArrayVec<ComponentInfo, MAX_COMPONENTS>;
+    fn components(&self) -> ArrayVec<(TypeId, &[u8]), MAX_COMPONENTS>;
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SpawnError {
+    UnregisteredGameObjectType,
+    NoSpace,
 }
 
 pub struct Scene<'a> {
     game_object_tables: FixedVec<'a, GameObjectTable<'a>>,
 }
 
+impl Scene<'_> {
+    pub fn spawn<G: GameObject>(&mut self, object: G) -> Result<(), SpawnError> {
+        self.spawn_inner(object.type_id(), &object.components())
+    }
+
+    fn spawn_inner(
+        &mut self,
+        game_object_type: TypeId,
+        components: &[(TypeId, &[u8])],
+    ) -> Result<(), SpawnError> {
+        let Some(table) = (self.game_object_tables.iter_mut())
+            .find(|table| table.game_object_type == game_object_type)
+        else {
+            return Err(SpawnError::UnregisteredGameObjectType);
+        };
+
+        if table.columns.is_empty() || table.columns[0].data.is_full() {
+            return Err(SpawnError::NoSpace);
+        }
+
+        for (col, (c_type, c_data)) in table.columns.iter_mut().zip(components) {
+            assert_eq!(col.component_type, *c_type);
+            let write_succeeded = col.data.extend_from_slice(c_data);
+            assert!(write_succeeded, "component should fit");
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use core::any::Any;
+    use core::any::{Any, TypeId};
 
     use arrayvec::ArrayVec;
     use bytemuck::{Pod, Zeroable};
 
     use crate::{allocators::LinearAllocator, static_allocator};
 
-    use super::{ComponentInfo, GameObject, Scene, MAX_COMPONENTS};
+    use super::{ComponentInfo, GameObject, Scene, SpawnError, MAX_COMPONENTS};
 
     #[test]
     fn run_scene_with_manually_typed_out_types() {
         #[derive(Clone, Copy)]
-        struct ComponentA {}
+        struct ComponentA {
+            _value: i64,
+        }
         unsafe impl Zeroable for ComponentA {}
         unsafe impl Pod for ComponentA {}
 
         #[derive(Clone, Copy)]
-        struct ComponentB {}
+        struct ComponentB {
+            _value: u32,
+        }
         unsafe impl Zeroable for ComponentB {}
         unsafe impl Pod for ComponentB {}
 
         struct GameObjectX {
-            _a: ComponentA,
+            a: ComponentA,
         }
         unsafe impl Zeroable for GameObjectX {}
 
         impl GameObject for GameObjectX {
-            fn component_infos() -> ArrayVec<super::ComponentInfo, MAX_COMPONENTS> {
+            fn component_infos() -> ArrayVec<ComponentInfo, MAX_COMPONENTS> {
                 let mut infos = ArrayVec::new();
                 infos.push(ComponentInfo {
                     type_id: ComponentA::zeroed().type_id(),
@@ -251,11 +290,19 @@ mod tests {
                 });
                 infos
             }
+            fn components(&self) -> ArrayVec<(TypeId, &[u8]), MAX_COMPONENTS> {
+                let mut components: ArrayVec<(TypeId, &[u8]), MAX_COMPONENTS> = ArrayVec::new();
+                components.push((
+                    TypeId::of::<ComponentA>(),
+                    bytemuck::cast_ref::<ComponentA, [u8; size_of::<ComponentA>()]>(&self.a),
+                ));
+                components
+            }
         }
 
         struct GameObjectY {
-            _a: ComponentA,
-            _b: ComponentB,
+            a: ComponentA,
+            b: ComponentB,
         }
         unsafe impl Zeroable for GameObjectY {}
 
@@ -274,13 +321,42 @@ mod tests {
                 });
                 infos
             }
+            fn components(&self) -> ArrayVec<(TypeId, &[u8]), MAX_COMPONENTS> {
+                let mut components: ArrayVec<(TypeId, &[u8]), MAX_COMPONENTS> = ArrayVec::new();
+                components.push((
+                    TypeId::of::<ComponentA>(),
+                    bytemuck::cast_ref::<ComponentA, [u8; size_of::<ComponentA>()]>(&self.a),
+                ));
+                components.push((
+                    TypeId::of::<ComponentB>(),
+                    bytemuck::cast_ref::<ComponentB, [u8; size_of::<ComponentB>()]>(&self.b),
+                ));
+                components
+            }
         }
 
         static ARENA: &LinearAllocator = static_allocator!(10_000);
         let temp_arena = LinearAllocator::new(ARENA, 1000).unwrap();
-        let scene = Scene::builder()
+        let mut scene = Scene::builder()
             .with_game_object_type::<GameObjectX>(10)
             .with_game_object_type::<GameObjectY>(1)
-            .build(ARENA, &temp_arena);
+            .build(ARENA, &temp_arena)
+            .unwrap();
+
+        for i in 0..10 {
+            let object_x = GameObjectX {
+                a: ComponentA { _value: i },
+            };
+            scene.spawn(object_x).unwrap();
+        }
+
+        let object_y = GameObjectY {
+            a: ComponentA { _value: -1 },
+            b: ComponentB { _value: u32::MAX },
+        };
+        scene.spawn(object_y).unwrap();
+
+        assert_eq!(Err(SpawnError::NoSpace), scene.spawn(GameObjectX::zeroed()));
+        assert_eq!(Err(SpawnError::NoSpace), scene.spawn(GameObjectY::zeroed()));
     }
 }
