@@ -193,9 +193,9 @@ impl SceneBuilder<'_> {
     }
 }
 
-struct ComponentColumn<'a> {
-    component_type: TypeId,
-    data: FixedVec<'a, u8>,
+pub struct ComponentColumn<'a> {
+    pub component_type: TypeId,
+    pub data: FixedVec<'a, u8>,
 }
 
 struct GameObjectTable<'a> {
@@ -246,6 +246,63 @@ impl Scene<'_> {
 
         Ok(())
     }
+
+    pub fn run_system<F>(&mut self, mut system_func: F)
+    where
+        F: FnMut(ArrayVec<&mut ComponentColumn, MAX_COMPONENTS>),
+    {
+        for table in &mut *self.game_object_tables {
+            let mut columns = ArrayVec::new();
+            for col in &mut *table.columns {
+                columns.push(col);
+            }
+            system_func(columns);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! define_system {
+    (gen_closure $table:ident |$param_name:ident: &mut [$param_type:ty]| $func_body:block) => {{
+        let type_id = core::any::TypeId::of::<$param_type>();
+        let Some(index) = $table.iter().position(|col| col.component_type == type_id) else {
+            return;
+        };
+        let col = $table.remove(index);
+        let $param_name: &mut [$param_type] = bytemuck::cast_slice_mut::<u8, $param_type>(&mut col.data);
+        $func_body
+    }};
+    (gen_closure $table:ident |$param_name:ident: &mut [$param_type:ty], $($rest_names:ident: &mut [$rest_types:ty]),+| $func_body:block) => {
+        define_system!(gen_closure $table |$($rest_names: &mut [$rest_types]),+| {
+            define_system!(gen_closure $table |$param_name: &mut [$param_type]| $func_body)
+        })
+    };
+    (|$($param_name:ident: &mut [$param_type:ty]),+| $func_body:block) => {
+        |mut table: ArrayVec<&mut $crate::game_objects::ComponentColumn, {$crate::game_objects::MAX_COMPONENTS}>| {
+            define_system!(gen_closure table |$($param_name: &mut [$param_type]),+| $func_body)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! define_game_object {
+    (struct_field pub $component_name:ident: $component_type:ty) => {
+        pub $component_name: $component_type,
+    };
+    (struct_fields pub $component_name:ident: $component_type:ty, $(pub $rest_names:ident: $rest_types:ty),+) => {
+        define_game_object!(struct_field pub $component_name: $component_type)
+        define_game_object!(struct_fields $(pub $rest_names: $res_types),+)
+    };
+
+    (struct $type_name:ident {
+        $(pub $component_name:ident: $component_type:ty),+
+    }) => {
+        struct $type_name {
+            define_game_object!(struct_fields $(pub $component_name: $component_type),+)
+        }
+
+        // TODO: implement GameObject for $type_name
+    };
 }
 
 #[cfg(test)]
@@ -261,16 +318,16 @@ mod tests {
 
     #[test]
     fn run_scene_with_manually_typed_out_types() {
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Debug)]
         struct ComponentA {
-            _value: i64,
+            value: i64,
         }
         unsafe impl Zeroable for ComponentA {}
         unsafe impl Pod for ComponentA {}
 
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Debug)]
         struct ComponentB {
-            _value: u32,
+            value: u32,
         }
         unsafe impl Zeroable for ComponentB {}
         unsafe impl Pod for ComponentB {}
@@ -339,24 +396,33 @@ mod tests {
         let temp_arena = LinearAllocator::new(ARENA, 1000).unwrap();
         let mut scene = Scene::builder()
             .with_game_object_type::<GameObjectX>(10)
-            .with_game_object_type::<GameObjectY>(1)
+            .with_game_object_type::<GameObjectY>(5)
             .build(ARENA, &temp_arena)
             .unwrap();
 
         for i in 0..10 {
             let object_x = GameObjectX {
-                a: ComponentA { _value: i },
+                a: ComponentA { value: i },
             };
             scene.spawn(object_x).unwrap();
         }
 
-        let object_y = GameObjectY {
-            a: ComponentA { _value: -1 },
-            b: ComponentB { _value: u32::MAX },
-        };
-        scene.spawn(object_y).unwrap();
+        for i in 0..5 {
+            let object_y = GameObjectY {
+                a: ComponentA { value: -10 },
+                b: ComponentB { value: 5 * i },
+            };
+            scene.spawn(object_y).unwrap();
+        }
 
         assert_eq!(Err(SpawnError::NoSpace), scene.spawn(GameObjectX::zeroed()));
         assert_eq!(Err(SpawnError::NoSpace), scene.spawn(GameObjectY::zeroed()));
+
+        let system = define_system!(|a: &mut [ComponentA], b: &mut [ComponentB]| {
+            for (a, b) in a.iter_mut().zip(b) {
+                a.value += b.value as i64;
+            }
+        });
+        scene.run_system(system);
     }
 }
