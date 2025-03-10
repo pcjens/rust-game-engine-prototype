@@ -2,11 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use core::any::{Any, TypeId};
+use core::{
+    any::{Any, TypeId},
+    fmt::Debug,
+};
 
 use arrayvec::ArrayVec;
 
 use super::MAX_COMPONENTS;
+
+pub type ComponentVec<T> = ArrayVec<T, MAX_COMPONENTS>;
 
 pub struct ComponentInfo {
     pub type_id: TypeId,
@@ -14,9 +19,9 @@ pub struct ComponentInfo {
     pub alignment: usize,
 }
 
-pub trait GameObject: Any {
-    fn component_infos() -> ArrayVec<ComponentInfo, MAX_COMPONENTS>;
-    fn components(&self) -> ArrayVec<(TypeId, &[u8]), MAX_COMPONENTS>;
+pub trait GameObject: Any + Debug {
+    fn component_infos() -> ComponentVec<ComponentInfo>;
+    fn components(&self) -> ComponentVec<(TypeId, &[u8])>;
 }
 
 #[macro_export]
@@ -30,8 +35,8 @@ macro_rules! impl_game_object {
         });
     };
     (/push_info $infos:ident/ $field_type:ty, $($field_types:ty),+) => {
-        impl_game_object!(/push_info $infos/ $field_type);
-        impl_game_object!(/push_info $infos/ $($field_types),+);
+        $crate::impl_game_object!(/push_info $infos/ $field_type);
+        $crate::impl_game_object!(/push_info $infos/ $($field_types),+);
     };
 
     // Generators for the GameObject::components implementation
@@ -42,8 +47,8 @@ macro_rules! impl_game_object {
         ));
     };
     (/push_component $components:ident, $self:ident/ $field_name:ident: $field_type:ty, $($field_names:ident: $field_types:ty),+) => {
-        impl_game_object!(/push_component $components, $self/ $field_name: $field_type);
-        impl_game_object!(/push_component $components, $self/ $($field_names: $field_types),+);
+        $crate::impl_game_object!(/push_component $components, $self/ $field_name: $field_type);
+        $crate::impl_game_object!(/push_component $components, $self/ $($field_names: $field_types),+);
     };
 
     // The main impl-block generator
@@ -52,22 +57,21 @@ macro_rules! impl_game_object {
     }) => {
         impl $crate::game_objects::GameObject for $struct_name {
             fn component_infos(
-            ) -> arrayvec::ArrayVec<$crate::game_objects::ComponentInfo, { $crate::game_objects::MAX_COMPONENTS }>
+            ) -> $crate::game_objects::ComponentVec<$crate::game_objects::ComponentInfo>
             {
-                let mut infos = arrayvec::ArrayVec::new();
-                impl_game_object!(/push_info infos/ $($field_types),+);
+                let mut infos = $crate::game_objects::ComponentVec::new();
+                $crate::impl_game_object!(/push_info infos/ $($field_types),+);
                 infos
             }
 
             fn components(
                 &self,
-            ) -> arrayvec::ArrayVec<(core::any::TypeId, &[u8]), { $crate::game_objects::MAX_COMPONENTS }>
+            ) -> $crate::game_objects::ComponentVec<(core::any::TypeId, &[u8])>
             {
-                let mut components: arrayvec::ArrayVec<
+                let mut components: $crate::game_objects::ComponentVec::<
                     (core::any::TypeId, &[u8]),
-                    { $crate::game_objects::MAX_COMPONENTS },
-                > = arrayvec::ArrayVec::new();
-                impl_game_object!(/push_component components, self/ $($field_names: $field_types),+);
+                > = $crate::game_objects::ComponentVec::new();
+                $crate::impl_game_object!(/push_component components, self/ $($field_names: $field_types),+);
                 components
             }
         }
@@ -82,6 +86,7 @@ mod tests {
 
     #[test]
     fn define_game_object_works() {
+        #[derive(Debug)]
         struct TestGameObject {
             pub component_a: i32,
             pub component_b: i64,
