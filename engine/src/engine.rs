@@ -28,10 +28,7 @@ enum TestInput {
 }
 
 #[allow(unused_imports)] // used in docs
-use crate::{
-    multithreading::parallelize,
-    resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT},
-};
+use crate::resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
 
 /// Parameters affecting the memory usage of the engine, used in
 /// [`Engine::new`].

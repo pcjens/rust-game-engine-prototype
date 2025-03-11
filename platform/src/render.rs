@@ -5,23 +5,32 @@
 use bytemuck::{Pod, Zeroable};
 
 /// Vertex describing a 2D point with a texture coordinate and a color.
-///
-/// Texture coordinates (u, v) should be interpreted as "0, 0" referring to the
-/// top-left corner of the texture and "1, 1" referring to the bottom-right
-/// corner.
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
-#[allow(missing_docs)]
 pub struct Vertex {
+    /// The horizontal coordinate of the position of this vertex.
     pub x: f32,
+    /// The vertical coordinate of the position of this vertex.
     pub y: f32,
 
+    /// The horizontal texture coordinate of this vertex, 0 referring to the
+    /// left edge, and 1 referring to the right edge of the texture.
     pub u: f32,
+    /// The vertical texture coordinate of this vertex, 0 referring to the top
+    /// edge, and 1 referring to the bottom edge of the texture.
     pub v: f32,
 
+    /// The red channel of the vertex color, which is multiplied with the
+    /// texture's red channel (or used as is, if no texture is used).
     pub r: u8,
+    /// The green channel of the vertex color, which is multiplied with the
+    /// texture's green channel (or used as is, if no texture is used).
     pub g: u8,
+    /// The blue channel of the vertex color, which is multiplied with the
+    /// texture's blue channel (or used as is, if no texture is used).
     pub b: u8,
+    /// The alpha channel of the vertex color, which is multiplied with the
+    /// texture's alpha channel (or used as is, if no texture is used).
     pub a: u8,
 }
 

@@ -233,7 +233,6 @@ impl<T: Sync> Receiver<T> {
 /// in the rust-lang issue
 /// [#95439](https://github.com/rust-lang/rust/issues/95439).
 mod sync_unsafe_cell {
-    #![allow(dead_code)]
     #![allow(missing_docs)]
     use core::cell::UnsafeCell;
     /// A [`Sync`] [`UnsafeCell`] when `T` is [`Sync`]. "Manually stabilized"

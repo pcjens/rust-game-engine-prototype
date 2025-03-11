@@ -79,9 +79,8 @@ impl<T> RingBuffer<'_, T> {
     ///
     /// All allocations made from this [`RingBuffer`] must be passed back into
     /// [`RingBuffer::free`] before it is dropped, as the backing memory is only
-    /// borrowed for 'a, and the [`Box`] references could leak.
-    #[allow(clippy::needless_lifetimes)]
-    pub unsafe fn from_mut<'a>(buffer: &'a mut [MaybeUninit<T>]) -> RingBuffer<'a, T> {
+    /// borrowed for its lifetime, and the [`Box`] references could leak.
+    pub unsafe fn from_mut(buffer: &mut [MaybeUninit<T>]) -> RingBuffer<T> {
         RingBuffer {
             buffer_lifetime: PhantomData,
             buffer_ptr: buffer.as_mut_ptr(),

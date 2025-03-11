@@ -54,7 +54,7 @@ impl InputDevice {
 /// used by games to set up their default mappings for any input device.
 /// Different categories may map to the same buttons, so making inputs
 /// inputs context-sensitive are recommended.
-#[allow(missing_docs)]
+#[allow(missing_docs)] // the enum variant names are all there is to them
 pub enum ActionCategory {
     Up,
     Down,
