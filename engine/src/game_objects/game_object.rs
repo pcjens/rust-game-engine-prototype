@@ -7,23 +7,82 @@ use core::{
     fmt::Debug,
 };
 
-use arrayvec::ArrayVec;
+use super::ComponentVec;
 
-use super::MAX_COMPONENTS;
+#[allow(unused_imports)] // used in docs
+use super::{impl_game_object, ComponentColumn, Scene};
 
-pub type ComponentVec<T> = ArrayVec<T, MAX_COMPONENTS>;
-
+/// Type description for allocation and type comparison of components. Generated
+/// by [`impl_game_object`].
 pub struct ComponentInfo {
+    /// The type of the component. Eventually passed into a [`ComponentColumn`],
+    /// and returned from [`ComponentColumn::component_type`].
     pub type_id: TypeId,
+    /// The [size_of] the component type.
     pub size: usize,
+    /// The [align_of] the component type.
     pub alignment: usize,
 }
 
+/// Trait that game object types implement to be able to be added to a
+/// [`Scene`]. Impl generated with [`impl_game_object`].
 pub trait GameObject: Any + Debug {
+    /// Returns the allocation and type comparison details for the components of
+    /// this game object type.
     fn component_infos() -> ComponentVec<ComponentInfo>;
+    /// Returns a single game object's components as anonymous byte slices, with
+    /// the type id for component type detection.
     fn components(&self) -> ComponentVec<(TypeId, &[u8])>;
 }
 
+/// Generates a [`GameObject`] impl block for a type.
+///
+/// This takes a list of the struct's field names and types to be used as the
+/// components of this game object. Note that component types must be
+/// [`bytemuck::Pod`].
+///
+/// The `using components` part is intended to signal that it's not a regular
+/// impl block, taking a list of field names and types similar to a struct
+/// definition, instead of trait function implementations.
+///
+/// ### Example
+///
+/// ```
+/// use engine::impl_game_object;
+///
+/// // NOTE: Zeroable and Pod are manually implemented here to avoid
+/// // the engine depending on proc macros. They should generally be
+/// // derived, if compile times allow, as Pod has a lot of
+/// // requirements that are easy to forget.
+///
+/// #[derive(Debug, Clone, Copy)]
+/// #[repr(C)]
+/// struct Position { pub x: i32, pub y: i32 }
+/// unsafe impl bytemuck::Zeroable for Position {}
+/// unsafe impl bytemuck::Pod for Position {}
+///
+/// #[derive(Debug, Clone, Copy)]
+/// #[repr(C)]
+/// struct Velocity { pub x: i32, pub y: i32 }
+/// unsafe impl bytemuck::Zeroable for Velocity {}
+/// unsafe impl bytemuck::Pod for Velocity {}
+///
+/// #[derive(Debug)]
+/// struct Foo {
+///     pub position: Position,
+///     pub velocity: Velocity,
+/// }
+///
+/// impl_game_object! {
+///     impl GameObject for Foo using components {
+///         position: Position,
+///         velocity: Velocity,
+///     }
+/// }
+/// ```
+///
+/// For a more fully featured example for using these game objects, see the
+/// documentation for [`Scene`].
 #[macro_export]
 macro_rules! impl_game_object {
     // Generators for the GameObject::component_infos implementation

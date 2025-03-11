@@ -8,10 +8,10 @@ use arrayvec::ArrayVec;
 
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 
-use super::{ComponentColumn, ComponentInfo, GameObject, GameObjectTable, Scene, MAX_COMPONENTS};
+use super::{ComponentColumn, ComponentInfo, ComponentVec, GameObject, GameObjectTable, Scene};
 
 struct GameObjectInfo {
-    component_infos: ArrayVec<ComponentInfo, MAX_COMPONENTS>,
+    component_infos: ComponentVec<ComponentInfo>,
     game_object_type: TypeId,
     game_object_count: usize,
 }
@@ -52,12 +52,14 @@ impl<'a> Iterator for GameObjectInfoLinkedListIterator<'a> {
     }
 }
 
+/// Builder for [`Scene`].
 pub struct SceneBuilder<'a> {
     game_object_infos: GameObjectInfoLinkedList<'a>,
 }
 
 impl<'a> SceneBuilder<'a> {
-    #[track_caller]
+    /// Adds `G` as a game object type and reserves space for a maximum of
+    /// `count` game objects at a time.
     pub fn with_game_object_type<G: GameObject>(&'a mut self, count: usize) -> SceneBuilder<'a> {
         SceneBuilder {
             game_object_infos: GameObjectInfoLinkedList::Element {
@@ -73,6 +75,7 @@ impl<'a> SceneBuilder<'a> {
 }
 
 impl Scene<'_> {
+    /// Creates a [`SceneBuilder`] which is used to create a [`Scene`].
     pub fn builder<'a>() -> SceneBuilder<'a> {
         SceneBuilder {
             game_object_infos: GameObjectInfoLinkedList::End,
@@ -81,6 +84,18 @@ impl Scene<'_> {
 }
 
 impl SceneBuilder<'_> {
+    /// Allocates memory for and creates a [`Scene`], if `arena` has enough
+    /// memory for it.
+    ///
+    /// The memory requirement of a [`Scene`] is the sum of each component's
+    /// size times how many game objects have that component, and possibly
+    /// padding bytes between the per-component allocations. Allocations are
+    /// done on a per-component basis, so multiple game objects using component
+    /// A will simply result in one large allocation for component A that can
+    /// fit all of those game objects' components.
+    ///
+    /// The `temp_arena` allocator is used for small allocations of about 100
+    /// bytes per component, and can be reset after this function is done.
     pub fn build<'a>(
         self,
         arena: &'a LinearAllocator,

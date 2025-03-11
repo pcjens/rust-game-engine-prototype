@@ -12,11 +12,20 @@ use bytemuck::Pod;
 
 use crate::collections::FixedVec;
 
-pub use game_object::{ComponentInfo, ComponentVec, GameObject};
+pub use game_object::{ComponentInfo, GameObject};
 pub use scene_builder::SceneBuilder;
+
+pub use crate::{define_system, impl_game_object};
 
 /// The maximum amount of components in a [`GameObject`] type.
 pub const MAX_COMPONENTS: usize = 32;
+
+/// An [`ArrayVec`] with capacity for [`MAX_COMPONENTS`] elements.
+///
+/// This exists since these are used throughout the game_objects module, and
+/// this allows dependents to e.g. implement the [`GameObject`] trait without
+/// depending on [`arrayvec`].
+pub type ComponentVec<T> = ArrayVec<T, MAX_COMPONENTS>;
 
 /// Generic storage for the components inside [`Scene`].
 ///
@@ -38,8 +47,8 @@ impl ComponentColumn<'_> {
     /// components in this column.
     ///
     /// This function generally doesn't need to be interfaced with directly, as
-    /// [`define_system`] is largely a straightforward wrapper for iterating
-    /// through the columns and calling this on the right one.
+    /// [`define_system`] is a straightforward wrapper for iterating through the
+    /// columns and calling this on the right one.
     pub fn get_mut<C: Any + Pod>(&mut self) -> Option<&mut [C]> {
         if self.component_type == TypeId::of::<C>() {
             Some(bytemuck::cast_slice_mut::<u8, C>(&mut self.data))
@@ -51,7 +60,7 @@ impl ComponentColumn<'_> {
 
 struct GameObjectTable<'a> {
     game_object_type: TypeId,
-    columns: ArrayVec<ComponentColumn<'a>, MAX_COMPONENTS>,
+    columns: ComponentVec<ComponentColumn<'a>>,
 }
 
 /// Error type returned by [`Scene::spawn`].
@@ -89,25 +98,35 @@ pub enum SpawnError {
 /// ```
 /// # static ARENA: &engine::allocators::LinearAllocator = engine::static_allocator!(100_000);
 /// # let (arena, temp_arena) = (ARENA, ARENA);
-/// use engine::game_objects::Scene;
-/// use engine::{define_system, impl_game_object};
+/// use engine::{game_objects::Scene, define_system, impl_game_object};
+///
+/// // Define some component types:
+///
+/// // NOTE: Zeroable and Pod are manually implemented here to avoid
+/// // the engine depending on proc macros. They should generally be
+/// // derived, if compile times allow, as Pod has a lot of
+/// // requirements that are easy to forget.
 ///
 /// #[derive(Debug, Clone, Copy)]
+/// #[repr(C)]
 /// struct Position { pub x: i32, pub y: i32 }
 /// unsafe impl bytemuck::Zeroable for Position {}
 /// unsafe impl bytemuck::Pod for Position {}
 ///
 /// #[derive(Debug, Clone, Copy)]
+/// #[repr(C)]
 /// struct Velocity { pub x: i32, pub y: i32 }
 /// unsafe impl bytemuck::Zeroable for Velocity {}
 /// unsafe impl bytemuck::Pod for Velocity {}
 ///
 /// // Define the "Foo" game object:
+///
 /// #[derive(Debug)]
 /// struct Foo {
 ///     pub position: Position,
 ///     pub velocity: Velocity,
 /// }
+///
 /// impl_game_object! {
 ///     impl GameObject for Foo using components {
 ///         position: Position,
@@ -130,13 +149,28 @@ pub enum SpawnError {
 /// // Run a "physics simulation" system for all game objects which
 /// // have a Position and Velocity component:
 /// scene.run_system(define_system!(|pos: &mut [Position], vel: &mut [Velocity]| {
+///     // This closure gets called once for each game object type with a Position
+///     // and a Velocity, passing in that type's components, which can be zipped
+///     // and iterated through to operate on a single game object's data at a
+///     // time. In this case, the closure only gets called for Foo as it's our
+///     // only game object type, and these slices are 1 long, as we only spawned
+///     // one game object.
 ///     for (pos, vel) in pos.iter_mut().zip(vel) {
 ///         pos.x += vel.x;
 ///         pos.y += vel.y;
 ///     }
 /// }));
 ///
-/// // TODO: finish this example
+/// // Just assert that we ended up where we intended to end up.
+/// let mut positions_in_scene = 0;
+/// scene.run_system(define_system!(|pos: &mut [Position]| {
+///     for pos in pos {
+///         assert_eq!(120, pos.x);
+///         assert_eq!(90, pos.y);
+///         positions_in_scene += 1;
+///     }
+/// }));
+/// assert_eq!(1, positions_in_scene);
 /// ```
 // TODO: figure out how games should approach Scenes' lifetimes
 // (and update the above example accordingly)
@@ -176,8 +210,8 @@ impl Scene<'_> {
         Ok(())
     }
 
-    /// Runs the function many times, passing in the components in this scene,
-    /// one game object type's components at a time.
+    /// Runs `system_func` for each game object type in this [`Scene`], passing
+    /// in the components for each.
     ///
     /// Each [`ComponentColumn`] contains tightly packed data for a specific
     /// component type, and the columns can be zipped together to iterate
@@ -185,12 +219,12 @@ impl Scene<'_> {
     /// component A at index N belongs to the same game object as component B at
     /// index N.
     ///
-    /// Used with [`define_system`], this can be used to access all combinations
-    /// of specific component types ergonomically. See the [`Scene`]
+    /// This is intended to be used with [`define_system`], which can extract
+    /// the relevant components from the component columns. See the [`Scene`]
     /// documentation for example usage.
     pub fn run_system<F>(&mut self, mut system_func: F) -> bool
     where
-        F: FnMut(ArrayVec<&mut ComponentColumn, MAX_COMPONENTS>) -> bool,
+        F: FnMut(ComponentVec<&mut ComponentColumn>) -> bool,
     {
         let mut matched_any_components = false;
         for table in &mut *self.game_object_tables {
@@ -203,11 +237,45 @@ impl Scene<'_> {
         matched_any_components
     }
 
+    #[allow(missing_docs)] // FIXME: remove once designed and implemented
     pub fn retain(&mut self) {
         todo!() // TODO: implement game object removal
     }
 }
 
+/// Wraps a closure that takes mut slices of components as parameters, and
+/// outputs a closure that can be passed into [`Scene::run_system`].
+///
+/// The generated closure extracts the relevant component slices from the
+/// anonymous [`ComponentColumn`]s, and makes them available to the closure body
+/// as variables, using the names from the parameter list.
+///
+/// For simplicity, the closure passed into this macro can only take mutable
+/// slices as parameters, but note that [`Scene::run_system`] takes a [`FnMut`],
+/// so the closure can borrow and even mutate their captured environment.
+///
+/// ### Example
+/// ```
+/// # static ARENA: &engine::allocators::LinearAllocator = engine::static_allocator!(100_000);
+/// # use engine::{game_objects::Scene, define_system, impl_game_object};
+/// # #[derive(Debug, Clone, Copy)]
+/// # #[repr(C)]
+/// # struct Position { pub x: i32, pub y: i32 }
+/// # unsafe impl bytemuck::Zeroable for Position {}
+/// # unsafe impl bytemuck::Pod for Position {}
+/// # #[derive(Debug, Clone, Copy)]
+/// # #[repr(C)]
+/// # struct Velocity { pub x: i32, pub y: i32 }
+/// # unsafe impl bytemuck::Zeroable for Velocity {}
+/// # unsafe impl bytemuck::Pod for Velocity {}
+/// # let mut scene = Scene::builder().build(ARENA, ARENA).unwrap();
+/// scene.run_system(define_system!(|pos: &mut [Position], vel: &mut [Velocity]| {
+///     for (pos, vel) in pos.iter_mut().zip(vel) {
+///         pos.x += vel.x;
+///         pos.y += vel.y;
+///     }
+/// }));
+/// ```
 #[macro_export]
 macro_rules! define_system {
     (/gen_closure $table:ident |$param_name:ident: &mut [$param_type:ty]| $func_body:block) => {{
