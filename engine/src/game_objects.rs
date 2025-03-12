@@ -21,10 +21,8 @@ use bytemuck::Pod;
 
 use crate::collections::FixedVec;
 
-pub use game_object::{ComponentInfo, GameObject};
+pub use game_object::{impl_game_object, ComponentInfo, GameObject};
 pub use scene_builder::SceneBuilder;
-
-pub use crate::{define_system, impl_game_object};
 
 /// The maximum amount of components in a [`GameObject`] type.
 pub const MAX_COMPONENTS: usize = 32;
@@ -341,6 +339,10 @@ impl Scene<'_> {
     /// component A at index N belongs to the same game object as component B at
     /// index N.
     ///
+    /// The [`GameObjectHandleIterator`] returns handles to the game objects
+    /// associated with the components in a particular iteration, if iterated
+    /// through at the same pace as the component columns.
+    ///
     /// This is intended to be used with [`define_system`], which can extract
     /// the relevant components from the component columns. See the [`Scene`]
     /// documentation for example usage.
@@ -452,7 +454,7 @@ impl Scene<'_> {
 /// # let mut scene = Scene::builder().build(ARENA, ARENA).unwrap();
 /// let mut game_object_handle = None;
 /// scene.run_system(define_system!(|handles| |pos: &mut [Position], vel: &mut [Velocity]| {
-///     for ((pos, vel), handle) in pos.iter_mut().zip(vel).zip(handles) {
+///     for ((handle, pos), vel) in handles.zip(pos).zip(vel) {
 ///         pos.x += vel.x;
 ///         pos.y += vel.y;
 ///         game_object_handle = Some(handle);
@@ -488,6 +490,8 @@ macro_rules! define_system {
         }
     };
 }
+
+pub use define_system;
 
 #[cfg(test)]
 mod tests {

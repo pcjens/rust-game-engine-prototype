@@ -31,21 +31,21 @@ impl LoadedElementInfo {
 /// the array length and the backing `T` storage have separate capacities.
 /// Useful for cases where stable indices are important, but having the entire
 /// array in-memory is infeasible.
-pub struct SparseArray<'eng, T> {
+pub struct SparseArray<'a, T> {
     /// The indirection array: contains indexes to `loaded_elements` for the
     /// array elements which are currently loaded.
-    index_map: FixedVec<'eng, OptionalU32>,
+    index_map: FixedVec<'a, OptionalU32>,
     /// Reusable indexes to `loaded_elements`.
-    free_indices: FixedVec<'eng, u32>,
+    free_indices: FixedVec<'a, u32>,
     /// The currently loaded instances of `T`.
-    loaded_elements: FixedVec<'eng, T>,
+    loaded_elements: FixedVec<'a, T>,
     /// Ages of loaded elements, each element being the age of the loaded
     /// element in the same index in `loaded_elements`.
     ///
     /// The values are atomic to allow reading from the [`SparseArray`] from
     /// multiple threads at once, while still being able to maintain the ages of
     /// the loaded elements.
-    loaded_element_infos: FixedVec<'eng, LoadedElementInfo>,
+    loaded_element_infos: FixedVec<'a, LoadedElementInfo>,
 }
 
 impl<T> SparseArray<'_, T> {

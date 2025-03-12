@@ -11,12 +11,6 @@ use core::ops::Range;
 
 use arrayvec::ArrayVec;
 
-use crate::{
-    geom::Rect,
-    renderer::{self, texture::RenderableTexture, DrawQueue},
-    resources::{ResourceDatabase, ResourceLoader},
-};
-
 use super::{gen_asset_handle_code, Asset};
 
 gen_asset_handle_code!(
@@ -122,33 +116,5 @@ impl Asset for TextureAsset {
                 }
             };
         }
-    }
-}
-
-impl TextureAsset {
-    /// Draw this texture into the `dst` rectangle.
-    ///
-    /// Returns false if the texture couldn't be drawn due to the draw queue
-    /// filling up.
-    #[must_use]
-    pub fn draw(
-        &self,
-        dst: Rect,
-        draw_order: u8,
-        draw_queue: &mut DrawQueue,
-        resources: &ResourceDatabase,
-        resource_loader: &mut ResourceLoader,
-    ) -> bool {
-        renderer::texture::draw(
-            RenderableTexture {
-                mip_chain: &self.mip_chain,
-                transparent: self.transparent,
-                draw_order,
-            },
-            dst,
-            draw_queue,
-            resources,
-            resource_loader,
-        )
     }
 }

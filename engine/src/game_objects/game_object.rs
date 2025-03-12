@@ -142,6 +142,8 @@ macro_rules! impl_game_object {
     };
 }
 
+pub use impl_game_object;
+
 #[cfg(test)]
 mod tests {
     use core::any::TypeId;

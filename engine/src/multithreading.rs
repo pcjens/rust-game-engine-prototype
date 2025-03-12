@@ -191,9 +191,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::{create_thread_pool, parallelize};
     use crate::{
         allocators::{static_allocator, LinearAllocator},
-        multithreading::{create_thread_pool, parallelize},
         test_platform::TestPlatform,
     };
 

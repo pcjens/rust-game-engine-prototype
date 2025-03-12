@@ -17,7 +17,8 @@ use platform::BlendMode;
 use crate::{
     geom::Rect,
     resources::{
-        texture::TextureMipLevel, ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS,
+        texture::{TextureAsset, TextureMipLevel},
+        ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS,
     },
 };
 
@@ -26,8 +27,36 @@ use super::{DrawQueue, TexQuad};
 const CHUNK_WIDTH: u16 = TEXTURE_CHUNK_DIMENSIONS.0;
 const CHUNK_HEIGHT: u16 = TEXTURE_CHUNK_DIMENSIONS.1;
 
+impl TextureAsset {
+    /// Draw this texture into the `dst` rectangle.
+    ///
+    /// Returns false if the texture couldn't be drawn due to the draw queue
+    /// filling up.
+    #[must_use]
+    pub fn draw(
+        &self,
+        dst: Rect,
+        draw_order: u8,
+        draw_queue: &mut DrawQueue,
+        resources: &ResourceDatabase,
+        resource_loader: &mut ResourceLoader,
+    ) -> bool {
+        draw(
+            RenderableTexture {
+                mip_chain: &self.mip_chain,
+                transparent: self.transparent,
+                draw_order,
+            },
+            dst,
+            draw_queue,
+            resources,
+            resource_loader,
+        )
+    }
+}
+
 /// Render-time relevant parts of a texture.
-pub struct RenderableTexture<'a> {
+struct RenderableTexture<'a> {
     /// A list of the texture's mipmaps, with index 0 being the original
     /// texture, and the indices after that each having half the width and
     /// height of the previous level.
@@ -49,7 +78,7 @@ pub struct RenderableTexture<'a> {
 ///
 /// Returns false if the draw queue does not have enough free space to draw this
 /// texture.
-pub fn draw(
+fn draw(
     src: RenderableTexture,
     dst: Rect,
     draw_queue: &mut DrawQueue,

@@ -57,7 +57,7 @@ impl Serialize for ResourceDatabaseHeader {
         let mut cursor = 0;
 
         {
-            use crate::resources::*;
+            use super::*;
             use platform::*;
 
             serialize::<u32>(&RESOURCE_DB_MAGIC_NUMBER, dst, &mut cursor);

@@ -134,7 +134,7 @@ impl<T> Queue<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{allocators::LinearAllocator, static_allocator};
+    use crate::allocators::{static_allocator, LinearAllocator};
 
     use super::Queue;
 

@@ -136,14 +136,14 @@ impl Default for EngineLimits {
 
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
-pub struct Engine<'eng> {
+pub struct Engine<'a> {
     /// Database of the non-code parts of the game, e.g. textures.
     resource_db: ResourceDatabase,
     /// Queue of loading tasks which insert loaded chunks into the `resource_db`
     /// occasionally.
     resource_loader: ResourceLoader,
     /// Linear allocator for any frame-internal dynamic allocation needs.
-    frame_arena: LinearAllocator<'eng>,
+    frame_arena: LinearAllocator<'a>,
     /// Thread pool for splitting compute-heavy workloads to multiple threads.
     thread_pool: ThreadPool,
     /// Mixer for playing back audio.
@@ -159,7 +159,7 @@ pub struct Engine<'eng> {
     test_counter: u32,
 }
 
-impl<'eng> Engine<'eng> {
+impl Engine<'_> {
     /// Creates a new instance of the engine.
     ///
     /// - `platform`: the platform implementation to be used for this instance
@@ -170,7 +170,7 @@ impl<'eng> Engine<'eng> {
     ///   for dialing in the appropriate tradeoffs between memory usage and game
     ///   requirements.
     pub fn new(
-        platform: &'eng dyn Platform,
+        platform: &dyn Platform,
         arena: &'static LinearAllocator,
         limits: EngineLimits,
     ) -> Self {

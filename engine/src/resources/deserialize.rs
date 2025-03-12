@@ -55,7 +55,7 @@ impl Deserialize for ResourceDatabaseHeader {
         let mut cursor = 0;
 
         {
-            use crate::resources::*;
+            use super::*;
             use platform::*;
 
             let magic = deserialize::<u32>(src, &mut cursor);
