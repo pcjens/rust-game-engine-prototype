@@ -14,6 +14,7 @@ use super::{impl_game_object, ComponentColumn, Scene};
 
 /// Type description for allocation and type comparison of components. Generated
 /// by [`impl_game_object`].
+#[derive(Clone, Copy)]
 pub struct ComponentInfo {
     /// The type of the component. Eventually passed into a [`ComponentColumn`],
     /// and returned from [`ComponentColumn::component_type`].
@@ -29,9 +30,14 @@ pub struct ComponentInfo {
 pub trait GameObject: Any + Debug {
     /// Returns the allocation and type comparison details for the components of
     /// this game object type.
+    ///
+    /// The order of the infos is the same as [`GameObject::components`].
     fn component_infos() -> ComponentVec<ComponentInfo>;
     /// Returns a single game object's components as anonymous byte slices, with
     /// the type id for component type detection.
+    ///
+    /// The order of the components is the same as
+    /// [`GameObject::component_infos`].
     fn components(&self) -> ComponentVec<(TypeId, &[u8])>;
 }
 
@@ -112,7 +118,7 @@ macro_rules! impl_game_object {
 
     // The main impl-block generator
     (impl GameObject for $struct_name:ident using components {
-        $($field_names:ident: $field_types:ty),+,
+        $($field_names:ident: $field_types:ty),+$(,)?
     }) => {
         impl $crate::game_objects::GameObject for $struct_name {
             fn component_infos(

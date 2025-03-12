@@ -2,10 +2,19 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//!
+//! This module makes wide use of macros, which means that there's quite a bit
+//! of the "plumbing" exposed in this module. The main parts to look into are
+//! [`Scene`](crate::game_objects::Scene), [`define_system`], and
+//! [`impl_game_object`].
+
 mod game_object;
 mod scene_builder;
 
-use core::any::{Any, TypeId};
+use core::{
+    any::{Any, TypeId},
+    cmp::{Ordering, Reverse},
+};
 
 use arrayvec::ArrayVec;
 use bytemuck::Pod;
@@ -32,14 +41,14 @@ pub type ComponentVec<T> = ArrayVec<T, MAX_COMPONENTS>;
 /// This type generally doesn't need to be interfaced with directly, as
 /// [`define_system`] can check and cast these into properly typed slices.
 pub struct ComponentColumn<'a> {
-    component_type: TypeId,
+    component_info: ComponentInfo,
     data: FixedVec<'a, u8>,
 }
 
 impl ComponentColumn<'_> {
     /// Returns the type of the components contained in this struct.
     pub fn component_type(&self) -> TypeId {
-        self.component_type
+        self.component_info.type_id
     }
 
     /// If the [`TypeId`] of `C` is the same as
@@ -50,7 +59,7 @@ impl ComponentColumn<'_> {
     /// [`define_system`] is a straightforward wrapper for iterating through the
     /// columns and calling this on the right one.
     pub fn get_mut<C: Any + Pod>(&mut self) -> Option<&mut [C]> {
-        if self.component_type == TypeId::of::<C>() {
+        if self.component_info.type_id == TypeId::of::<C>() {
             Some(bytemuck::cast_slice_mut::<u8, C>(&mut self.data))
         } else {
             None
@@ -61,6 +70,49 @@ impl ComponentColumn<'_> {
 struct GameObjectTable<'a> {
     game_object_type: TypeId,
     columns: ComponentVec<ComponentColumn<'a>>,
+}
+
+impl GameObjectTable<'_> {
+    /// Swaps the components in all component between the first and second
+    /// index.
+    ///
+    /// If the indices are the same, this does nothing.
+    fn swap(&mut self, index_a: usize, index_b: usize) {
+        match index_a.cmp(&index_b) {
+            Ordering::Equal => {}
+            Ordering::Greater => self.swap(index_b, index_a),
+            Ordering::Less => {
+                for col in &mut self.columns {
+                    let size = col.component_info.size;
+                    let a_byte_index = size * index_a;
+                    let b_byte_index = size * index_b;
+                    let (contains_a, starts_with_b) = col.data.split_at_mut(b_byte_index);
+                    let a = &mut contains_a[a_byte_index..a_byte_index + size];
+                    let b = &mut starts_with_b[..size];
+                    a.swap_with_slice(b);
+                }
+            }
+        }
+    }
+
+    /// Truncates the component columns to only contain `new_len` components,
+    /// i.e. deletes game objects from the end of this table to have `new_len`
+    /// game objects at maximum.
+    fn truncate(&mut self, new_len: usize) {
+        for col in &mut self.columns {
+            let new_bytes_len = new_len * col.component_info.size;
+            col.data.truncate(new_bytes_len);
+        }
+    }
+
+    fn len(&self) -> usize {
+        if self.columns.is_empty() {
+            0
+        } else {
+            let col = &self.columns[0];
+            col.data.len() / col.component_info.size
+        }
+    }
 }
 
 /// Error type returned by [`Scene::spawn`].
@@ -76,9 +128,54 @@ pub enum SpawnError {
     /// This can be avoided by reserving more space in the first place (via the
     /// `count` parameter of [`SceneBuilder::with_game_object_type`]), or at
     /// runtime by removing at least one existing game object of the same type
-    /// to make room. Game objects can be removed with the [`Scene::retain`]
+    /// to make room. Game objects can be removed with the [`Scene::delete`]
     /// function.
     NoSpace,
+}
+
+/// Temporary handle for operating on specific game objects. Invalidated by
+/// [`Scene::delete`].
+///
+/// After invalidation, these handles don't refer to anything.
+#[derive(Clone, Copy, Debug)]
+pub struct GameObjectHandle {
+    scene_id: u32,
+    scene_generation: u64,
+    game_object_table_index: u32,
+    game_object_index: usize,
+}
+
+/// Returns [`GameObjectHandle`]s for referring to the game objects in e.g.
+/// [`Scene::delete`].
+///
+/// When iterated alongside the component slices in [`Scene::run_system`] (e.g.
+/// with a [`Zip`](core::iter::Zip) iterator), the returned handles correspond
+/// to the game objects whose components are being used on any particular
+/// iteration.
+pub struct GameObjectHandleIterator {
+    scene_id: u32,
+    scene_generation: u64,
+    game_object_table_index: u32,
+    next_game_object_index: usize,
+    total_game_objects: usize,
+}
+
+impl Iterator for GameObjectHandleIterator {
+    type Item = GameObjectHandle;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_game_object_index < self.total_game_objects {
+            let game_object_index = self.next_game_object_index;
+            self.next_game_object_index += 1;
+            Some(GameObjectHandle {
+                scene_id: self.scene_id,
+                scene_generation: self.scene_generation,
+                game_object_table_index: self.game_object_table_index,
+                game_object_index,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 /// Container for [`GameObject`]s.
@@ -175,6 +272,13 @@ pub enum SpawnError {
 // TODO: figure out how games should approach Scenes' lifetimes
 // (and update the above example accordingly)
 pub struct Scene<'a> {
+    /// A unique identifier for distinguishing between [`GameObjectHandle`]s
+    /// acquired from different scenes.
+    id: u32,
+    /// An incrementing value for detecting invalidated [`GameObjectHandle`]s.
+    /// Incremented whenever indexes to game_object_tables or the tables' inner
+    /// vecs are invalidated.
+    generation: u64,
     game_object_tables: FixedVec<'a, GameObjectTable<'a>>,
 }
 
@@ -202,7 +306,7 @@ impl Scene<'_> {
         }
 
         for (col, (c_type, c_data)) in table.columns.iter_mut().zip(components) {
-            assert_eq!(col.component_type, *c_type);
+            assert_eq!(col.component_info.type_id, *c_type);
             let write_succeeded = col.data.extend_from_slice(c_data);
             assert!(write_succeeded, "component should fit");
         }
@@ -212,6 +316,10 @@ impl Scene<'_> {
 
     /// Runs `system_func` for each game object type in this [`Scene`], passing
     /// in the components for each.
+    ///
+    /// Returns `false` if all `system_func` invocations return `false`. When
+    /// using [`define_system`], this happens when the scene doesn't contain any
+    /// game object types with the set of components requested.
     ///
     /// Each [`ComponentColumn`] contains tightly packed data for a specific
     /// component type, and the columns can be zipped together to iterate
@@ -224,22 +332,70 @@ impl Scene<'_> {
     /// documentation for example usage.
     pub fn run_system<F>(&mut self, mut system_func: F) -> bool
     where
-        F: FnMut(ComponentVec<&mut ComponentColumn>) -> bool,
+        F: FnMut(GameObjectHandleIterator, ComponentVec<&mut ComponentColumn>) -> bool,
     {
         let mut matched_any_components = false;
-        for table in &mut *self.game_object_tables {
+        for (table_index, table) in self.game_object_tables.iter_mut().enumerate() {
+            let handle_iter = GameObjectHandleIterator {
+                scene_id: self.id,
+                scene_generation: self.generation,
+                game_object_table_index: table_index as u32,
+                next_game_object_index: 0,
+                total_game_objects: table.len(),
+            };
+
             let mut columns = ArrayVec::new();
             for col in &mut *table.columns {
                 columns.push(col);
             }
-            matched_any_components |= system_func(columns);
+
+            matched_any_components |= system_func(handle_iter, columns);
         }
         matched_any_components
     }
 
-    #[allow(missing_docs)] // FIXME: remove once designed and implemented
-    pub fn retain(&mut self) {
-        todo!() // TODO: implement game object removal
+    /// Deletes the game objects referred to by the given handles.
+    ///
+    /// If any handles are invalid (e.g. have been invalidated by a previous
+    /// call to [`Scene::delete`]), the amount of invalid handles is returned in
+    /// an Err.
+    ///
+    /// The slice of handles is mutable to allow sorting the slice, which in
+    /// turn is needed for a more efficient implemention.
+    pub fn delete(&mut self, handles: &mut [GameObjectHandle]) -> Result<(), usize> {
+        let mut invalid_handles = 0;
+
+        // Sort the handles, so that deletions are grouped by table index (not
+        // necessary for the algorithm, but seems a bit better for data
+        // locality), and the individual game object indices are processed in
+        // descending order from the end (which allows deleting by
+        // swap-and-truncate without invalidating any future indexes to delete).
+        handles.sort_unstable_by_key(|handle| {
+            (
+                handle.game_object_table_index,
+                Reverse(handle.game_object_index),
+            )
+        });
+
+        for handle in handles {
+            if handle.scene_id != self.id || handle.scene_generation != self.generation {
+                invalid_handles += 1;
+                continue;
+            }
+
+            let table = &mut self.game_object_tables[handle.game_object_table_index as usize];
+            let table_last_index = table.len() - 1;
+            table.swap(handle.game_object_index, table_last_index);
+            table.truncate(table_last_index);
+        }
+
+        self.generation += 1;
+
+        if invalid_handles == 0 {
+            Ok(())
+        } else {
+            Err(invalid_handles)
+        }
     }
 }
 
@@ -294,7 +450,9 @@ macro_rules! define_system {
     };
 
     (|$($param_name:ident: &mut [$param_type:ty]),+| $func_body:block) => {
-        |mut table: $crate::game_objects::ComponentVec<&mut $crate::game_objects::ComponentColumn>| {
+        |_handle_iter: $crate::game_objects::GameObjectHandleIterator,
+         mut table: $crate::game_objects::ComponentVec<&mut $crate::game_objects::ComponentColumn>| {
+            // TODO: how to expose the handle iterator to $func_body?
             define_system!(/gen_closure table |$($param_name: &mut [$param_type]),+| $func_body);
             true
         }
@@ -357,7 +515,7 @@ mod tests {
 
         for i in 0..10 {
             let object_x = GameObjectX {
-                a: ComponentA { value: i },
+                a: ComponentA { value: -i },
             };
             scene.spawn(object_x).unwrap();
         }
@@ -387,11 +545,31 @@ mod tests {
             "the 5 reserved slots for GameObjectY should already be in use",
         );
 
+        // Assert that there aren't any ComponentA's with positive values.
+        let mut processed_count = 0;
+        scene.run_system(define_system!(|a: &mut [ComponentA]| {
+            for a in a {
+                assert!(a.value <= 0);
+                processed_count += 1;
+            }
+        }));
+        assert!(processed_count > 0);
+
+        // Apply some changes to GameObjectY's:
         let system = define_system!(|a: &mut [ComponentA], b: &mut [ComponentB]| {
             for (a, b) in a.iter_mut().zip(b) {
                 a.value += b.value as i64;
             }
         });
         scene.run_system(system);
+
+        // Assert that there *are* positive values now.
+        let mut processed_count = 0;
+        scene.run_system(define_system!(|a: &mut [ComponentA]| {
+            for _a in a.iter_mut().filter(|a| a.value > 0) {
+                processed_count += 1;
+            }
+        }));
+        assert!(processed_count > 0);
     }
 }

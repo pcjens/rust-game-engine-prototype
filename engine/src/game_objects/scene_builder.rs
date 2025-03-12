@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use core::any::TypeId;
+use core::{
+    any::TypeId,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use arrayvec::ArrayVec;
 
@@ -173,17 +176,17 @@ impl SceneBuilder<'_> {
         } in &self.game_object_infos
         {
             let mut columns = ArrayVec::new();
-            for component in component_infos {
+            for component_info in component_infos {
                 let alloc_for_type = {
                     let i = component_datas_by_type
-                        .binary_search_by_key(&component.type_id, |(t, _)| *t)
+                        .binary_search_by_key(&component_info.type_id, |(t, _)| *t)
                         .unwrap();
                     &mut component_datas_by_type[i].1
                 };
-                let data_size = *game_object_count * component.size;
+                let data_size = *game_object_count * component_info.size;
 
                 columns.push(ComponentColumn {
-                    component_type: component.type_id,
+                    component_info: *component_info,
                     data: alloc_for_type.split_off_head(data_size).unwrap(),
                 });
             }
@@ -196,6 +199,15 @@ impl SceneBuilder<'_> {
         }
         game_object_tables.sort_unstable_by_key(|table| table.game_object_type);
 
-        Some(Scene { game_object_tables })
+        // Create a unique id for the scene
+        static SCENE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+        let prev_id = SCENE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let scene_id = prev_id.checked_add(1).unwrap();
+
+        Some(Scene {
+            id: scene_id,
+            generation: 0,
+            game_object_tables,
+        })
     }
 }
