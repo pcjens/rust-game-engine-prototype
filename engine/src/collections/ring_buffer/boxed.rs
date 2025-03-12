@@ -8,11 +8,8 @@ use platform::Box;
 
 use super::RingAllocationMetadata;
 
-#[allow(unused_imports)] // used in docs
-use super::RingBuffer;
-
-/// Owned pointer into a [`RingBuffer`]. [`RingBuffer::free_box`] instead of
-/// [`drop`]!
+/// Owned pointer into a [`RingBuffer`](super::RingBuffer).
+/// [`RingBuffer::free_box`](super::RingBuffer::free_box) instead of [`drop`]!
 #[derive(Debug)]
 pub struct RingBox<T: 'static> {
     pub(super) boxed: Box<T>,

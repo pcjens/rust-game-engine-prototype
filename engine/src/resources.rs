@@ -187,14 +187,12 @@ mod named_asset {
 
     use arrayvec::ArrayString;
 
-    #[allow(unused_imports)] // used in docs
-    use super::ResourceDatabase;
-
     /// Maximum length for the unique names of assets.
     pub const ASSET_NAME_LENGTH: usize = 27;
 
-    /// A unique name and a `T`. Used in [`ResourceDatabase`] and when creating
-    /// the db file.
+    /// A unique name and a `T`. Used in
+    /// [`ResourceDatabase`](super::ResourceDatabase) and when creating the db
+    /// file.
     ///
     /// Implements equality and comparison operators purely based on the name,
     /// as assets with a specific name should be unique within a resource

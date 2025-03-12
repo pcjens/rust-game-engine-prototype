@@ -9,8 +9,6 @@ use core::{
     slice,
 };
 
-#[allow(unused_imports)] // mentioned in docs
-use arrayvec::ArrayVec;
 use bytemuck::{fill_zeroes, Zeroable};
 
 use crate::allocators::LinearAllocator;
@@ -19,10 +17,10 @@ use crate::allocators::LinearAllocator;
 ///
 /// Named like Vec since it's used similarly, but this type does *not* allocate
 /// more memory as needed. Very cheap to create and push to. Unlike
-/// [`ArrayVec`], the capacity can be picked at runtime, and the backing memory
-/// does not need to be initialized until it's actually used. This means that
-/// creating a [`FixedVec`] is very fast, and you only pay in page faults for
-/// the memory you actually use.
+/// [`ArrayVec`](arrayvec::ArrayVec), the capacity can be picked at runtime, and
+/// the backing memory does not need to be initialized until it's actually used.
+/// This means that creating a [`FixedVec`] is very fast, and you only pay in
+/// page faults for the memory you actually use.
 pub struct FixedVec<'a, T> {
     uninit_slice: &'a mut [MaybeUninit<T>],
     initialized_len: usize,

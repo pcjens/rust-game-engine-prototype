@@ -8,12 +8,10 @@ use platform::{BlendMode, DrawSettings, Platform, TextureFilter, TextureRef, Ver
 
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 
-#[allow(unused_imports)] // used in docs
-use crate::resources::texture::TextureAsset;
-
 /// Parameters for rendering a textured quad.
 ///
-/// Generally created by the engine in e.g. [`TextureAsset::draw`].
+/// Generally created by the engine in e.g.
+/// [`TextureAsset::draw`](crate::resources::texture::TextureAsset::draw).
 #[derive(Debug)]
 pub struct TexQuad {
     /// The top-left coordinate of the quad in the same coordinate system as

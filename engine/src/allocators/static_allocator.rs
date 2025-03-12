@@ -2,11 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#[allow(unused_imports)] // used in docs
-use super::LinearAllocator;
-
-/// Creates a static [`LinearAllocator`] with the given amount of bytes of
-/// backing memory.
+/// Creates a static [`LinearAllocator`](super::LinearAllocator) with the given
+/// amount of bytes of backing memory.
 ///
 /// Note that this creates an allocator backed by a static byte array, i.e. the
 /// memory isn't dynamically allocated nor freed, it's just a big static

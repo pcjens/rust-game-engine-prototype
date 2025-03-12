@@ -8,10 +8,8 @@ use platform::Box;
 
 use super::RingAllocationMetadata;
 
-#[allow(unused_imports)] // used in docs
-use super::RingBuffer;
-
-/// Owned slice of a [`RingBuffer`]. [`RingBuffer::free`] instead of [`drop`]!
+/// Owned slice of a [`RingBuffer`](super::RingBuffer).
+/// [`RingBuffer::free`](super::RingBuffer::free) instead of [`drop`]!
 #[derive(Debug)]
 pub struct RingSlice<T: 'static> {
     pub(super) slice: Box<[T]>,

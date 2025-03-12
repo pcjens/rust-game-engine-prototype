@@ -20,9 +20,6 @@ use crate::{
     Box,
 };
 
-#[allow(unused_imports)] // used by docs
-use crate::Platform;
-
 /// Handle to a running or waiting task on a [`ThreadPool`].
 ///
 /// These should be passed into [`ThreadPool::join_task`] in the same order as
@@ -106,14 +103,16 @@ pub type TaskReceiver = Receiver<TaskInFlight>;
 /// Channel used by [`ThreadPool`] for communicating with the processing
 /// threads.
 ///
-/// Passed into [`Platform::spawn_pool_thread`].
+/// Passed into
+/// [`Platform::spawn_pool_thread`](crate::Platform::spawn_pool_thread).
 pub type TaskChannel = (TaskSender, TaskReceiver);
 
 /// State held by [`ThreadPool`] for sending and receiving [`TaskInFlight`]s
 /// between it and a thread.
 ///
-/// Returned from [`Platform::spawn_pool_thread`], multiple of these are used to
-/// create a [`ThreadPool`].
+/// Returned from
+/// [`Platform::spawn_pool_thread`](crate::Platform::spawn_pool_thread),
+/// multiple of these are used to create a [`ThreadPool`].
 pub struct ThreadState {
     /// For sending tasks to the thread.
     sender: TaskSender,

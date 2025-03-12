@@ -6,9 +6,7 @@ use core::ops::Range;
 
 use platform::{Platform, TextureRef};
 
-use crate::resources::CHUNK_SIZE;
-#[allow(unused_imports)] // used in docs
-use crate::resources::{TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
+use crate::resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
 
 /// Metadata for loading in a [`ChunkData`].
 #[derive(Debug, Clone)]

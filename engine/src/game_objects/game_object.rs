@@ -9,15 +9,13 @@ use core::{
 
 use super::ComponentVec;
 
-#[allow(unused_imports)] // used in docs
-use super::{impl_game_object, ComponentColumn, Scene};
-
 /// Type description for allocation and type comparison of components. Generated
-/// by [`impl_game_object`].
+/// by [`impl_game_object`](super::impl_game_object).
 #[derive(Clone, Copy)]
 pub struct ComponentInfo {
-    /// The type of the component. Eventually passed into a [`ComponentColumn`],
-    /// and returned from [`ComponentColumn::component_type`].
+    /// The type of the component. Eventually passed into a
+    /// [`ComponentColumn`](super::ComponentColumn), and returned from
+    /// [`ComponentColumn::component_type`](super::ComponentColumn::component_type).
     pub type_id: TypeId,
     /// The [size_of] the component type.
     pub size: usize,
@@ -26,7 +24,8 @@ pub struct ComponentInfo {
 }
 
 /// Trait that game object types implement to be able to be added to a
-/// [`Scene`]. Impl generated with [`impl_game_object`].
+/// [`Scene`](super::Scene). Impl generated with
+/// [`impl_game_object`](super::impl_game_object).
 pub trait GameObject: Any + Debug {
     /// Returns the allocation and type comparison details for the components of
     /// this game object type.
@@ -88,7 +87,7 @@ pub trait GameObject: Any + Debug {
 /// ```
 ///
 /// For a more fully featured example for using these game objects, see the
-/// documentation for [`Scene`].
+/// documentation for [`Scene`](super::Scene).
 #[macro_export]
 macro_rules! impl_game_object {
     // Generators for the GameObject::component_infos implementation

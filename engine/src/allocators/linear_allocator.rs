@@ -14,9 +14,6 @@ use core::{
 use bytemuck::{fill_zeroes, Zeroable};
 use platform::Box;
 
-#[allow(unused_imports)] // used in docs
-use crate::allocators::static_allocator;
-
 /// A linear allocator with a constant capacity. Can allocate memory regions
 /// with any size or alignment (within the capacity) very fast, but individual
 /// allocations can't be freed to make more space while there's still other
@@ -53,7 +50,8 @@ impl LinearAllocator<'_> {
     /// memory. Returns None if allocating the memory fails or if `capacity`
     /// overflows `isize`.
     ///
-    /// See [`static_allocator`] for bootstrapping one of these.
+    /// See [`static_allocator`](crate::static_allocator) for bootstrapping one
+    /// of these.
     pub fn new<'a>(allocator: &'a LinearAllocator, capacity: usize) -> Option<LinearAllocator<'a>> {
         if capacity > isize::MAX as usize {
             // Practically never happens, but asserting this here helps avoid a

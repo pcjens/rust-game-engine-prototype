@@ -4,9 +4,6 @@
 
 use crate::Box;
 
-#[allow(unused_imports)] // used in docs
-use super::Platform;
-
 /// Platform-specific file handle.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FileHandle(u64);
@@ -62,7 +59,8 @@ impl FileReadTask {
     }
 
     /// Deconstructs this into the inner buffer. Intended for platform layers
-    /// implementing [`Platform::finish_file_read`].
+    /// implementing
+    /// [`Platform::finish_file_read`](crate::Platform::finish_file_read).
     ///
     /// ### Safety
     ///

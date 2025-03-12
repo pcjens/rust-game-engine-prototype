@@ -8,9 +8,6 @@ use core::{
     time::Duration,
 };
 
-#[allow(unused_imports)] // used in docs
-use crate::Platform;
-
 /// Analogous to the standard library `Instant` type, representing a point in
 /// time.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,7 +34,8 @@ impl Instant {
     /// instances of [`Instant`].
     ///
     /// Generally intended to be used once in the platform implementation. Use
-    /// [`Platform::now`] to get the current point in time.
+    /// [`Platform::now`](crate::Platform::now) to get the current point in
+    /// time.
     pub const fn reference() -> Instant {
         Instant(Duration::from_secs(u64::MAX / 2))
     }

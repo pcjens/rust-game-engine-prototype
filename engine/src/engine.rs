@@ -27,9 +27,6 @@ enum TestInput {
     _Count,
 }
 
-#[allow(unused_imports)] // used in docs
-use crate::resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
-
 /// Parameters affecting the memory usage of the engine, used in
 /// [`Engine::new`].
 ///
@@ -46,8 +43,9 @@ pub struct EngineLimits {
     /// Defaults to 8 MiB (`8 * 1024 * 1024`).
     pub frame_arena_size: usize,
     /// The maximum amount of concurrently loaded resource chunks. This count,
-    /// multiplied by [`CHUNK_SIZE`], is the amount of bytes allocated for
-    /// non-VRAM based asset memory, like audio clips being played.
+    /// multiplied by [`CHUNK_SIZE`](crate::resources::CHUNK_SIZE), is the
+    /// amount of bytes allocated for non-VRAM based asset memory, like audio
+    /// clips being played.
     ///
     /// Defaults to 128.
     pub resource_database_loaded_chunks_count: u32,
@@ -55,8 +53,9 @@ pub struct EngineLimits {
     /// depending on the platform, will control the amount of VRAM required by
     /// the engine. Each texture chunk's memory requirements depend on the
     /// platform, but each chunk contains texture data with the format and
-    /// resolution defined by [`TEXTURE_CHUNK_FORMAT`] and
-    /// [`TEXTURE_CHUNK_DIMENSIONS`].
+    /// resolution defined by
+    /// [`TEXTURE_CHUNK_FORMAT`](crate::resources::TEXTURE_CHUNK_FORMAT) and
+    /// [`TEXTURE_CHUNK_DIMENSIONS`](crate::resources::TEXTURE_CHUNK_DIMENSIONS).
     ///
     /// Defaults to 1024.
     ///
