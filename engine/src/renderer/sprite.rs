@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Texture drawing specifics.
+//! Sprite drawing specifics.
 //!
-//! This is the "runtime-half" of TextureAsset, the other half being the
-//! "import-half" implemented in `import_asset::importers::texture`. These two
-//! modules are very tightly linked: this module assumes the texture chunks are
+//! This is the "runtime-half" of [`SpriteAsset`], the other half being the
+//! "import-half" implemented in `import_asset::importers::sprite`. These two
+//! modules are very tightly linked: this module assumes the sprite chunks are
 //! laid out in a specific way, and the importer is responsible for writing the
-//! texture chunks out in said layout.
+//! sprite chunks out in said layout.
 
 use core::ops::Range;
 
@@ -17,21 +17,23 @@ use platform::BlendMode;
 use crate::{
     geom::Rect,
     resources::{
-        texture::{TextureAsset, TextureMipLevel},
-        ResourceDatabase, ResourceLoader, TEXTURE_CHUNK_DIMENSIONS,
+        sprite::{SpriteAsset, SpriteMipLevel},
+        ResourceDatabase, ResourceLoader, SPRITE_CHUNK_DIMENSIONS,
     },
 };
 
-use super::{DrawQueue, TexQuad};
+use super::{DrawQueue, SpriteQuad};
 
-const CHUNK_WIDTH: u16 = TEXTURE_CHUNK_DIMENSIONS.0;
-const CHUNK_HEIGHT: u16 = TEXTURE_CHUNK_DIMENSIONS.1;
+const CHUNK_WIDTH: u16 = SPRITE_CHUNK_DIMENSIONS.0;
+const CHUNK_HEIGHT: u16 = SPRITE_CHUNK_DIMENSIONS.1;
 
-impl TextureAsset {
-    /// Draw this texture into the `dst` rectangle.
+impl SpriteAsset {
+    /// Draw this sprite into the `dst` rectangle.
     ///
-    /// Returns false if the texture couldn't be drawn due to the draw queue
-    /// filling up.
+    /// Returns false if the sprite couldn't be drawn due to the draw queue
+    /// filling up. Note that one draw may cause multiple draws in the queue,
+    /// since sprites are split into chunks, each of which gets drawn as a
+    /// separate quad.
     #[must_use]
     pub fn draw(
         &self,
@@ -42,7 +44,7 @@ impl TextureAsset {
         resource_loader: &mut ResourceLoader,
     ) -> bool {
         draw(
-            RenderableTexture {
+            RenderableSprite {
                 mip_chain: &self.mip_chain,
                 transparent: self.transparent,
                 draw_order,
@@ -55,41 +57,41 @@ impl TextureAsset {
     }
 }
 
-/// Render-time relevant parts of a texture.
-struct RenderableTexture<'a> {
-    /// A list of the texture's mipmaps, with index 0 being the original
-    /// texture, and the indices after that each having half the width and
-    /// height of the previous level.
-    pub mip_chain: &'a [TextureMipLevel],
-    /// Should be set to true if the texture has any non-opaque pixels to avoid
+/// Render-time relevant parts of a sprite.
+struct RenderableSprite<'a> {
+    /// A list of the sprite's mipmaps, with index 0 being the original sprite,
+    /// and the indices after that each having half the width and height of the
+    /// previous level.
+    pub mip_chain: &'a [SpriteMipLevel],
+    /// Should be set to true if the sprite has any non-opaque pixels to avoid
     /// rendering artifacts.
     pub transparent: bool,
-    /// The draw order used when drawing this texture. See
+    /// The draw order used when drawing this sprite. See
     /// [`TexQuad::draw_order`].
     pub draw_order: u8,
 }
 
-/// The main textured rendering function.
+/// The main sprite rendering function.
 ///
 /// May push more than one draw command into the [`DrawQueue`] when rendering
-/// large textures at large sizes, as the texture may consist of multiple
-/// texture chunks (see [`TEXTURE_CHUNK_DIMENSIONS`] for the size of each
+/// large sprites at large sizes, as the sprite may consist of multiple
+/// sprite chunks (see [`SPRITE_CHUNK_DIMENSIONS`] for the size of each
 /// chunk).
 ///
 /// Returns false if the draw queue does not have enough free space to draw this
-/// texture.
+/// sprite.
 fn draw(
-    src: RenderableTexture,
+    src: RenderableSprite,
     dst: Rect,
     draw_queue: &mut DrawQueue,
     resources: &ResourceDatabase,
     resource_loader: &mut ResourceLoader,
 ) -> bool {
-    let draws_left = draw_queue.quads.spare_capacity();
+    let draws_left = draw_queue.sprites.spare_capacity();
 
     let mut draw_chunk = |chunk_index: u32, dst: Rect, tex: Rect| {
-        if let Some(chunk) = resources.texture_chunks.get(chunk_index) {
-            let quad = TexQuad {
+        if let Some(chunk) = resources.sprite_chunks.get(chunk_index) {
+            let quad = SpriteQuad {
                 position_top_left: (dst.x, dst.y),
                 position_bottom_right: (dst.x + dst.w, dst.y + dst.h),
                 texcoord_top_left: (tex.x, tex.y),
@@ -100,42 +102,40 @@ fn draw(
                 } else {
                     BlendMode::None
                 },
-                texture: chunk.0,
+                sprite: chunk.0,
             };
 
-            draw_queue.quads.push(quad).unwrap();
+            draw_queue.sprites.push(quad).unwrap();
         } else {
-            resource_loader.queue_texture_chunk(chunk_index, resources);
+            resource_loader.queue_sprite_chunk(chunk_index, resources);
         }
     };
 
-    let texture_by_render_resolution_ratio = match &src.mip_chain[0] {
-        TextureMipLevel::SingleChunkTexture { size, .. }
-        | TextureMipLevel::MultiChunkTexture { size, .. } => {
+    // Get the sprite's size divided by the resolution it's being rendered at.
+    let rendering_scale_ratio = match &src.mip_chain[0] {
+        SpriteMipLevel::SingleChunkSprite { size, .. }
+        | SpriteMipLevel::MultiChunkSprite { size, .. } => {
             let width_scale = size.0 / (dst.w * draw_queue.scale_factor) as u16;
             let height_scale = size.1 / (dst.h * draw_queue.scale_factor) as u16;
             width_scale.min(height_scale)
         }
     };
 
-    // Since every mip is half the resolution, with index 0 being the
-    // highest, log2 of the scale between the actual texture and the
-    // rendered size matches the index of the mip that matches the rendered
-    // size the closest. ilog2 rounds down, which is fine, as that'll end up
-    // picking the higher resolution mip of the two mips around the real
-    // log2 result.
-    let mip_level = texture_by_render_resolution_ratio
-        .checked_ilog2()
-        .unwrap_or(0) as usize;
+    // Since every mip is half the resolution, with index 0 being the highest,
+    // log2 of the scale between the actual sprite and the rendered size matches
+    // the index of the mip that matches the rendered size the closest. ilog2
+    // rounds down, which is fine, as that'll end up picking the higher
+    // resolution mip of the two mips around the real log2 result.
+    let mip_level = rendering_scale_ratio.checked_ilog2().unwrap_or(0) as usize;
 
     let max_mip = src.mip_chain.len() - 1;
     let mip = &src.mip_chain[mip_level.min(max_mip)];
 
     match mip {
-        TextureMipLevel::SingleChunkTexture {
+        SpriteMipLevel::SingleChunkSprite {
             offset,
             size,
-            texture_chunk,
+            sprite_chunk,
         } => {
             if draws_left == 0 {
                 return false;
@@ -147,31 +147,31 @@ fn draw(
                 w: size.0 as f32 / CHUNK_WIDTH as f32,
                 h: size.1 as f32 / CHUNK_HEIGHT as f32,
             };
-            draw_chunk(*texture_chunk, dst, tex_src);
+            draw_chunk(*sprite_chunk, dst, tex_src);
 
             true
         }
 
-        TextureMipLevel::MultiChunkTexture {
+        SpriteMipLevel::MultiChunkSprite {
             size,
-            texture_chunks,
+            sprite_chunks,
         } => {
             let chunks_x = size.0.div_ceil(CHUNK_WIDTH - 2) as u32;
             let chunks_y = size.1.div_ceil(CHUNK_HEIGHT - 2) as u32;
             assert_eq!(
                 chunks_x * chunks_y,
-                texture_chunks.end - texture_chunks.start,
-                "resource database has a corrupt chunk, amount of chunks does not match the texture size",
+                sprite_chunks.end - sprite_chunks.start,
+                "resource database has a corrupt chunk? the amount of chunks does not match the sprite size",
             );
 
             if draws_left < (chunks_x * chunks_y) as usize {
                 return false;
             }
 
-            draw_multi_chunk_texture(
+            draw_multi_chunk_sprite(
                 dst,
                 *size,
-                texture_chunks.clone(),
+                sprite_chunks.clone(),
                 (chunks_x, chunks_y),
                 draw_chunk,
             );
@@ -181,7 +181,7 @@ fn draw(
     }
 }
 
-fn draw_multi_chunk_texture(
+fn draw_multi_chunk_sprite(
     Rect { x, y, w, h }: Rect,
     (tex_width, tex_height): (u16, u16),
     chunks: Range<u32>,

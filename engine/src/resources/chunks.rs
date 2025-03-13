@@ -4,27 +4,27 @@
 
 use core::ops::Range;
 
-use platform::{Platform, TextureRef};
+use platform::{Platform, SpriteRef};
 
-use crate::resources::{CHUNK_SIZE, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT};
+use crate::resources::{CHUNK_SIZE, SPRITE_CHUNK_DIMENSIONS, SPRITE_CHUNK_FORMAT};
 
 /// Metadata for loading in a [`ChunkData`].
 #[derive(Debug, Clone)]
 pub struct ChunkDescriptor {
     /// The range of bytes in the chunk data portion of the database this
-    /// texture chunk can be loaded from.
+    /// sprite chunk can be loaded from.
     pub source_bytes: Range<u64>,
 }
 
-/// Metadata for loading in a [`TextureChunkData`].
+/// Metadata for loading in a [`SpriteChunkData`].
 #[derive(Debug, Clone)]
-pub struct TextureChunkDescriptor {
-    /// The width of the texture the chunk contains.
+pub struct SpriteChunkDescriptor {
+    /// The width of the sprite the chunk contains.
     pub region_width: u16,
-    /// The height of the texture the chunk contains.
+    /// The height of the sprite the chunk contains.
     pub region_height: u16,
     /// The range of bytes in the chunk data portion of the database this
-    /// texture chunk can be loaded from.
+    /// sprite chunk can be loaded from.
     pub source_bytes: Range<u64>,
 }
 
@@ -46,29 +46,29 @@ impl ChunkData {
     }
 }
 
-/// Loaded (video) memory for a single texture chunk. Contains a reference to a
-/// loaded texture, ready for drawing, with the size and format
-/// [`TEXTURE_CHUNK_DIMENSIONS`] and [`TEXTURE_CHUNK_FORMAT`].
-pub struct TextureChunkData(pub TextureRef);
+/// Loaded (video) memory for a single sprite chunk. Contains a reference to a
+/// loaded sprite, ready for drawing, with the size and format
+/// [`SPRITE_CHUNK_DIMENSIONS`] and [`SPRITE_CHUNK_FORMAT`].
+pub struct SpriteChunkData(pub SpriteRef);
 
-impl TextureChunkData {
-    /// Creates a new texture chunk from a newly created platform-dependent
-    /// texture.
-    pub fn empty(platform: &dyn Platform) -> Option<TextureChunkData> {
-        let (w, h) = TEXTURE_CHUNK_DIMENSIONS;
-        let format = TEXTURE_CHUNK_FORMAT;
-        Some(TextureChunkData(platform.create_texture(w, h, format)?))
+impl SpriteChunkData {
+    /// Creates a new sprite chunk from a newly created platform-dependent
+    /// sprite.
+    pub fn empty(platform: &dyn Platform) -> Option<SpriteChunkData> {
+        let (w, h) = SPRITE_CHUNK_DIMENSIONS;
+        let format = SPRITE_CHUNK_FORMAT;
+        Some(SpriteChunkData(platform.create_sprite(w, h, format)?))
     }
 
-    /// Uploads the pixel data from the buffer into the texture, based on the
-    /// [`TextureChunkDescriptor`] metadata.
+    /// Uploads the pixel data from the buffer into the sprite, based on the
+    /// [`SpriteChunkDescriptor`] metadata.
     pub fn update(
         &mut self,
-        descriptor: &TextureChunkDescriptor,
+        descriptor: &SpriteChunkDescriptor,
         buffer: &[u8],
         platform: &dyn Platform,
     ) {
-        platform.update_texture(
+        platform.update_sprite(
             self.0,
             0,
             0,

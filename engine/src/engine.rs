@@ -16,7 +16,7 @@ use crate::{
     multithreading,
     renderer::DrawQueue,
     resources::{
-        audio_clip::AudioClipHandle, texture::TextureHandle, FileReader, ResourceDatabase,
+        audio_clip::AudioClipHandle, sprite::SpriteHandle, FileReader, ResourceDatabase,
         ResourceLoader,
     },
 };
@@ -49,23 +49,22 @@ pub struct EngineLimits {
     ///
     /// Defaults to 128.
     pub resource_database_loaded_chunks_count: u32,
-    /// The maximum amount of concurrently loaded texture chunks. This,
-    /// depending on the platform, will control the amount of VRAM required by
-    /// the engine. Each texture chunk's memory requirements depend on the
-    /// platform, but each chunk contains texture data with the format and
-    /// resolution defined by
-    /// [`TEXTURE_CHUNK_FORMAT`](crate::resources::TEXTURE_CHUNK_FORMAT) and
-    /// [`TEXTURE_CHUNK_DIMENSIONS`](crate::resources::TEXTURE_CHUNK_DIMENSIONS).
+    /// The maximum amount of concurrently loaded sprite chunks. This, depending
+    /// on the platform, will control the amount of VRAM required by the engine.
+    /// Each sprite chunk's memory requirements depend on the platform, but each
+    /// chunk contains sprite data with the format and resolution defined by
+    /// [`SPRITE_CHUNK_FORMAT`](crate::resources::SPRITE_CHUNK_FORMAT) and
+    /// [`SPRITE_CHUNK_DIMENSIONS`](crate::resources::SPRITE_CHUNK_DIMENSIONS).
     ///
     /// Defaults to 1024.
     ///
-    /// Rationale for the default, just for reference: 1024 texture chunks with
-    /// 128x128 resolution, if stored in a tightly packed texture atlas, would
+    /// Rationale for the default, just for reference: 1024 sprite chunks with
+    /// 128x128 resolution, if stored in a tightly packed sprite atlas, would
     /// fit exactly in 4096x4096, which is a low enough resolution to be
     /// supported pretty much anywhere with hardware acceleration (Vulkan's
     /// minimum allowed limit is 4096, so any Vulkan-backed platform could
     /// provide this).
-    pub resource_database_loaded_texture_chunks_count: u32,
+    pub resource_database_loaded_sprite_chunks_count: u32,
     /// The maximum amount of queued resource database reading operations. This
     /// will generally increase disk read performance by having file reading
     /// operations always queued up, but costs memory and might cause lagspikes
@@ -119,7 +118,7 @@ impl EngineLimits {
     pub const DEFAULT: EngineLimits = EngineLimits {
         frame_arena_size: 8 * 1024 * 1024,
         resource_database_loaded_chunks_count: 128,
-        resource_database_loaded_texture_chunks_count: 512,
+        resource_database_loaded_sprite_chunks_count: 512,
         resource_database_read_queue_capacity: 128,
         resource_database_buffer_size: 8 * 1024 * 1024,
         audio_channel_count: 1,
@@ -137,7 +136,7 @@ impl Default for EngineLimits {
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'a> {
-    /// Database of the non-code parts of the game, e.g. textures.
+    /// Database of the non-code parts of the game, e.g. sprites.
     resource_db: ResourceDatabase,
     /// Queue of loading tasks which insert loaded chunks into the `resource_db`
     /// occasionally.
@@ -154,7 +153,7 @@ pub struct Engine<'a> {
     event_queue: EventQueue,
 
     test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
-    test_texture: TextureHandle,
+    test_sprite: SpriteHandle,
     test_audio: AudioClipHandle,
     test_counter: u32,
 }
@@ -197,7 +196,7 @@ impl Engine<'_> {
             arena,
             &mut res_reader,
             limits.resource_database_loaded_chunks_count,
-            limits.resource_database_loaded_texture_chunks_count,
+            limits.resource_database_loaded_sprite_chunks_count,
         )
         .expect("engine arena should have enough memory for the resource database");
 
@@ -212,7 +211,7 @@ impl Engine<'_> {
         )
         .expect("engine arena should have enough memory for the audio mixer");
 
-        let test_texture = resource_db.find_texture("testing texture").unwrap();
+        let test_sprite = resource_db.find_sprite("testing sprite").unwrap();
         let test_audio = resource_db.find_audio_clip("test audio clip").unwrap();
 
         Engine {
@@ -224,7 +223,7 @@ impl Engine<'_> {
             event_queue: ArrayVec::new(),
 
             test_input: None,
-            test_texture,
+            test_sprite,
             test_audio,
             test_counter: 0,
         }
@@ -240,7 +239,7 @@ impl EngineCallbacks for Engine<'_> {
             .finish_reads(&mut self.resource_db, platform, 128);
 
         self.resource_db.chunks.increment_ages();
-        self.resource_db.texture_chunks.increment_ages();
+        self.resource_db.sprite_chunks.increment_ages();
 
         let scale_factor = platform.draw_scale_factor();
         let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
@@ -263,7 +262,7 @@ impl EngineCallbacks for Engine<'_> {
             self.test_counter += 1;
         }
 
-        let test_texture = self.resource_db.get_texture(self.test_texture);
+        let test_sprite = self.resource_db.get_sprite(self.test_sprite);
         let mut offset = 0.0;
         for mip in 0..9 {
             if self.test_counter % 9 > mip {
@@ -272,7 +271,7 @@ impl EngineCallbacks for Engine<'_> {
             let scale = 1. / 2i32.pow(mip) as f32;
             let w = 319.0 * scale;
             let h = 400.0 * scale;
-            let draw_success = test_texture.draw(
+            let draw_success = test_sprite.draw(
                 Rect::xywh(offset, 0.0, w, h),
                 0,
                 &mut draw_queue,

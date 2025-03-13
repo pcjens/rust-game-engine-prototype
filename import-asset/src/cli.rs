@@ -16,10 +16,11 @@ pub enum Command {
     /// Reimports all assets in the settings file
     #[bpaf(command("reimport"))]
     Reimport {},
-    /// Adds a new texture into the resource database
-    #[bpaf(command("add-texture"))]
-    AddTexture {
-        /// The name of the texture (used to load it in game code)
+    /// Adds a new sprite into the resource database
+    #[bpaf(command("add-sprite"))]
+    #[serde(alias = "add_texture")]
+    AddSprite {
+        /// The name of the sprite (used to load it in game code)
         name: ArrayString<ASSET_NAME_LENGTH>,
         /// The image file to import
         #[bpaf(argument("FILE"), complete_shell(ShellComp::File { mask: None }))]
@@ -46,7 +47,7 @@ impl Command {
     pub fn asset_name(&self) -> Option<&str> {
         match self {
             Command::Reimport {} => None,
-            Command::AddTexture { name, .. } => Some(name),
+            Command::AddSprite { name, .. } => Some(name),
             Command::AddAudioClip { name, .. } => Some(name),
         }
     }

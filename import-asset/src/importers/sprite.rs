@@ -13,25 +13,25 @@ use std::{
 use anyhow::Context;
 use arrayvec::ArrayVec;
 use engine::resources::{
-    texture::{TextureAsset, TextureMipLevel, MAX_MIPS},
-    TextureChunkDescriptor, TEXTURE_CHUNK_DIMENSIONS, TEXTURE_CHUNK_FORMAT,
+    sprite::{SpriteAsset, SpriteMipLevel, MAX_MIPS},
+    SpriteChunkDescriptor, SPRITE_CHUNK_DIMENSIONS, SPRITE_CHUNK_FORMAT,
 };
 use image::{imageops::FilterType, load_from_memory, DynamicImage};
-use pixels::TexPixels;
+use pixels::Pixels;
 use tracing::trace;
 
 use crate::database::RelatedChunkData;
 
-/// Bytes per pixel in the texture chunk format, the only format used within
+/// Bytes per pixel in the sprite chunk format, the only format used within
 /// this module.
-const BPP: usize = TEXTURE_CHUNK_FORMAT.bytes_per_pixel();
-const CHUNK_WIDTH: usize = TEXTURE_CHUNK_DIMENSIONS.0 as usize;
-const CHUNK_HEIGHT: usize = TEXTURE_CHUNK_DIMENSIONS.1 as usize;
+const BPP: usize = SPRITE_CHUNK_FORMAT.bytes_per_pixel();
+const CHUNK_WIDTH: usize = SPRITE_CHUNK_DIMENSIONS.0 as usize;
+const CHUNK_HEIGHT: usize = SPRITE_CHUNK_DIMENSIONS.1 as usize;
 const CHUNK_STRIDE: usize = CHUNK_WIDTH * BPP;
 const CHUNK_BYTES: usize = CHUNK_STRIDE * CHUNK_HEIGHT;
 
-pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<TextureAsset> {
-    let image_bytes = fs::read(image_path).context("Failed to open texture file for importing")?;
+pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<SpriteAsset> {
+    let image_bytes = fs::read(image_path).context("Failed to open sprite file for importing")?;
     let image = load_from_memory(&image_bytes)
         .context("Failed to read image file as an image (unsupported format?)")?;
 
@@ -39,7 +39,7 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
     let height = image.height() as u16;
 
     if width == 0 || height == 0 {
-        return Err(anyhow::anyhow!("Texture must have at least one pixel"));
+        return Err(anyhow::anyhow!("Sprite must have at least one pixel"));
     }
 
     let mut transparent = false;
@@ -47,21 +47,21 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
     let mut pending_chunk_height = 0;
     let mut pending_pixels = std::vec![0; CHUNK_BYTES];
     let mut pending_chunk_tex =
-        TexPixels::new(&mut pending_pixels, CHUNK_STRIDE, CHUNK_WIDTH, CHUNK_HEIGHT).unwrap();
-    let mut pending_chunk_index = db.texture_chunks.len() as u32;
+        Pixels::new(&mut pending_pixels, CHUNK_STRIDE, CHUNK_WIDTH, CHUNK_HEIGHT).unwrap();
+    let mut pending_chunk_index = db.sprite_chunks.len() as u32;
 
     // Writes out the pending chunk into `output_chunks` and `chunk_data`.
     let mut flush_pending_chunk = |width: usize,
                                    height: usize,
-                                   tex: &TexPixels,
+                                   tex: &Pixels,
                                    chunk_index: &mut u32| {
         let start = db.chunk_data.stream_position().unwrap();
         for y in 0..height {
             db.chunk_data.write_all(&tex.row(y)[..width * BPP]).unwrap();
         }
         let end = db.chunk_data.stream_position().unwrap();
-        trace!("Writing out a {width}x{height} texture chunk at (this asset's) chunk index {chunk_index} and byte range {start}..{end}.");
-        db.texture_chunks.push(TextureChunkDescriptor {
+        trace!("Writing out a {width}x{height} sprite chunk at (this asset's) chunk index {chunk_index} and byte range {start}..{end}.");
+        db.sprite_chunks.push(SpriteChunkDescriptor {
             region_width: width as u16,
             region_height: height as u16,
             source_bytes: start..end,
@@ -69,22 +69,22 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
         *chunk_index += 1;
     };
 
-    // Allocates space from the texture chunk (or multiple, if needed), and
+    // Allocates space from the sprite chunk (or multiple, if needed), and
     // writes out the relevant chunks' data.
-    let mut allocate = |mut tex: pixels::TexPixels| -> TextureMipLevel {
-        trace!("Allocating texture chunks for: {tex:?}");
+    let mut allocate = |mut tex: pixels::Pixels| -> SpriteMipLevel {
+        trace!("Allocating sprite chunks for: {tex:?}");
 
         if !transparent {
             transparent = tex.has_transparent_pixels();
         }
 
-        // Try to fit the texture in the pending chunk
+        // Try to fit the sprite in the pending chunk
         {
-            // The width and height of the whole texture including the borders
+            // The width and height of the whole sprite including the borders
             let req_w = tex.width + 2;
             let req_h = tex.height + 2;
 
-            // Try to fit the texture to the right of the reserved region
+            // Try to fit the sprite to the right of the reserved region
             if pending_chunk_width + req_w <= CHUNK_WIDTH && req_h <= CHUNK_HEIGHT {
                 let x_offset = pending_chunk_width;
 
@@ -97,14 +97,14 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
 
                 pending_chunk_width += req_w;
                 pending_chunk_height = pending_chunk_height.max(req_h);
-                return TextureMipLevel::SingleChunkTexture {
+                return SpriteMipLevel::SingleChunkSprite {
                     offset: (x_offset as u16 + 1, 1),
                     size: (tex.width as u16, tex.height as u16),
-                    texture_chunk: pending_chunk_index,
+                    sprite_chunk: pending_chunk_index,
                 };
             }
 
-            // Try to fit the texture below the reserved region
+            // Try to fit the sprite below the reserved region
             if req_w <= CHUNK_WIDTH && pending_chunk_height + req_h <= CHUNK_HEIGHT {
                 let y_offset = pending_chunk_height;
 
@@ -117,10 +117,10 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
 
                 pending_chunk_width = pending_chunk_width.max(req_w);
                 pending_chunk_height += req_h;
-                return TextureMipLevel::SingleChunkTexture {
+                return SpriteMipLevel::SingleChunkSprite {
                     offset: (1, y_offset as u16 + 1),
                     size: (tex.width as u16, tex.height as u16),
-                    texture_chunk: pending_chunk_index,
+                    sprite_chunk: pending_chunk_index,
                 };
             }
         }
@@ -151,9 +151,9 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
                     pending_chunk_tex.pixels.fill(0);
                 }
 
-                // Copy over slice (x, y) of the texture to the new pending
-                // chunk, with the last chunk possibly leaving space for
-                // smaller mipmaps in future allocate calls
+                // Copy over the (x, y) chunk of the sprite to the new pending
+                // chunk, with the last chunk possibly leaving space for smaller
+                // mipmaps in future allocate calls
                 pending_chunk_width = chunk_width + 2;
                 pending_chunk_height = chunk_height + 2;
                 let chunk_tex = tex.subregion(x0, y0, chunk_width, chunk_height).unwrap();
@@ -172,15 +172,15 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
 
         let first_chunk = first_chunk.unwrap();
         if first_chunk == pending_chunk_index {
-            TextureMipLevel::SingleChunkTexture {
+            SpriteMipLevel::SingleChunkSprite {
                 offset: (1, 1),
                 size: (tex.width as u16, tex.height as u16),
-                texture_chunk: first_chunk,
+                sprite_chunk: first_chunk,
             }
         } else {
-            TextureMipLevel::MultiChunkTexture {
+            SpriteMipLevel::MultiChunkSprite {
                 size: (tex.width as u16, tex.height as u16),
-                texture_chunks: first_chunk..pending_chunk_index + 1,
+                sprite_chunks: first_chunk..pending_chunk_index + 1,
             }
         }
     };
@@ -193,8 +193,8 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
     for _ in 0..MAX_MIPS {
         let stride = width * BPP;
         let pixels = &mut pixels[..height * stride];
-        let tex = pixels::TexPixels::new(pixels, stride, width, height).unwrap();
-        render_texture(&image, tex.width, tex.height, tex.stride, tex.pixels);
+        let tex = pixels::Pixels::new(pixels, stride, width, height).unwrap();
+        render_sprite(&image, tex.width, tex.height, tex.stride, tex.pixels);
         mip_chain.push(allocate(tex));
 
         (width, height) = (width.div_ceil(2), height.div_ceil(2));
@@ -212,13 +212,13 @@ pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<Te
         &mut pending_chunk_index,
     );
 
-    Ok(TextureAsset {
+    Ok(SpriteAsset {
         transparent,
         mip_chain,
     })
 }
 
-fn render_texture(
+fn render_sprite(
     image: &DynamicImage,
     width: usize,
     height: usize,
@@ -227,7 +227,7 @@ fn render_texture(
 ) {
     assert_eq!(
         4, BPP,
-        "texture import logic needs updating for non-rgba engine texture format"
+        "sprite import logic needs updating for non-rgba engine sprite format"
     );
     let image = image.resize_exact(width as u32, height as u32, FilterType::CatmullRom);
     let image = image.into_rgba8();

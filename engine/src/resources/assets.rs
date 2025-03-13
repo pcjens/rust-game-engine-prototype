@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 pub mod audio_clip;
-pub mod texture;
+pub mod sprite;
 
 use core::ops::Range;
 
@@ -66,9 +66,8 @@ pub trait Asset {
     fn get_chunks(&self) -> Option<Range<u32>>;
     /// Applies an offset to all regular chunk references in the asset.
     fn offset_chunks(&mut self, offset: i32);
-    /// If this asset refers to any texture chunks, returns the range
-    /// referenced.
-    fn get_texture_chunks(&self) -> Option<Range<u32>>;
-    /// Applies an offset to all texture chunk references in the asset.
-    fn offset_texture_chunks(&mut self, offset: i32);
+    /// If this asset refers to any sprite chunks, returns the range referenced.
+    fn get_sprite_chunks(&self) -> Option<Range<u32>>;
+    /// Applies an offset to all sprite chunk references in the asset.
+    fn offset_sprite_chunks(&mut self, offset: i32);
 }

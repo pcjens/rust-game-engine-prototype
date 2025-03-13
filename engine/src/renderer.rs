@@ -2,18 +2,18 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-pub mod texture;
+pub mod sprite;
 
-use platform::{BlendMode, DrawSettings, Platform, TextureFilter, TextureRef, Vertex};
+use platform::{BlendMode, DrawSettings2D, Platform, SpriteRef, TextureFilter, Vertex2D};
 
 use crate::{allocators::LinearAllocator, collections::FixedVec};
 
-/// Parameters for rendering a textured quad.
+/// Parameters for rendering a sprite.
 ///
 /// Generally created by the engine in e.g.
-/// [`TextureAsset::draw`](crate::resources::texture::TextureAsset::draw).
+/// [`SpriteAsset::draw`](crate::resources::sprite::SpriteAsset::draw).
 #[derive(Debug)]
-pub struct TexQuad {
+pub struct SpriteQuad {
     /// The top-left coordinate of the quad in the same coordinate system as
     /// what [`Platform::draw_area`] returns.
     pub position_top_left: (f32, f32),
@@ -26,20 +26,20 @@ pub struct TexQuad {
     /// The bottom-right texture coordinate of the quad, each axis between 0..1,
     /// with (0, 0) describing the top-left corner of the texture.
     pub texcoord_bottom_right: (f32, f32),
-    /// The drawing order of this particular textured quad. Quads with a lower
-    /// draw order are rendered below others with a higher one.
+    /// The drawing order of this particular sprite. Sprites with a lower draw
+    /// order are rendered below others with a higher one.
     pub draw_order: u8,
-    /// The blending mode (if any) to use to draw this texture above the other
-    /// textures drawn below this one.
+    /// The blending mode (if any) to use to draw this sprite above the other
+    /// sprites drawn below this one.
     pub blend_mode: BlendMode,
-    /// The texture used to draw this quad with. The region of the texture used
-    /// is controlled with the `texcoord_*` fields.
-    pub texture: TextureRef,
+    /// The sprite used to draw this quad with. The region of the sprite used is
+    /// controlled with the `texcoord_*` fields.
+    pub sprite: SpriteRef,
 }
 
-impl TexQuad {
-    fn draw_call_identifier(&self) -> (TextureRef, BlendMode, u8) {
-        (self.texture, self.blend_mode, self.draw_order)
+impl SpriteQuad {
+    fn draw_call_identifier(&self) -> (SpriteRef, BlendMode, u8) {
+        (self.sprite, self.blend_mode, self.draw_order)
     }
 }
 
@@ -49,10 +49,10 @@ impl TexQuad {
 /// Intended to be recreated every frame, but can be reused between frames to
 /// avoid having to queue up the draws again.
 pub struct DrawQueue<'frm> {
-    /// Textured quads to draw.
-    pub quads: FixedVec<'frm, TexQuad>,
-    /// [`Platform::draw_scale_factor`], stored here because all textured
-    /// rendering functionality needs it.
+    /// Sprites to draw.
+    pub sprites: FixedVec<'frm, SpriteQuad>,
+    /// [`Platform::draw_scale_factor`], stored here because all sprite
+    /// rendering needs it, and also has access to the draw queue.
     pub scale_factor: f32,
 }
 
@@ -64,7 +64,7 @@ impl<'frm> DrawQueue<'frm> {
         scale_factor: f32,
     ) -> Option<DrawQueue<'frm>> {
         Some(DrawQueue {
-            quads: FixedVec::new(allocator, max_quads)?,
+            sprites: FixedVec::new(allocator, max_quads)?,
             scale_factor,
         })
     }
@@ -73,14 +73,14 @@ impl<'frm> DrawQueue<'frm> {
     /// this point.
     pub fn dispatch_draw(&mut self, allocator: &LinearAllocator, platform: &dyn Platform) {
         'draw_quads: {
-            if self.quads.is_empty() {
+            if self.sprites.is_empty() {
                 break 'draw_quads;
             }
 
-            self.quads.sort_unstable_by(|a, b| {
+            self.sprites.sort_unstable_by(|a, b| {
                 a.draw_order
                     .cmp(&b.draw_order)
-                    .then_with(|| a.texture.cmp(&b.texture))
+                    .then_with(|| a.sprite.cmp(&b.sprite))
                     .then_with(|| a.blend_mode.cmp(&b.blend_mode))
             });
 
@@ -88,7 +88,7 @@ impl<'frm> DrawQueue<'frm> {
             {
                 let mut prev_draw_call_id = None;
                 let mut current_draw_call_length = 0;
-                for quad in self.quads.iter() {
+                for quad in self.sprites.iter() {
                     let current_draw_call_id = Some(quad.draw_call_identifier());
                     if current_draw_call_id == prev_draw_call_id {
                         current_draw_call_length += 1;
@@ -109,11 +109,11 @@ impl<'frm> DrawQueue<'frm> {
             };
 
             let mut quad_i = 0;
-            while quad_i < self.quads.len() {
+            while quad_i < self.sprites.len() {
                 // Gather vertices for this draw call
-                let current_draw_call_id = self.quads[quad_i].draw_call_identifier();
-                while quad_i < self.quads.len() {
-                    let quad = &self.quads[quad_i];
+                let current_draw_call_id = self.sprites[quad_i].draw_call_identifier();
+                while quad_i < self.sprites.len() {
+                    let quad = &self.sprites[quad_i];
                     if quad.draw_call_identifier() != current_draw_call_id {
                         break;
                     }
@@ -123,10 +123,10 @@ impl<'frm> DrawQueue<'frm> {
                     let (u0, v0) = quad.texcoord_top_left;
                     let (u1, v1) = quad.texcoord_bottom_right;
                     let vert_offset = vertices.len() as u32;
-                    let _ = vertices.push(Vertex::new(x0, y0, u0, v0));
-                    let _ = vertices.push(Vertex::new(x0, y1, u0, v1));
-                    let _ = vertices.push(Vertex::new(x1, y1, u1, v1));
-                    let _ = vertices.push(Vertex::new(x1, y0, u1, v0));
+                    let _ = vertices.push(Vertex2D::new(x0, y0, u0, v0));
+                    let _ = vertices.push(Vertex2D::new(x0, y1, u0, v1));
+                    let _ = vertices.push(Vertex2D::new(x1, y1, u1, v1));
+                    let _ = vertices.push(Vertex2D::new(x1, y0, u1, v0));
                     let _ = indices.push(vert_offset);
                     let _ = indices.push(vert_offset + 1);
                     let _ = indices.push(vert_offset + 2);
@@ -138,12 +138,12 @@ impl<'frm> DrawQueue<'frm> {
                 }
 
                 // Draw this one
-                let (texture, blend_mode, _) = current_draw_call_id;
-                platform.draw_triangles(
+                let (sprite, blend_mode, _) = current_draw_call_id;
+                platform.draw_2d(
                     &vertices,
                     &indices,
-                    DrawSettings {
-                        texture: Some(texture),
+                    DrawSettings2D {
+                        sprite: Some(sprite),
                         blend_mode,
                         texture_filter: TextureFilter::Linear,
                         clip_area: None,

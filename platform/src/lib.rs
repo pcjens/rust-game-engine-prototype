@@ -76,35 +76,34 @@ pub trait EngineCallbacks {
 pub trait Platform {
     /// Get the current screen size. Could be physical pixels, could be
     /// "logical" pixels, depends on the platform, but it's the same coordinate
-    /// system as the [`Vertex`]es passed into [`Platform::draw_triangles`].
+    /// system as the [`Vertex2D`]es passed into [`Platform::draw_2d`].
     fn draw_area(&self) -> (f32, f32);
 
     /// Get the current screen scale factor. When multiplied with
     /// [`Platform::draw_area`] should match the resolution of the framebuffer
-    /// (i.e. the resolution which textures should match for pixel perfect
+    /// (i.e. the resolution which sprites should match for pixel perfect
     /// rendering).
     fn draw_scale_factor(&self) -> f32;
 
-    /// Render out a pile of triangles.
-    fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings);
+    /// Render out a pile of possibly textured 2D triangles.
+    fn draw_2d(&self, vertices: &[Vertex2D], indices: &[u32], settings: DrawSettings2D);
 
-    /// Create a texture of the given size and format. Returns None if the
-    /// texture could not be created due to any reason (texture dimensions too
-    /// large, out of vram, etc.). See [`Vertex`] and [`DrawSettings`] for
-    /// sampler details.
+    /// Create a sprite of the given size and format. Returns None if the sprite
+    /// could not be created due to any reason (sprite dimensions too large, out
+    /// of vram, etc.). See [`Vertex2D`] and [`DrawSettings2D`] for sampler
+    /// details.
     ///
     /// ### Implementation note
     ///
-    /// These are never freed during the lifetime of the engine, which could be
-    /// exploited for performance benefits. Internally, individual textures are
-    /// reused as textures and sprites get streamed in and out.
-    fn create_texture(&self, width: u16, height: u16, format: PixelFormat) -> Option<TextureRef>;
+    /// These are never freed during the lifetime of the engine. Internally,
+    /// individual sprites are reused as they get streamed in and out.
+    fn create_sprite(&self, width: u16, height: u16, format: PixelFormat) -> Option<SpriteRef>;
 
-    /// Update the pixel data of a texture within a region. Pixels are tightly
+    /// Update the pixel data of a sprite within a region. Pixels are tightly
     /// packed and in the same format as passed into the creation function.
-    fn update_texture(
+    fn update_sprite(
         &self,
-        texture: TextureRef,
+        sprite: SpriteRef,
         x_offset: u16,
         y_offset: u16,
         width: u16,

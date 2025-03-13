@@ -8,13 +8,13 @@ use crate::{allocators::LinearAllocator, collections::Queue};
 
 use super::{
     file_reader::{FileReadError, FileReader},
-    ChunkData, ResourceDatabase, TextureChunkData,
+    ChunkData, ResourceDatabase, SpriteChunkData,
 };
 
 #[derive(Debug, PartialEq, Eq)]
 enum LoadCategory {
     Chunk,
-    TextureChunk,
+    SpriteChunk,
 }
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ struct ChunkReadInfo {
 /// [`ResourceLoader::dispatch_reads`]. The chunk data is read later to
 /// initialize chunks in [`ResourceLoader::finish_reads`]. Chunks are loaded in
 /// the order [`ResourceLoader::queue_chunk`] and
-/// [`ResourceLoader::queue_texture_chunk`] are called.
+/// [`ResourceLoader::queue_sprite_chunk`] are called.
 ///
 /// Many asset usage related functions take this struct as a parameter for
 /// queueing up relevant chunks to be loaded.
@@ -55,7 +55,7 @@ impl ResourceLoader {
             "resource loader file reader's staging buffer size is smaller than the resource database's largest chunk source",
         );
 
-        let total_chunks = resource_db.chunks.array_len() + resource_db.texture_chunks.array_len();
+        let total_chunks = resource_db.chunks.array_len() + resource_db.sprite_chunks.array_len();
         Some(ResourceLoader {
             file_reader,
             queued_reads: Queue::new(arena, total_chunks)?,
@@ -71,13 +71,13 @@ impl ResourceLoader {
         self.queue_load(chunk_index, LoadCategory::Chunk, resources);
     }
 
-    /// Queues the texture chunk at `chunk_index` to be loaded.
+    /// Queues the sprite chunk at `chunk_index` to be loaded.
     ///
     /// Note that this doesn't necessarily actually queue up a read operation,
     /// the chunk might not be queued for read if e.g. it's already been loaded,
     /// it's already been queued, or if the queue can't fit the request.
-    pub fn queue_texture_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
-        self.queue_load(chunk_index, LoadCategory::TextureChunk, resources);
+    pub fn queue_sprite_chunk(&mut self, chunk_index: u32, resources: &ResourceDatabase) {
+        self.queue_load(chunk_index, LoadCategory::SpriteChunk, resources);
     }
 
     fn queue_load(
@@ -88,8 +88,8 @@ impl ResourceLoader {
     ) {
         // Don't queue if the chunk has already been loaded.
         if (category == LoadCategory::Chunk && resources.chunks.get(chunk_index).is_some())
-            || (category == LoadCategory::TextureChunk
-                && resources.texture_chunks.get(chunk_index).is_some())
+            || (category == LoadCategory::SpriteChunk
+                && resources.sprite_chunks.get(chunk_index).is_some())
         {
             return;
         }
@@ -103,8 +103,8 @@ impl ResourceLoader {
 
         let chunk_source = match category {
             LoadCategory::Chunk => &resources.chunk_descriptors[chunk_index as usize].source_bytes,
-            LoadCategory::TextureChunk => {
-                &resources.texture_chunk_descriptors[chunk_index as usize].source_bytes
+            LoadCategory::SpriteChunk => {
+                &resources.sprite_chunk_descriptors[chunk_index as usize].source_bytes
             }
         };
         let first_byte = resources.chunk_data_offset + chunk_source.start;
@@ -153,10 +153,10 @@ impl ResourceLoader {
                         }
                     }
 
-                    LoadCategory::TextureChunk => {
-                        let desc = &resources.texture_chunk_descriptors[chunk_index as usize];
-                        let init_fn = || TextureChunkData::empty(platform);
-                        if let Some(dst) = resources.texture_chunks.insert(chunk_index, init_fn) {
+                    LoadCategory::SpriteChunk => {
+                        let desc = &resources.sprite_chunk_descriptors[chunk_index as usize];
+                        let init_fn = || SpriteChunkData::empty(platform);
+                        if let Some(dst) = resources.sprite_chunks.insert(chunk_index, init_fn) {
                             dst.update(desc, source_bytes, platform);
                         }
                     }

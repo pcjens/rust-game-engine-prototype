@@ -7,9 +7,9 @@ extern crate std;
 use core::{cell::Cell, fmt::Arguments, time::Duration};
 
 use platform::{
-    ActionCategory, Box, Button, DrawSettings, FileHandle, FileReadTask, InputDevice, InputDevices,
-    Instant, PixelFormat, Platform, Semaphore, TaskChannel, TextureRef, ThreadState, Vertex,
-    AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+    ActionCategory, Box, Button, DrawSettings2D, FileHandle, FileReadTask, InputDevice,
+    InputDevices, Instant, PixelFormat, Platform, Semaphore, SpriteRef, TaskChannel, ThreadState,
+    Vertex2D, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
 };
 
 /// Simple non-interactive [`Platform`] implementation for use in tests.
@@ -47,34 +47,34 @@ impl Platform for TestPlatform {
         1.5
     }
 
-    fn draw_triangles(&self, _vertices: &[Vertex], _indices: &[u32], _settings: DrawSettings) {}
+    fn draw_2d(&self, _vertices: &[Vertex2D], _indices: &[u32], _settings: DrawSettings2D) {}
 
-    fn create_texture(&self, width: u16, height: u16, format: PixelFormat) -> Option<TextureRef> {
+    fn create_sprite(&self, width: u16, height: u16, format: PixelFormat) -> Option<SpriteRef> {
         let fmt = match format {
             PixelFormat::Rgba => 1,
         };
-        Some(TextureRef::new(
+        Some(SpriteRef::new(
             (fmt << 32) | ((width as u64) << 16) | (height as u64),
         ))
     }
 
-    fn update_texture(
+    fn update_sprite(
         &self,
-        texture: TextureRef,
+        sprite: SpriteRef,
         x: u16,
         y: u16,
         width: u16,
         height: u16,
         pixels: &[u8],
     ) {
-        let fmt = texture.inner() >> 32;
-        let tex_width = ((texture.inner() >> 16) & 0xFFFF) as u16;
-        let tex_height = (texture.inner() & 0xFFFF) as u16;
-        assert!(x + width <= tex_width, "out of bounds texture update");
-        assert!(y + height <= tex_height, "out of bounds texture update");
+        let fmt = sprite.inner() >> 32;
+        let tex_width = ((sprite.inner() >> 16) & 0xFFFF) as u16;
+        let tex_height = (sprite.inner() & 0xFFFF) as u16;
+        assert!(x + width <= tex_width, "out of bounds sprite update");
+        assert!(y + height <= tex_height, "out of bounds sprite update");
         match fmt {
             1 => assert_eq!(width as u64 * height as u64 * 4, pixels.len() as u64),
-            _ => panic!("got an invalid TextureRef, not from TestPlatform::create_texture"),
+            _ => panic!("got an invalid SpriteRef, not from TestPlatform::create_sprite?"),
         }
     }
 

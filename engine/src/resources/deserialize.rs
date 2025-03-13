@@ -8,8 +8,8 @@ use arrayvec::{ArrayString, ArrayVec};
 
 use super::{
     audio_clip::AudioClipAsset,
-    chunks::{ChunkDescriptor, TextureChunkDescriptor},
-    texture::{TextureAsset, TextureMipLevel, MAX_MIPS},
+    chunks::{ChunkDescriptor, SpriteChunkDescriptor},
+    sprite::{SpriteAsset, SpriteMipLevel, MAX_MIPS},
     NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
 
@@ -34,7 +34,7 @@ impl Deserialize for ChunkDescriptor {
     }
 }
 
-impl Deserialize for TextureChunkDescriptor {
+impl Deserialize for SpriteChunkDescriptor {
     const SERIALIZED_SIZE: usize =
         u16::SERIALIZED_SIZE * 2 + <Range<u64> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
@@ -62,12 +62,12 @@ impl Deserialize for ResourceDatabaseHeader {
             assert_eq!(RESOURCE_DB_MAGIC_NUMBER, magic);
             let chunk_size = deserialize::<u32>(src, &mut cursor);
             assert_eq!(CHUNK_SIZE, chunk_size);
-            let texchunk_width = deserialize::<u16>(src, &mut cursor);
-            assert_eq!(TEXTURE_CHUNK_DIMENSIONS.0, texchunk_width);
-            let texchunk_height = deserialize::<u16>(src, &mut cursor);
-            assert_eq!(TEXTURE_CHUNK_DIMENSIONS.1, texchunk_height);
-            let texchunk_format = deserialize::<u8>(src, &mut cursor);
-            assert_eq!(TEXTURE_CHUNK_FORMAT as u8, texchunk_format);
+            let sprite_chunk_width = deserialize::<u16>(src, &mut cursor);
+            assert_eq!(SPRITE_CHUNK_DIMENSIONS.0, sprite_chunk_width);
+            let sprite_chunk_height = deserialize::<u16>(src, &mut cursor);
+            assert_eq!(SPRITE_CHUNK_DIMENSIONS.1, sprite_chunk_height);
+            let sprite_chunk_format = deserialize::<u8>(src, &mut cursor);
+            assert_eq!(SPRITE_CHUNK_FORMAT as u8, sprite_chunk_format);
             let audio_sample_rate = deserialize::<u32>(src, &mut cursor);
             assert_eq!(AUDIO_SAMPLE_RATE, audio_sample_rate);
             let audio_channels = deserialize::<u8>(src, &mut cursor);
@@ -76,8 +76,8 @@ impl Deserialize for ResourceDatabaseHeader {
 
         Self {
             chunks: deserialize::<u32>(src, &mut cursor),
-            texture_chunks: deserialize::<u32>(src, &mut cursor),
-            textures: deserialize::<u32>(src, &mut cursor),
+            sprite_chunks: deserialize::<u32>(src, &mut cursor),
+            sprites: deserialize::<u32>(src, &mut cursor),
             audio_clips: deserialize::<u32>(src, &mut cursor),
         }
     }
@@ -109,20 +109,20 @@ impl Deserialize for AudioClipAsset {
     }
 }
 
-impl Deserialize for TextureAsset {
+impl Deserialize for SpriteAsset {
     const SERIALIZED_SIZE: usize = bool::SERIALIZED_SIZE
-        + <ArrayVec<TextureMipLevel, MAX_MIPS> as Deserialize>::SERIALIZED_SIZE;
+        + <ArrayVec<SpriteMipLevel, MAX_MIPS> as Deserialize>::SERIALIZED_SIZE;
     fn deserialize(src: &[u8]) -> Self {
         assert_eq!(Self::SERIALIZED_SIZE, src.len());
         let mut cursor = 0;
         Self {
             transparent: deserialize::<bool>(src, &mut cursor),
-            mip_chain: deserialize::<ArrayVec<TextureMipLevel, MAX_MIPS>>(src, &mut cursor),
+            mip_chain: deserialize::<ArrayVec<SpriteMipLevel, MAX_MIPS>>(src, &mut cursor),
         }
     }
 }
 
-impl Deserialize for TextureMipLevel {
+impl Deserialize for SpriteMipLevel {
     // Sadly, `usize::max` is not const. One variant has 4x u16 and 1x u32, the
     // other has 2x u16 and 2x u32, so the max of the two sizes is 12.
     const SERIALIZED_SIZE: usize = bool::SERIALIZED_SIZE + 12;
@@ -131,15 +131,15 @@ impl Deserialize for TextureMipLevel {
         let mut cursor = 0;
         let multi_chunk = deserialize::<bool>(src, &mut cursor);
         if multi_chunk {
-            Self::MultiChunkTexture {
+            Self::MultiChunkSprite {
                 size: deserialize::<(u16, u16)>(src, &mut cursor),
-                texture_chunks: deserialize::<Range<u32>>(src, &mut cursor),
+                sprite_chunks: deserialize::<Range<u32>>(src, &mut cursor),
             }
         } else {
-            Self::SingleChunkTexture {
+            Self::SingleChunkSprite {
                 offset: deserialize::<(u16, u16)>(src, &mut cursor),
                 size: deserialize::<(u16, u16)>(src, &mut cursor),
-                texture_chunk: deserialize::<u32>(src, &mut cursor),
+                sprite_chunk: deserialize::<u32>(src, &mut cursor),
             }
         }
     }

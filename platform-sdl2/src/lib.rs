@@ -19,8 +19,8 @@ use std::{
 };
 
 use platform::{
-    ActionCategory, Button, DrawSettings, EngineCallbacks, FileHandle, FileReadTask, InputDevice,
-    InputDevices, Platform, Vertex, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+    ActionCategory, Button, DrawSettings2D, EngineCallbacks, FileHandle, FileReadTask, InputDevice,
+    InputDevices, Platform, Vertex2D, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
 };
 use sdl2::{
     audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired},
@@ -358,7 +358,7 @@ impl Platform for Sdl2Platform {
         pixel_width as f32 / scaled_width as f32
     }
 
-    fn draw_triangles(&self, vertices: &[Vertex], indices: &[u32], settings: DrawSettings) {
+    fn draw_2d(&self, vertices: &[Vertex2D], indices: &[u32], settings: DrawSettings2D) {
         if vertices.len() < 3 || indices.len() < 3 {
             return;
         }
@@ -390,7 +390,7 @@ impl Platform for Sdl2Platform {
                 platform::TextureFilter::NearestNeighbor => SDL_ScaleMode::SDL_ScaleModeNearest,
                 platform::TextureFilter::Linear => SDL_ScaleMode::SDL_ScaleModeLinear,
             };
-            let texture = if let Some(texture_index) = settings.texture {
+            let texture = if let Some(texture_index) = settings.sprite {
                 let i = texture_index.inner() as usize;
                 if i < textures.len() {
                     textures[i].raw()
@@ -430,12 +430,12 @@ impl Platform for Sdl2Platform {
         }
     }
 
-    fn create_texture(
+    fn create_sprite(
         &self,
         width: u16,
         height: u16,
         format: platform::PixelFormat,
-    ) -> Option<platform::TextureRef> {
+    ) -> Option<platform::SpriteRef> {
         let fmt = match format {
             // Unsure why ABGR8888 reads `[r, g, b, a, r, ...]` correctly, but here we are.
             platform::PixelFormat::Rgba => PixelFormatEnum::ABGR8888,
@@ -450,12 +450,12 @@ impl Platform for Sdl2Platform {
             textures.push(texture);
             idx
         };
-        Some(platform::TextureRef::new(texture_index as u64))
+        Some(platform::SpriteRef::new(texture_index as u64))
     }
 
-    fn update_texture(
+    fn update_sprite(
         &self,
-        texture: platform::TextureRef,
+        texture: platform::SpriteRef,
         x: u16,
         y: u16,
         width: u16,
@@ -470,7 +470,7 @@ impl Platform for Sdl2Platform {
                 pixels,
                 width as usize * bpp,
             ) {
-                println!("[Sdl2Platform::update_texure]: texture update failed: {err}");
+                println!("[Sdl2Platform::update_sprite]: sprite update failed: {err}");
             }
         }
     }

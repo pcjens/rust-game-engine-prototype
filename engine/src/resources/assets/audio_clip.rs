@@ -34,9 +34,9 @@ impl Asset for AudioClipAsset {
         self.chunks.start = (self.chunks.start as i32 + offset) as u32;
     }
 
-    fn get_texture_chunks(&self) -> Option<Range<u32>> {
+    fn get_sprite_chunks(&self) -> Option<Range<u32>> {
         None
     }
 
-    fn offset_texture_chunks(&mut self, _offset: i32) {}
+    fn offset_sprite_chunks(&mut self, _offset: i32) {}
 }

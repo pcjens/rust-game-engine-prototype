@@ -9,11 +9,11 @@ mod file_reader;
 mod loader;
 mod serialize;
 
-use assets::{audio_clip::AudioClipAsset, texture::TextureAsset};
+use assets::{audio_clip::AudioClipAsset, sprite::SpriteAsset};
 use platform::{PixelFormat, Platform, AUDIO_CHANNELS};
 
 pub use assets::*;
-pub use chunks::{ChunkData, ChunkDescriptor, TextureChunkData, TextureChunkDescriptor};
+pub use chunks::{ChunkData, ChunkDescriptor, SpriteChunkData, SpriteChunkDescriptor};
 pub use deserialize::{deserialize, Deserialize};
 pub use file_reader::FileReader;
 pub use loader::ResourceLoader;
@@ -28,10 +28,10 @@ use crate::{
 pub const RESOURCE_DB_MAGIC_NUMBER: u32 = 0xE97E6D00;
 /// Amount of bytes in the regular dynamically allocated chunks.
 pub const CHUNK_SIZE: u32 = 64 * 1024;
-/// Width and height of the dynamically allocated texture chunks.
-pub const TEXTURE_CHUNK_DIMENSIONS: (u16, u16) = (128, 128);
-/// Pixel format of the dynamically allocated texture chunks.
-pub const TEXTURE_CHUNK_FORMAT: PixelFormat = PixelFormat::Rgba;
+/// Width and height of the dynamically allocated sprite chunks.
+pub const SPRITE_CHUNK_DIMENSIONS: (u16, u16) = (128, 128);
+/// Pixel format of the dynamically allocated sprite chunks.
+pub const SPRITE_CHUNK_FORMAT: PixelFormat = PixelFormat::Rgba;
 
 /// The amount of audio samples that fit in each chunk.
 pub const AUDIO_SAMPLES_PER_CHUNK: usize = CHUNK_SIZE as usize / size_of::<[i16; AUDIO_CHANNELS]>();
@@ -42,10 +42,10 @@ pub const AUDIO_SAMPLES_PER_CHUNK: usize = CHUNK_SIZE as usize / size_of::<[i16;
 pub struct ResourceDatabaseHeader {
     /// The amount of regular chunks in the database.
     pub chunks: u32,
-    /// The amount of texture chunks in the database.
-    pub texture_chunks: u32,
-    /// The amount of [`TextureAsset`]s in the database.
-    pub textures: u32,
+    /// The amount of sprite chunks in the database.
+    pub sprite_chunks: u32,
+    /// The amount of [`SpriteAsset`]s in the database.
+    pub sprites: u32,
     /// The amount of [`AudioClipAsset`]s in the database.
     pub audio_clips: u32,
 }
@@ -59,8 +59,8 @@ impl ResourceDatabaseHeader {
         use serialize::Serialize as Ser;
         <ResourceDatabaseHeader as Ser>::SERIALIZED_SIZE as u64
             + self.chunks as u64 * <ChunkDescriptor as Ser>::SERIALIZED_SIZE as u64
-            + self.texture_chunks as u64 * <TextureChunkDescriptor as Ser>::SERIALIZED_SIZE as u64
-            + self.textures as u64 * <NamedAsset<TextureAsset> as Ser>::SERIALIZED_SIZE as u64
+            + self.sprite_chunks as u64 * <SpriteChunkDescriptor as Ser>::SERIALIZED_SIZE as u64
+            + self.sprites as u64 * <NamedAsset<SpriteAsset> as Ser>::SERIALIZED_SIZE as u64
             + self.audio_clips as u64 * <NamedAsset<AudioClipAsset> as Ser>::SERIALIZED_SIZE as u64
     }
 }
@@ -71,19 +71,19 @@ impl ResourceDatabaseHeader {
 /// query for assets, which implement the relevant logic for each asset type.
 pub struct ResourceDatabase {
     // Asset metadata
-    textures: FixedVec<'static, NamedAsset<TextureAsset>>,
+    sprites: FixedVec<'static, NamedAsset<SpriteAsset>>,
     audio_clips: FixedVec<'static, NamedAsset<AudioClipAsset>>,
     // Chunk loading metadata
     chunk_data_offset: u64,
     chunk_descriptors: FixedVec<'static, ChunkDescriptor>,
-    texture_chunk_descriptors: FixedVec<'static, TextureChunkDescriptor>,
+    sprite_chunk_descriptors: FixedVec<'static, SpriteChunkDescriptor>,
     // In-memory chunks
     /// The regular chunks currently loaded in-memory. Loaded via
     /// [`ResourceLoader`], usually by functions making use of an asset.
     pub chunks: SparseArray<'static, ChunkData>,
-    /// The texture chunks currently loaded in-memory. Loaded via
+    /// The sprite chunks currently loaded in-memory. Loaded via
     /// [`ResourceLoader`], usually by functions making use of an asset.
-    pub texture_chunks: SparseArray<'static, TextureChunkData>,
+    pub sprite_chunks: SparseArray<'static, SpriteChunkData>,
 }
 
 impl ResourceDatabase {
@@ -92,7 +92,7 @@ impl ResourceDatabase {
         arena: &'static LinearAllocator,
         file_reader: &mut FileReader,
         max_loaded_chunks: u32,
-        max_loaded_texture_chunks: u32,
+        max_loaded_sprite_chunks: u32,
     ) -> Option<ResourceDatabase> {
         use Deserialize as De;
         let header_size = <ResourceDatabaseHeader as De>::SERIALIZED_SIZE;
@@ -107,8 +107,8 @@ impl ResourceDatabase {
         let chunk_data_offset = header.chunk_data_offset();
         let ResourceDatabaseHeader {
             chunks,
-            texture_chunks,
-            textures,
+            sprite_chunks,
+            sprites,
             audio_clips,
         } = header;
 
@@ -119,24 +119,24 @@ impl ResourceDatabase {
         };
 
         queue_read(chunks as usize * <ChunkDescriptor as De>::SERIALIZED_SIZE);
-        queue_read(texture_chunks as usize * <TextureChunkDescriptor as De>::SERIALIZED_SIZE);
-        queue_read(textures as usize * <NamedAsset<TextureAsset> as De>::SERIALIZED_SIZE);
+        queue_read(sprite_chunks as usize * <SpriteChunkDescriptor as De>::SERIALIZED_SIZE);
+        queue_read(sprites as usize * <NamedAsset<SpriteAsset> as De>::SERIALIZED_SIZE);
         queue_read(audio_clips as usize * <NamedAsset<AudioClipAsset> as De>::SERIALIZED_SIZE);
 
         // NOTE: These deserialize_vec calls must be in the same order as the queue_reads above.
         let chunk_descriptors = deserialize_vec(arena, file_reader, platform)?;
-        let texture_chunk_descriptors = deserialize_vec(arena, file_reader, platform)?;
-        let textures = sorted(deserialize_vec(arena, file_reader, platform)?);
+        let sprite_chunk_descriptors = deserialize_vec(arena, file_reader, platform)?;
+        let sprites = sorted(deserialize_vec(arena, file_reader, platform)?);
         let audio_clips = sorted(deserialize_vec(arena, file_reader, platform)?);
 
         Some(ResourceDatabase {
-            textures,
+            sprites,
             audio_clips,
             chunk_data_offset,
             chunk_descriptors,
-            texture_chunk_descriptors,
+            sprite_chunk_descriptors,
             chunks: SparseArray::new(arena, chunks, max_loaded_chunks)?,
-            texture_chunks: SparseArray::new(arena, texture_chunks, max_loaded_texture_chunks)?,
+            sprite_chunks: SparseArray::new(arena, sprite_chunks, max_loaded_sprite_chunks)?,
         })
     }
 
@@ -148,11 +148,11 @@ impl ResourceDatabase {
             .map(|chunk| chunk.source_bytes.end - chunk.source_bytes.start)
             .max()
             .unwrap_or(0);
-        let largest_texture_chunk_source = (self.texture_chunk_descriptors.iter())
+        let largest_sprite_chunk_source = (self.sprite_chunk_descriptors.iter())
             .map(|chunk| chunk.source_bytes.end - chunk.source_bytes.start)
             .max()
             .unwrap_or(0);
-        largest_chunk_source.max(largest_texture_chunk_source)
+        largest_chunk_source.max(largest_sprite_chunk_source)
     }
 }
 

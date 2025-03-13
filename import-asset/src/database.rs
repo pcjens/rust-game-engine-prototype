@@ -6,15 +6,15 @@ use std::io::{self, Cursor, Write};
 
 use anyhow::Context;
 use engine::resources::{
-    audio_clip::AudioClipAsset, texture::TextureAsset, Asset, ChunkDescriptor, Deserialize,
-    NamedAsset, ResourceDatabaseHeader, Serialize, TextureChunkDescriptor,
+    audio_clip::AudioClipAsset, sprite::SpriteAsset, Asset, ChunkDescriptor, Deserialize,
+    NamedAsset, ResourceDatabaseHeader, Serialize, SpriteChunkDescriptor,
 };
 use tracing::{debug, trace};
 
 #[derive(Debug)]
 pub struct RelatedChunkData {
     pub chunks: Vec<ChunkDescriptor>,
-    pub texture_chunks: Vec<TextureChunkDescriptor>,
+    pub sprite_chunks: Vec<SpriteChunkDescriptor>,
     pub chunk_data: Cursor<Vec<u8>>,
 }
 
@@ -22,11 +22,11 @@ impl RelatedChunkData {
     fn new<T: Asset>(
         asset: &mut T,
         chunk_descs: &[ChunkDescriptor],
-        texchunk_descs: &[TextureChunkDescriptor],
+        sprite_chunk_descs: &[SpriteChunkDescriptor],
         chunk_data: &[u8],
     ) -> RelatedChunkData {
         let mut related_chunks = Vec::new();
-        let mut related_texchunks = Vec::new();
+        let mut related_sprite_chunks = Vec::new();
         let mut related_chunk_data = Vec::new();
 
         if let Some(chunk_range) = asset.get_chunks() {
@@ -47,11 +47,11 @@ impl RelatedChunkData {
             debug!("Copied over {} chunks.", related_chunks.len());
         }
 
-        if let Some(chunk_range) = asset.get_texture_chunks() {
-            debug!("Reading texture chunk range: {chunk_range:?}");
-            let start = related_texchunks.len() as u32;
+        if let Some(chunk_range) = asset.get_sprite_chunks() {
+            debug!("Reading sprite chunk range: {chunk_range:?}");
+            let start = related_sprite_chunks.len() as u32;
             for i in chunk_range.clone() {
-                let mut desc = texchunk_descs[i as usize].clone();
+                let mut desc = sprite_chunk_descs[i as usize].clone();
                 let start = related_chunk_data.len() as u64;
                 related_chunk_data.extend_from_slice(
                     &chunk_data[desc.source_bytes.start as usize..desc.source_bytes.end as usize],
@@ -59,15 +59,15 @@ impl RelatedChunkData {
                 let end = related_chunk_data.len() as u64;
                 assert_eq!(desc.source_bytes.end - desc.source_bytes.start, end - start);
                 desc.source_bytes = start..end;
-                related_texchunks.push(desc);
+                related_sprite_chunks.push(desc);
             }
             asset.offset_chunks(start as i32 - chunk_range.start as i32);
-            debug!("Copied over {} texture chunks.", related_texchunks.len());
+            debug!("Copied over {} sprite chunks.", related_sprite_chunks.len());
         }
 
         RelatedChunkData {
             chunks: related_chunks,
-            texture_chunks: related_texchunks,
+            sprite_chunks: related_sprite_chunks,
             chunk_data: Cursor::new(related_chunk_data),
         }
     }
@@ -75,7 +75,7 @@ impl RelatedChunkData {
     pub fn empty() -> RelatedChunkData {
         RelatedChunkData {
             chunks: Vec::new(),
-            texture_chunks: Vec::new(),
+            sprite_chunks: Vec::new(),
             chunk_data: Cursor::new(Vec::new()),
         }
     }
@@ -85,7 +85,7 @@ impl RelatedChunkData {
 /// back to disk at the end.
 pub struct Database {
     // Asset metadata
-    pub textures: Vec<(NamedAsset<TextureAsset>, RelatedChunkData)>,
+    pub sprites: Vec<(NamedAsset<SpriteAsset>, RelatedChunkData)>,
     pub audio_clips: Vec<(NamedAsset<AudioClipAsset>, RelatedChunkData)>,
 }
 
@@ -105,11 +105,11 @@ impl Database {
                 chunk_descriptors.push(chunk_desc);
             }
 
-            let mut texture_chunk_descriptors = Vec::with_capacity(header.texture_chunks as usize);
-            for _ in 0..header.texture_chunks {
-                let texchunk_desc = read_deserializable(db, &mut cursor)
-                    .context("Failed to read texture chunk descriptors")?;
-                texture_chunk_descriptors.push(texchunk_desc);
+            let mut sprite_chunk_descriptors = Vec::with_capacity(header.sprite_chunks as usize);
+            for _ in 0..header.sprite_chunks {
+                let sprite_chunk_desc = read_deserializable(db, &mut cursor)
+                    .context("Failed to read sprite chunk descriptors")?;
+                sprite_chunk_descriptors.push(sprite_chunk_desc);
             }
 
             let chunk_data = &db[header.chunk_data_offset() as usize..];
@@ -132,7 +132,7 @@ impl Database {
                         let related_chunk_data = RelatedChunkData::new(
                             &mut asset.asset,
                             &chunk_descriptors,
-                            &texture_chunk_descriptors,
+                            &sprite_chunk_descriptors,
                             &chunk_data,
                         );
                         vec.push((asset, related_chunk_data));
@@ -142,15 +142,20 @@ impl Database {
             }
 
             Ok(Database {
-                textures: read_deserializable_vec!(TextureAsset, header, textures),
+                sprites: read_deserializable_vec!(SpriteAsset, header, sprites),
                 audio_clips: read_deserializable_vec!(AudioClipAsset, header, audio_clips),
             })
         } else {
             Ok(Database {
-                textures: Vec::new(),
+                sprites: Vec::new(),
                 audio_clips: Vec::new(),
             })
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.sprites.clear();
+        self.audio_clips.clear();
     }
 
     pub fn write_into(self, db_file: &mut impl Write) -> anyhow::Result<()> {
@@ -159,13 +164,13 @@ impl Database {
         debug!("Serializing the database.");
 
         let mut chunk_descriptors = Vec::new();
-        let mut texture_chunk_descriptors = Vec::new();
+        let mut sprite_chunk_descriptors = Vec::new();
         let mut chunk_data = Vec::new();
 
         let mut append_chunk_data = |asset: &mut dyn Asset, asset_chunk_data: RelatedChunkData| {
             let offset = chunk_data.len();
             asset.offset_chunks(chunk_descriptors.len() as i32);
-            asset.offset_texture_chunks(texture_chunk_descriptors.len() as i32);
+            asset.offset_sprite_chunks(sprite_chunk_descriptors.len() as i32);
 
             trace!(
                 "Copying over {} chunks for this asset's range, {:?}.",
@@ -180,20 +185,20 @@ impl Database {
             }
 
             trace!(
-                "Copying over {} texture chunks for this asset's range, {:?}.",
-                asset_chunk_data.texture_chunks.len(),
-                asset.get_texture_chunks(),
+                "Copying over {} sprite chunks for this asset's range, {:?}.",
+                asset_chunk_data.sprite_chunks.len(),
+                asset.get_sprite_chunks(),
             );
-            for texchunk_desc in asset_chunk_data.texture_chunks {
-                let TextureChunkDescriptor {
+            for sprite_chunk_desc in asset_chunk_data.sprite_chunks {
+                let SpriteChunkDescriptor {
                     region_width,
                     region_height,
                     ..
-                } = texchunk_desc;
-                let mut source_bytes = texchunk_desc.source_bytes.clone();
+                } = sprite_chunk_desc;
+                let mut source_bytes = sprite_chunk_desc.source_bytes.clone();
                 source_bytes.end += offset as u64;
                 source_bytes.start += offset as u64;
-                texture_chunk_descriptors.push(TextureChunkDescriptor {
+                sprite_chunk_descriptors.push(SpriteChunkDescriptor {
                     region_width,
                     region_height,
                     source_bytes,
@@ -203,16 +208,16 @@ impl Database {
             chunk_data.extend_from_slice(asset_chunk_data.chunk_data.get_ref());
         };
 
-        let mut textures = (self.textures.into_iter())
+        let mut sprites = (self.sprites.into_iter())
             .map(|(mut asset, asset_chunk_data)| {
                 append_chunk_data(&mut asset.asset, asset_chunk_data);
                 asset
             })
             .collect::<Vec<_>>();
-        let textures_count = textures.len();
-        textures.sort();
-        textures.dedup();
-        assert_eq!(textures_count, textures.len());
+        let sprites_count = sprites.len();
+        sprites.sort();
+        sprites.dedup();
+        assert_eq!(sprites_count, sprites.len());
 
         let mut audio_clips = (self.audio_clips.into_iter())
             .map(|(mut asset, asset_chunk_data)| {
@@ -227,8 +232,8 @@ impl Database {
 
         let header = ResourceDatabaseHeader {
             chunks: chunk_descriptors.len() as u32,
-            texture_chunks: texture_chunk_descriptors.len() as u32,
-            textures: textures.len() as u32,
+            sprite_chunks: sprite_chunk_descriptors.len() as u32,
+            sprites: sprites.len() as u32,
             audio_clips: audio_clips.len() as u32,
         };
         write_serializable(&header, &mut buffer, db_file)
@@ -246,8 +251,8 @@ impl Database {
         }
 
         write_serializable_vec!(&chunk_descriptors);
-        write_serializable_vec!(&texture_chunk_descriptors);
-        write_serializable_vec!(&textures);
+        write_serializable_vec!(&sprite_chunk_descriptors);
+        write_serializable_vec!(&sprites);
         write_serializable_vec!(&audio_clips);
 
         debug!("Writing chunk data, {} bytes.", chunk_data.len());

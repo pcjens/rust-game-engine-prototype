@@ -8,8 +8,8 @@ use arrayvec::{ArrayString, ArrayVec};
 
 use super::{
     audio_clip::AudioClipAsset,
-    chunks::{ChunkDescriptor, TextureChunkDescriptor},
-    texture::{TextureAsset, TextureMipLevel, MAX_MIPS},
+    chunks::{ChunkDescriptor, SpriteChunkDescriptor},
+    sprite::{SpriteAsset, SpriteMipLevel, MAX_MIPS},
     NamedAsset, ResourceDatabaseHeader, ASSET_NAME_LENGTH,
 };
 
@@ -33,13 +33,13 @@ impl Serialize for ChunkDescriptor {
     }
 }
 
-impl Serialize for TextureChunkDescriptor {
+impl Serialize for SpriteChunkDescriptor {
     const SERIALIZED_SIZE: usize =
         u16::SERIALIZED_SIZE * 2 + <Range<u64> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
-        let TextureChunkDescriptor {
+        let SpriteChunkDescriptor {
             region_width,
             region_height,
             source_bytes,
@@ -62,22 +62,22 @@ impl Serialize for ResourceDatabaseHeader {
 
             serialize::<u32>(&RESOURCE_DB_MAGIC_NUMBER, dst, &mut cursor);
             serialize::<u32>(&CHUNK_SIZE, dst, &mut cursor);
-            serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.0, dst, &mut cursor);
-            serialize::<u16>(&TEXTURE_CHUNK_DIMENSIONS.1, dst, &mut cursor);
-            serialize::<u8>(&(TEXTURE_CHUNK_FORMAT as u8), dst, &mut cursor);
+            serialize::<u16>(&SPRITE_CHUNK_DIMENSIONS.0, dst, &mut cursor);
+            serialize::<u16>(&SPRITE_CHUNK_DIMENSIONS.1, dst, &mut cursor);
+            serialize::<u8>(&(SPRITE_CHUNK_FORMAT as u8), dst, &mut cursor);
             serialize::<u32>(&AUDIO_SAMPLE_RATE, dst, &mut cursor);
             serialize::<u8>(&(AUDIO_CHANNELS as u8), dst, &mut cursor);
         }
 
         let ResourceDatabaseHeader {
             chunks,
-            texture_chunks,
-            textures,
+            sprite_chunks,
+            sprites,
             audio_clips,
         } = self;
         serialize::<u32>(chunks, dst, &mut cursor);
-        serialize::<u32>(texture_chunks, dst, &mut cursor);
-        serialize::<u32>(textures, dst, &mut cursor);
+        serialize::<u32>(sprite_chunks, dst, &mut cursor);
+        serialize::<u32>(sprites, dst, &mut cursor);
         serialize::<u32>(audio_clips, dst, &mut cursor);
     }
 }
@@ -106,22 +106,22 @@ impl Serialize for AudioClipAsset {
     }
 }
 
-impl Serialize for TextureAsset {
+impl Serialize for SpriteAsset {
     const SERIALIZED_SIZE: usize =
-        bool::SERIALIZED_SIZE + <ArrayVec<TextureMipLevel, MAX_MIPS> as Serialize>::SERIALIZED_SIZE;
+        bool::SERIALIZED_SIZE + <ArrayVec<SpriteMipLevel, MAX_MIPS> as Serialize>::SERIALIZED_SIZE;
     fn serialize(&self, dst: &mut [u8]) {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
-        let TextureAsset {
+        let SpriteAsset {
             transparent,
             mip_chain,
         } = self;
         serialize::<bool>(transparent, dst, &mut cursor);
-        serialize::<ArrayVec<TextureMipLevel, MAX_MIPS>>(mip_chain, dst, &mut cursor);
+        serialize::<ArrayVec<SpriteMipLevel, MAX_MIPS>>(mip_chain, dst, &mut cursor);
     }
 }
 
-impl Serialize for TextureMipLevel {
+impl Serialize for SpriteMipLevel {
     // Sadly, `usize::max` is not const. One variant has 4x u16 and 1x u32, the
     // other has 2x u16 and 2x u32, so the max of the two sizes is 12.
     const SERIALIZED_SIZE: usize = bool::SERIALIZED_SIZE + 12;
@@ -129,23 +129,23 @@ impl Serialize for TextureMipLevel {
         assert_eq!(Self::SERIALIZED_SIZE, dst.len());
         let mut cursor = 0;
         match self {
-            TextureMipLevel::SingleChunkTexture {
+            SpriteMipLevel::SingleChunkSprite {
                 offset,
                 size,
-                texture_chunk,
+                sprite_chunk,
             } => {
                 serialize::<bool>(&false, dst, &mut cursor);
                 serialize::<(u16, u16)>(offset, dst, &mut cursor);
                 serialize::<(u16, u16)>(size, dst, &mut cursor);
-                serialize::<u32>(texture_chunk, dst, &mut cursor);
+                serialize::<u32>(sprite_chunk, dst, &mut cursor);
             }
-            TextureMipLevel::MultiChunkTexture {
+            SpriteMipLevel::MultiChunkSprite {
                 size,
-                texture_chunks,
+                sprite_chunks,
             } => {
                 serialize::<bool>(&true, dst, &mut cursor);
                 serialize::<(u16, u16)>(size, dst, &mut cursor);
-                serialize::<Range<u32>>(texture_chunks, dst, &mut cursor);
+                serialize::<Range<u32>>(sprite_chunks, dst, &mut cursor);
             }
         }
     }

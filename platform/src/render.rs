@@ -7,7 +7,7 @@ use bytemuck::{Pod, Zeroable};
 /// Vertex describing a 2D point with a texture coordinate and a color.
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
-pub struct Vertex {
+pub struct Vertex2D {
     /// The horizontal coordinate of the position of this vertex.
     pub x: f32,
     /// The vertical coordinate of the position of this vertex.
@@ -36,7 +36,7 @@ pub struct Vertex {
 
 // Safety: Vertex is "inhabited" and all zeroes is a valid value for it, all the
 // fields are Zeroable.
-unsafe impl Zeroable for Vertex {}
+unsafe impl Zeroable for Vertex2D {}
 
 // Safety: manually checked for f32 typed x/y/u/v at the beginning with u8 typed
 // r/g/b/a at the end.
@@ -52,13 +52,13 @@ unsafe impl Zeroable for Vertex {}
 //   atomics, and any other forms of interior mutability: none of those in this.
 // - More precisely: A shared reference to the type must allow reads, and *only*
 //   reads: yes, no hidden inner mutability tricks.
-unsafe impl Pod for Vertex {}
+unsafe impl Pod for Vertex2D {}
 
-impl Vertex {
-    /// Creates a [`Vertex`] with zeroed texture coordinates and a white color,
-    /// with the given coordinates.
-    pub fn xy(x: f32, y: f32) -> Vertex {
-        Vertex {
+impl Vertex2D {
+    /// Creates a [`Vertex2D`] with zeroed texture coordinates and a white
+    /// color, with the given coordinates.
+    pub fn xy(x: f32, y: f32) -> Vertex2D {
+        Vertex2D {
             x,
             y,
             u: 0.0,
@@ -70,10 +70,10 @@ impl Vertex {
         }
     }
 
-    /// Creates a [`Vertex`] with the given position and texture coordinates,
+    /// Creates a [`Vertex2D`] with the given position and texture coordinates,
     /// and no color modulation (white vertex colors).
-    pub fn new(x: f32, y: f32, u: f32, v: f32) -> Vertex {
-        Vertex {
+    pub fn new(x: f32, y: f32, u: f32, v: f32) -> Vertex2D {
+        Vertex2D {
             x,
             y,
             u,
@@ -88,33 +88,34 @@ impl Vertex {
 
 /// Various options for controlling how draw commands should be executed.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct DrawSettings {
-    /// If None, the vertex colors are used to draw solid triangles.
-    pub texture: Option<TextureRef>,
+pub struct DrawSettings2D {
+    /// The sprite used to draw the triangles. If None, rendering should fall
+    /// back to the vertex colors.
+    pub sprite: Option<SpriteRef>,
     /// The blending mode of the draw, i.e. how the pixels are mixed from this
     /// draw and any previous draws in the same area.
     pub blend_mode: BlendMode,
-    /// The filtering mode used to stretch or squeeze the texture when the
-    /// rendering resolution doesn't exactly match the texture.
+    /// The filtering mode used to stretch or squeeze the sprite when the
+    /// rendering resolution doesn't exactly match the sprite.
     pub texture_filter: TextureFilter,
     /// The draw will only apply to pixels within this rectangle. Layout: `[x,
     /// y, width, height]`.
     pub clip_area: Option<[f32; 4]>,
 }
 
-/// Platform-specific texture reference.
+/// Platform-specific sprite reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TextureRef(u64);
+pub struct SpriteRef(u64);
 
-impl TextureRef {
-    /// Creates a new [`TextureRef`]. Should only be created in the platform
+impl SpriteRef {
+    /// Creates a new [`SpriteRef`]. Should only be created in the platform
     /// implementation, which also knows how the inner value is going to be
     /// used.
-    pub fn new(id: u64) -> TextureRef {
-        TextureRef(id)
+    pub fn new(id: u64) -> SpriteRef {
+        SpriteRef(id)
     }
 
-    /// Returns the inner value passed into [`TextureRef::new`]. Generally only
+    /// Returns the inner value passed into [`SpriteRef::new`]. Generally only
     /// relevant to the platform implementation.
     pub fn inner(self) -> u64 {
         self.0

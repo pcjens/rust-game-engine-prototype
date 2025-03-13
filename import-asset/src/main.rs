@@ -77,6 +77,7 @@ fn process_command(
 
             info!("Reimporting {} assets.", imports.len());
 
+            db.clear();
             for command in imports {
                 process_command(command, settings, db)?;
             }
@@ -88,17 +89,17 @@ fn process_command(
             return Ok(());
         }
 
-        Command::AddTexture { name, file } => {
-            info!("Importing texture \"{}\" from: {}", name, file.display());
+        Command::AddSprite { name, file } => {
+            info!("Importing sprite \"{}\" from: {}", name, file.display());
             let mut related_chunk_data = RelatedChunkData::empty();
             let name = ArrayString::from_str(name).unwrap();
-            let asset = importers::texture::import(file, &mut related_chunk_data)
-                .context("Failed to import texture")?;
+            let asset = importers::sprite::import(file, &mut related_chunk_data)
+                .context("Failed to import sprite")?;
             let asset_and_data = (NamedAsset { name, asset }, related_chunk_data);
-            if let Some(existing_asset) = db.textures.iter_mut().find(|a| a.0.name == name) {
+            if let Some(existing_asset) = db.sprites.iter_mut().find(|a| a.0.name == name) {
                 *existing_asset = asset_and_data;
             } else {
-                db.textures.push(asset_and_data);
+                db.sprites.push(asset_and_data);
             }
         }
 
