@@ -242,7 +242,7 @@ impl Iterator for GameObjectHandleIterator {
 ///
 /// // Run a "physics simulation" system for all game objects which
 /// // have a Position and Velocity component:
-/// scene.run_system(define_system!(|_| |pos: &mut [Position], vel: &mut [Velocity]| {
+/// scene.run_system(define_system!(|_| |pos: &mut [Position], vel: &[Velocity]| {
 ///     // This closure gets called once for each game object type with a Position
 ///     // and a Velocity, passing in that type's components, which can be zipped
 ///     // and iterated through to operate on a single game object's data at a
@@ -257,7 +257,7 @@ impl Iterator for GameObjectHandleIterator {
 ///
 /// // Just assert that we ended up where we intended to end up.
 /// let mut positions_in_scene = 0;
-/// scene.run_system(define_system!(|_| |pos: &mut [Position]| {
+/// scene.run_system(define_system!(|_| |pos: &[Position]| {
 ///     for pos in pos {
 ///         assert_eq!(120, pos.x);
 ///         assert_eq!(90, pos.y);
@@ -269,7 +269,7 @@ impl Iterator for GameObjectHandleIterator {
 /// // Game objects can be deleted by collecting and deleting them in batches:
 /// use engine::collections::FixedVec;
 /// let mut handles_to_delete = FixedVec::new(temp_arena, 1).unwrap();
-/// scene.run_system(define_system!(|handles| |pos: &mut [Position]| {
+/// scene.run_system(define_system!(|handles| |pos: &[Position]| {
 ///     for (handle, pos) in handles.zip(pos) {
 ///         if pos.x == 120 {
 ///             handles_to_delete.push(handle).unwrap();
@@ -415,9 +415,20 @@ impl Scene<'_> {
     }
 }
 
-/// Wraps a curried closure that takes a [`GameObjectHandleIterator`] and mut
-/// slices of components as parameters, and outputs a closure that can be passed
-/// into [`Scene::run_system`].
+/// Searches the columns for one containing components of type `C`, and returns
+/// it as a properly typed slice.
+pub fn extract_component_column<'a, C: Pod + Any>(
+    columns: &mut ComponentVec<&'a mut ComponentColumn>,
+) -> Option<&'a mut [C]> {
+    let index = columns
+        .iter()
+        .position(|col| col.component_type() == TypeId::of::<C>())?;
+    let col = columns.swap_remove(index);
+    Some(col.get_mut().unwrap())
+}
+
+/// Gutputs a closure that can be passed into [`Scene::run_system`], handling
+/// extracting properly typed component columns based on the parameter list.
 ///
 /// This macro only outputs a single closure with no inner closures, the pattern
 /// simply follows the syntax of closures to make the formatter happy and the
@@ -453,7 +464,7 @@ impl Scene<'_> {
 /// # unsafe impl bytemuck::Pod for Velocity {}
 /// # let mut scene = Scene::builder().build(ARENA, ARENA).unwrap();
 /// let mut game_object_handle = None;
-/// scene.run_system(define_system!(|handles| |pos: &mut [Position], vel: &mut [Velocity]| {
+/// scene.run_system(define_system!(|handles| |pos: &mut [Position], vel: &[Velocity]| {
 ///     for ((handle, pos), vel) in handles.zip(pos).zip(vel) {
 ///         pos.x += vel.x;
 ///         pos.y += vel.y;
@@ -466,26 +477,25 @@ impl Scene<'_> {
 /// ```
 #[macro_export]
 macro_rules! define_system {
-    (/param_defs/ $table:ident / $func_body:block / |$param_name:ident: &mut [$param_type:ty]|) => {{
-        let type_id = core::any::TypeId::of::<$param_type>();
-        let Some(index) = $table.iter().position(|col| col.component_type() == type_id) else {
+    (/param_defs/ $table:ident / $func_body:block / |$param_name:ident: $param_type:ty|) => {{
+        let col: Option<&mut [_]> = $crate::game_objects::extract_component_column(&mut $table);
+        let Some(col) = col else {
             return false;
         };
-        let col = $table.swap_remove(index);
-        let $param_name: &mut [$param_type] = col.get_mut().unwrap();
+        let $param_name: $param_type = col;
         $func_body
     }};
-    (/param_defs/ $table:ident / $func_body:block / |$param_name:ident: &mut [$param_type:ty], $($rest_names:ident: &mut [$rest_types:ty]),+|) => {
+    (/param_defs/ $table:ident / $func_body:block / |$param_name:ident: $param_type:ty, $($rest_names:ident: $rest_types:ty),+|) => {
         define_system!(/param_defs/ $table / {
-            define_system!(/param_defs/ $table / $func_body / |$param_name: &mut [$param_type]|)
-        } / |$($rest_names: &mut [$rest_types]),+|)
+            define_system!(/param_defs/ $table / $func_body / |$param_name: $param_type|)
+        } / |$($rest_names: $rest_types),+|)
     };
 
-    (|$handle_name:pat_param| |$($param_name:ident: &mut [$param_type:ty]),+| $func_body:block) => {
+    (|$handle_name:pat_param| |$($param_name:ident: $param_type:ty),+| $func_body:block) => {
         |#[allow(unused_variables)] handle_iter: $crate::game_objects::GameObjectHandleIterator,
          mut table: $crate::game_objects::ComponentVec<&mut $crate::game_objects::ComponentColumn>| {
             let $handle_name = handle_iter;
-            define_system!(/param_defs/ table / $func_body / |$($param_name: &mut [$param_type]),+|);
+            define_system!(/param_defs/ table / $func_body / |$($param_name: $param_type),+|);
             true
         }
     };
@@ -585,7 +595,7 @@ mod tests {
 
         // Assert that there aren't any ComponentA's with positive values:
         let mut processed_count = 0;
-        scene.run_system(define_system!(|_| |a: &mut [ComponentA]| {
+        scene.run_system(define_system!(|_| |a: &[ComponentA]| {
             for a in a {
                 assert!(a.value <= 0);
                 processed_count += 1;
@@ -594,7 +604,7 @@ mod tests {
         assert!(processed_count > 0);
 
         // Apply some changes to GameObjectY's:
-        let system = define_system!(|_| |a: &mut [ComponentA], b: &mut [ComponentB]| {
+        let system = define_system!(|_| |a: &mut [ComponentA], b: &[ComponentB]| {
             for (a, b) in a.iter_mut().zip(b) {
                 a.value += b.value as i64;
             }
@@ -604,8 +614,8 @@ mod tests {
         // Assert that there *are* positive values now, and delete them:
         let mut processed_count = 0;
         let mut handles_to_delete: ArrayVec<GameObjectHandle, 15> = ArrayVec::new();
-        scene.run_system(define_system!(|handles| |a: &mut [ComponentA]| {
-            for (a, handle) in a.iter_mut().zip(handles) {
+        scene.run_system(define_system!(|handles| |a: &[ComponentA]| {
+            for (handle, a) in handles.zip(a) {
                 if a.value > 0 {
                     handles_to_delete.push(handle);
                 }
@@ -618,7 +628,7 @@ mod tests {
         // Assert that there aren't any positive values anymore, now that they
         // were deleted:
         let mut processed_count = 0;
-        scene.run_system(define_system!(|_| |a: &mut [ComponentA]| {
+        scene.run_system(define_system!(|_| |a: &[ComponentA]| {
             for a in a {
                 assert!(a.value <= 0);
                 processed_count += 1;
