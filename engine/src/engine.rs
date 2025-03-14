@@ -13,7 +13,7 @@ use crate::{
     geom::Rect,
     input::{ActionKind, ActionState, EventQueue, InputDeviceState, QueuedEvent},
     mixer::Mixer,
-    multithreading,
+    multithreading::{self, parallelize},
     renderer::DrawQueue,
     resources::{
         audio_clip::AudioClipHandle, sprite::SpriteHandle, FileReader, ResourceDatabase,
@@ -173,8 +173,16 @@ impl Engine<'_> {
         arena: &'static LinearAllocator,
         limits: EngineLimits,
     ) -> Self {
-        let thread_pool = multithreading::create_thread_pool(arena, platform, 1)
+        profiling::function_scope!();
+        let mut thread_pool = multithreading::create_thread_pool(arena, platform, 1)
             .expect("engine arena should have enough memory for the thread pool");
+
+        // Name all the threads
+        let dummy_slice = &mut [(); 1024][..thread_pool.thread_count()];
+        parallelize(&mut thread_pool, dummy_slice, |_, _| {
+            profiling::register_thread!("engine thread pool");
+        });
+        profiling::register_thread!("engine main");
 
         let frame_arena = LinearAllocator::new(arena, limits.frame_arena_size)
             .expect("should have enough memory for the frame arena");
@@ -231,7 +239,8 @@ impl Engine<'_> {
 }
 
 impl EngineCallbacks for Engine<'_> {
-    fn iterate(&mut self, platform: &dyn Platform) {
+    fn run_frame(&mut self, platform: &dyn Platform) {
+        profiling::function_scope!();
         let timestamp = platform.now();
         self.frame_arena.reset();
 
@@ -297,9 +306,11 @@ impl EngineCallbacks for Engine<'_> {
         );
 
         self.resource_loader.dispatch_reads(platform);
+        profiling::finish_frame!();
     }
 
     fn event(&mut self, event: Event, timestamp: Instant, platform: &dyn Platform) {
+        profiling::function_scope!();
         match event {
             Event::DigitalInputPressed(device, _) | Event::DigitalInputReleased(device, _) => {
                 {
@@ -369,7 +380,7 @@ mod tests {
                 }
             }
 
-            engine.iterate(platform);
+            engine.run_frame(platform);
         }
     }
 

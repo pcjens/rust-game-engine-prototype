@@ -34,6 +34,7 @@ macro_rules! gen_asset_handle_code {
                 #[doc = concat!("ResourceDatabase::", stringify!($get_fn))]
                 #[doc = "`] to access the actual asset at runtime."]
                 pub fn $find_fn(&self, name: &str) -> Option<$handle_name> {
+                    profiling::function_scope!();
                     let Ok(index) = self
                         .$field
                         .binary_search_by(|asset| asset.name.as_str().cmp(name))

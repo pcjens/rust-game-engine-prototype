@@ -113,7 +113,7 @@ impl Mixer {
             self.playing_clips.push(playing_clip).unwrap();
         } else if important {
             if self.playing_clips.is_empty() {
-                return false;
+                return false; // both full and empty, can't play anything
             }
 
             let mut lowest_end_time = self.playing_clips[0].get_end(resources);
@@ -160,6 +160,7 @@ impl Mixer {
         resources: &ResourceDatabase,
         resource_loader: &mut ResourceLoader,
     ) {
+        profiling::function_scope!();
         // Remove clips that have played to the end
         self.playing_clips
             .sort_unstable_by_key(|clip| Reverse(clip.get_end(resources)));
@@ -176,6 +177,7 @@ impl Mixer {
             thread_pool,
             &mut self.playback_buffer,
             |playback_buffer, offset| {
+                profiling::scope!("mix audio");
                 let playback_start = self.playback_position + offset as u64;
                 for clip in &*self.playing_clips {
                     let volume = self.channels[clip.channel].volume;
@@ -243,6 +245,7 @@ fn render_audio_chunk(
     dst: &mut [[i16; AUDIO_CHANNELS]],
     volume: u8,
 ) {
+    profiling::function_scope!();
     for (dst, sample) in dst.iter_mut().zip(chunk_samples) {
         for channel in 0..AUDIO_CHANNELS {
             let sample = sample[channel];

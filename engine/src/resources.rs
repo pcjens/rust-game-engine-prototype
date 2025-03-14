@@ -94,6 +94,7 @@ impl ResourceDatabase {
         max_loaded_chunks: u32,
         max_loaded_sprite_chunks: u32,
     ) -> Option<ResourceDatabase> {
+        profiling::function_scope!();
         use Deserialize as De;
         let header_size = <ResourceDatabaseHeader as De>::SERIALIZED_SIZE;
 

@@ -329,7 +329,7 @@ impl Sdl2Platform {
                 canvas.clear();
             }
 
-            engine.iterate(self);
+            engine.run_frame(self);
 
             {
                 let mut canvas = self.canvas.borrow_mut();

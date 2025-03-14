@@ -82,7 +82,9 @@ impl FileReader {
 
     /// Starts file read operations for the queued up loading requests.
     pub fn dispatch_reads(&mut self, platform: &dyn Platform) {
+        profiling::function_scope!();
         while let Some(LoadRequest { size, .. }) = self.to_load_queue.peek_front() {
+            profiling::scope!("dispatch");
             let Some(staging_slice) = self.staging_buffer.allocate(*size) else {
                 break;
             };
@@ -119,6 +121,7 @@ impl FileReader {
     where
         F: FnOnce(&mut [u8]) -> T,
     {
+        profiling::function_scope!();
         if blocking && self.in_flight_queue.is_empty() {
             self.dispatch_reads(platform);
         }

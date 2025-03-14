@@ -350,6 +350,7 @@ impl Scene<'_> {
     where
         F: FnMut(GameObjectHandleIterator, ComponentVec<&mut ComponentColumn>) -> bool,
     {
+        profiling::function_scope!();
         let mut matched_any_components = false;
         for (table_index, table) in self.game_object_tables.iter_mut().enumerate() {
             let handle_iter = GameObjectHandleIterator {
@@ -379,6 +380,7 @@ impl Scene<'_> {
     /// The slice of handles is mutable to allow sorting the slice, which is
     /// needed for a performant implementation of this function.
     pub fn delete(&mut self, handles: &mut [GameObjectHandle]) -> Result<(), usize> {
+        profiling::function_scope!();
         let mut invalid_handles = 0;
 
         // Sort the handles, so that deletions are grouped by table index (not
@@ -494,6 +496,7 @@ macro_rules! define_system {
     (|$handle_name:pat_param| |$($param_name:ident: $param_type:ty),+| $func_body:block) => {
         |#[allow(unused_variables)] handle_iter: $crate::game_objects::GameObjectHandleIterator,
          mut table: $crate::game_objects::ComponentVec<&mut $crate::game_objects::ComponentColumn>| {
+            $crate::profiling::scope!("system_func", concat!(file!(), ":", line!()));
             let $handle_name = handle_iter;
             define_system!(/param_defs/ table / $func_body / |$($param_name: $param_type),+|);
             true

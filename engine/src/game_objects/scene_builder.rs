@@ -104,6 +104,8 @@ impl SceneBuilder<'_> {
         arena: &'a LinearAllocator,
         temp_arena: &LinearAllocator,
     ) -> Option<Scene<'a>> {
+        profiling::function_scope!();
+
         // Count how many component types there are across every game object type
         let mut distinct_components = 0;
         for (i, infos) in (self.game_object_infos.into_iter())

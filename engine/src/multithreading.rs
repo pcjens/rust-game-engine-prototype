@@ -32,6 +32,8 @@ pub fn create_thread_pool(
     platform: &dyn Platform,
     task_queue_length: usize,
 ) -> Option<ThreadPool> {
+    profiling::function_scope!();
+
     let thread_count = platform.available_parallelism().min(MAX_THREADS);
     if thread_count > 1 {
         let init_thread_state = || {
@@ -72,6 +74,8 @@ where
     T: Sync,
     F: Sync + Fn(&mut [T], usize),
 {
+    profiling::function_scope!();
+
     struct Task {
         data_ptr: *mut (),
         data_len: usize,
@@ -115,6 +119,7 @@ where
 
     let chunk_size = data.len().div_ceil(max_tasks);
     for (i, data_part) in data.chunks_mut(chunk_size).enumerate() {
+        profiling::scope!("send task");
         // Shouldn't ever trip, but if it does, we'd much rather crash here than
         // having half-spawned a task, which could be unsound.
         assert!(i < max_tasks);
@@ -175,6 +180,7 @@ where
     // makes sure we're not leaking anything, which would violate the safety
     // requirements of the non-static RingBuffer).
     while let Some(proxy) = task_proxies.pop_front() {
+        profiling::scope!("receive result");
         let task = thread_pool.join_task(proxy.handle).ok().unwrap(); // does not panic: we're joining tasks in FIFO order
 
         // Safety: the `Task` was allocated in the previous loop, with the

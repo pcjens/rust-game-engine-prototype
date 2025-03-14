@@ -86,6 +86,8 @@ impl ResourceLoader {
         category: LoadCategory,
         resources: &ResourceDatabase,
     ) {
+        profiling::function_scope!();
+
         // Don't queue if the chunk has already been loaded.
         if (category == LoadCategory::Chunk && resources.chunks.get(chunk_index).is_some())
             || (category == LoadCategory::SpriteChunk
@@ -136,8 +138,10 @@ impl ResourceLoader {
         platform: &dyn Platform,
         max_reads: usize,
     ) {
+        profiling::function_scope!();
         for _ in 0..max_reads {
             let read_result = self.file_reader.pop_read(platform, false, |source_bytes| {
+                profiling::scope!("process file read");
                 let ChunkReadInfo {
                     chunk_index,
                     category,

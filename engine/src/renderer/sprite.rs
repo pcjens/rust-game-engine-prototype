@@ -87,9 +87,11 @@ fn draw(
     resources: &ResourceDatabase,
     resource_loader: &mut ResourceLoader,
 ) -> bool {
+    profiling::function_scope!();
     let draws_left = draw_queue.sprites.spare_capacity();
 
     let mut draw_chunk = |chunk_index: u32, dst: Rect, tex: Rect| {
+        profiling::scope!("draw_chunk");
         if let Some(chunk) = resources.sprite_chunks.get(chunk_index) {
             let quad = SpriteQuad {
                 position_top_left: (dst.x, dst.y),

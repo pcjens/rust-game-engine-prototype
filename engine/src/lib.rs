@@ -36,6 +36,9 @@
 #![no_std]
 #![warn(missing_docs)]
 
+// Exported to allow instrumenting functions generated with macros.
+pub use profiling;
+
 #[cfg(any(test, doctest))]
 /// A simple platform implementation for use in tests.
 pub mod test_platform;

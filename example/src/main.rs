@@ -4,6 +4,9 @@
 
 #[cfg(feature = "sdl2")]
 fn main() {
+    #[cfg(feature = "profile")]
+    tracy_client::Client::start();
+
     let platform = platform_sdl2::Sdl2Platform::new("example game");
     static PERSISTENT_ARENA: &engine::allocators::LinearAllocator =
         engine::allocators::static_allocator!(64 * 1024 * 1024);

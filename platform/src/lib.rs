@@ -55,8 +55,8 @@ pub type InputDevices = ArrayVec<InputDevice, 15>;
 /// Engine, but emscripten as a platform is very much designed around callbacks
 /// instead of a regular game loop the engine could own. So here we are.
 pub trait EngineCallbacks {
-    /// Run one iteration of the game loop.
-    fn iterate(&mut self, platform: &dyn Platform);
+    /// Run one frame of the game loop.
+    fn run_frame(&mut self, platform: &dyn Platform);
     /// Handle an event.
     fn event(&mut self, event: Event, timestamp: Instant, platform: &dyn Platform);
 }
