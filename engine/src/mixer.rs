@@ -172,12 +172,12 @@ impl Mixer {
         }
 
         // Render
-        self.playback_buffer.fill([0; AUDIO_CHANNELS]);
         parallelize(
             thread_pool,
             &mut self.playback_buffer,
             |playback_buffer, offset| {
                 profiling::scope!("mix audio");
+                playback_buffer.fill([0; AUDIO_CHANNELS]);
                 let playback_start = self.playback_position + offset as u64;
                 for clip in &*self.playing_clips {
                     let volume = self.channels[clip.channel].volume;

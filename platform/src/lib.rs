@@ -48,12 +48,9 @@ pub const AUDIO_CHANNELS: usize = 2;
 /// just for the [`Platform::input_devices`] typing.
 pub type InputDevices = ArrayVec<InputDevice, 15>;
 
-/// The "engine side" of [Platform], for passing the engine to the platform
-/// layer implementation for event and update callbacks.
+/// Interface to the engine for the platform implementation.
 ///
-/// This is not the most ideal design, ideally it'd just all be downstream from
-/// Engine, but emscripten as a platform is very much designed around callbacks
-/// instead of a regular game loop the engine could own. So here we are.
+/// Used to allow engine to do its thing each frame, and to pass events to it.
 pub trait EngineCallbacks {
     /// Run one frame of the game loop.
     fn run_frame(&mut self, platform: &dyn Platform);

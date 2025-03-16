@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use core::ops::ControlFlow;
+
 use arrayvec::ArrayVec;
 use platform::{
     thread_pool::ThreadPool, ActionCategory, EngineCallbacks, Event, Instant, Platform,
@@ -133,24 +135,50 @@ impl Default for EngineLimits {
     }
 }
 
+/// Interface to game code from the engine and platform.
+pub trait Game<'a> {
+    /// The parameters which determine the state the game will initialize into
+    /// when calling [`Game::init`].
+    type InitParams;
+    /// Creates a new instance of the [`Game`] type, using memory from `arena`.
+    fn init(params: Self::InitParams, arena: &'a LinearAllocator) -> Self;
+    /// Runs one frame's worth of game, possibly breaking out of the game loop
+    /// to reinitialize the game, or to quit.
+    ///
+    /// The return value is interpreted as:
+    /// - [`ControlFlow::Continue`]: nothing out of the ordinary, continue the
+    ///       game loop.
+    /// - [`ControlFlow::Break`]`(Some(InitParams))`: break out of the game loop
+    ///   to reinitialize the game with [`Game::init`], using the returned
+    ///   parameters, then restart the game loop.
+    /// - [`ControlFlow::Break`]`(None)`: break out of the game loop and let the
+    ///   process exit.
+    fn run_frame(
+        &mut self,
+        timestamp: Instant,
+        engine: &mut Engine,
+    ) -> ControlFlow<Option<Self::InitParams>>;
+}
+
 /// The top-level structure of the game engine which owns all the runtime state
 /// of the game engine and has methods for running the engine.
 pub struct Engine<'a> {
     /// Database of the non-code parts of the game, e.g. sprites.
-    resource_db: ResourceDatabase,
+    pub resource_db: ResourceDatabase,
     /// Queue of loading tasks which insert loaded chunks into the `resource_db`
     /// occasionally.
-    resource_loader: ResourceLoader,
-    /// Linear allocator for any frame-internal dynamic allocation needs.
-    frame_arena: LinearAllocator<'a>,
+    pub resource_loader: ResourceLoader,
+    /// Linear allocator for any frame-internal dynamic allocation needs. Reset
+    /// at the start of each frame.
+    pub frame_arena: LinearAllocator<'a>,
     /// Thread pool for splitting compute-heavy workloads to multiple threads.
-    thread_pool: ThreadPool,
+    pub thread_pool: ThreadPool,
     /// Mixer for playing back audio.
-    audio_mixer: Mixer,
+    pub audio_mixer: Mixer,
     /// Queued up events from the platform layer. Discarded after being used by
     /// the game to trigger an action via [`InputDeviceState`], or after a
     /// timeout if not.
-    event_queue: EventQueue,
+    pub event_queue: EventQueue,
 
     test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
     test_sprite: SpriteHandle,
@@ -243,19 +271,16 @@ impl EngineCallbacks for Engine<'_> {
         profiling::function_scope!();
         let timestamp = platform.now();
         self.frame_arena.reset();
-
         self.resource_loader
             .finish_reads(&mut self.resource_db, platform, 128);
-
         self.resource_db.chunks.increment_ages();
         self.resource_db.sprite_chunks.increment_ages();
-
-        let scale_factor = platform.draw_scale_factor();
-        let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
-
         self.audio_mixer.update_audio_sync(timestamp, platform);
 
         // Testing area follows, could be considered "game code" for now:
+
+        let scale_factor = platform.draw_scale_factor();
+        let mut draw_queue = DrawQueue::new(&self.frame_arena, 100_000, scale_factor).unwrap();
 
         let mut action_test = false;
 
@@ -291,12 +316,9 @@ impl EngineCallbacks for Engine<'_> {
             offset += w + 20.0;
         }
 
-        // /Testing area ends, the following is "end of frame" stuff
-
-        self.event_queue
-            .retain(|queued| !queued.timed_out(timestamp));
-
         draw_queue.dispatch_draw(&self.frame_arena, platform);
+
+        // /Testing area ends, the following is "end of frame" stuff
 
         self.audio_mixer.render_audio(
             &mut self.thread_pool,
@@ -304,8 +326,9 @@ impl EngineCallbacks for Engine<'_> {
             &self.resource_db,
             &mut self.resource_loader,
         );
-
         self.resource_loader.dispatch_reads(platform);
+        self.event_queue
+            .retain(|queued| !queued.timed_out(timestamp));
         profiling::finish_frame!();
     }
 

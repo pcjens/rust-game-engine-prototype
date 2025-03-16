@@ -4,14 +4,18 @@
 
 #[cfg(feature = "sdl2")]
 fn main() {
+    use engine::{
+        allocators::{static_allocator, LinearAllocator},
+        Engine, EngineLimits,
+    };
+    use platform_sdl2::Sdl2Platform;
+
     #[cfg(feature = "profile")]
     profiling::tracy_client::Client::start();
 
-    let platform = platform_sdl2::Sdl2Platform::new("example game");
-    static PERSISTENT_ARENA: &engine::allocators::LinearAllocator =
-        engine::allocators::static_allocator!(64 * 1024 * 1024);
-    let mut engine =
-        engine::Engine::new(&platform, PERSISTENT_ARENA, engine::EngineLimits::DEFAULT);
+    let platform = Sdl2Platform::new("example game");
+    static PERSISTENT_ARENA: &LinearAllocator = static_allocator!(64 * 1024 * 1024);
+    let mut engine = Engine::new(&platform, PERSISTENT_ARENA, EngineLimits::DEFAULT);
     platform.run_game_loop(&mut engine);
 }
 

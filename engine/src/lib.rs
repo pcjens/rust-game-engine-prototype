@@ -70,4 +70,4 @@ pub mod resources;
 
 mod engine;
 
-pub use engine::{Engine, EngineLimits};
+pub use engine::{Engine, EngineLimits, Game};
