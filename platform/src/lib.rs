@@ -26,7 +26,7 @@ mod time;
 
 use arrayvec::ArrayVec;
 
-use core::fmt::Arguments;
+use core::{fmt::Arguments, ops::ControlFlow};
 
 pub use boxed::*;
 pub use input::*;
@@ -52,10 +52,21 @@ pub type InputDevices = ArrayVec<InputDevice, 15>;
 ///
 /// Used to allow engine to do its thing each frame, and to pass events to it.
 pub trait EngineCallbacks {
+    /// The game-specific parameters for [`EngineCallbacks::init`].
+    type InitParams;
+
+    /// The arena type for [`EngineCallbacks::init`].
+    type Arena;
+
+    /// Initialization step ran at the start of the game loop, and when reset
+    /// by a [`ControlFlow::Break`] with [`EngineCallbacks::InitParams`].
+    fn init(&mut self, params: Self::InitParams, arena: &mut Self::Arena);
+
     /// Run one frame of the game loop.
-    fn run_frame(&mut self, platform: &dyn Platform);
+    fn run_frame(&mut self, platform: &dyn Platform) -> ControlFlow<Option<Self::InitParams>>;
+
     /// Handle an event.
-    fn event(&mut self, event: Event, timestamp: Instant, platform: &dyn Platform);
+    fn event(&mut self, event: Event, timestamp: Instant);
 }
 
 /// A trait for using platform-dependent features from the engine without
