@@ -2,17 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::ops::ControlFlow;
-
 use engine::{
     allocators::LinearAllocator,
+    game_objects::Scene,
     geom::Rect,
     input::{ActionKind, ActionState, InputDeviceState},
     renderer::DrawQueue,
-    resources::{audio_clip::AudioClipHandle, sprite::SpriteHandle, ResourceDatabase},
-    EngineRef, Game,
+    resources::{audio_clip::AudioClipHandle, sprite::SpriteHandle},
+    Engine,
 };
-use platform::{ActionCategory, Event, Instant, Platform};
+use platform::{ActionCategory, Event, Platform};
 
 #[cfg(feature = "sdl2")]
 fn main() {
@@ -27,9 +26,12 @@ fn main() {
 
     let platform = Sdl2Platform::new("example game");
     static PERSISTENT_ARENA: &LinearAllocator = static_allocator!(64 * 1024 * 1024);
+    let mut engine = Engine::new(&platform, PERSISTENT_ARENA, EngineLimits::DEFAULT);
     let game_arena = LinearAllocator::new(PERSISTENT_ARENA, 8 * 1024 * 1024).unwrap();
-    let mut engine = Engine::<ExampleGame>::new(&platform, PERSISTENT_ARENA, EngineLimits::DEFAULT);
-    platform.run_game_loop(&mut engine, game_arena, ());
+    let mut game = ExampleGame::new(&game_arena, &engine);
+    platform.run_game_loop(&mut engine, |_, platform, engine| {
+        game.run_frame(platform, engine);
+    });
 }
 
 #[cfg(not(any(feature = "sdl2")))]
@@ -38,44 +40,40 @@ fn main() {
 }
 
 #[repr(usize)]
-enum TestInput {
+enum ExampleInput {
     Act,
     _Count,
 }
 
-struct ExampleGame {
-    test_input: Option<InputDeviceState<{ TestInput::_Count as usize }>>,
+struct ExampleGame<'a> {
+    test_input: Option<InputDeviceState<{ ExampleInput::_Count as usize }>>,
     test_sprite: SpriteHandle,
     test_audio: AudioClipHandle,
     test_counter: u32,
+    scene: Scene<'a>,
 }
 
-impl Game<'_> for ExampleGame {
-    type InitParams = ();
-
-    fn init(
-        _params: Self::InitParams,
-        _arena: &LinearAllocator,
-        resources: &ResourceDatabase,
-    ) -> Self {
-        let test_sprite = resources.find_sprite("testing sprite").unwrap();
-        let test_audio = resources.find_audio_clip("test audio clip").unwrap();
+impl<'a> ExampleGame<'a> {
+    fn new(arena: &'a LinearAllocator, engine: &Engine) -> Self {
+        let test_sprite = engine.resource_db.find_sprite("testing sprite").unwrap();
+        let test_audio = engine
+            .resource_db
+            .find_audio_clip("test audio clip")
+            .unwrap();
         Self {
             test_input: None,
             test_sprite,
             test_audio,
             test_counter: 0,
+            scene: Scene::builder()
+                .build(arena, &engine.frame_arena)
+                .expect("should have enough memory for the test scene"),
         }
     }
 
-    fn run_frame(
-        &mut self,
-        _timestamp: Instant,
-        engine: EngineRef,
-        platform: &dyn Platform,
-    ) -> ControlFlow<Option<Self::InitParams>> {
+    fn run_frame(&mut self, platform: &dyn Platform, engine: &mut Engine) {
         let scale_factor = platform.draw_scale_factor();
-        let mut draw_queue = DrawQueue::new(engine.frame_arena, 100_000, scale_factor).unwrap();
+        let mut draw_queue = DrawQueue::new(&engine.frame_arena, 100_000, scale_factor).unwrap();
 
         let mut action_test = false;
 
@@ -103,18 +101,19 @@ impl Game<'_> for ExampleGame {
             }
         }
 
-        // Handle input
         if let Some(input) = &mut self.test_input {
-            input.update(engine.event_queue);
-            action_test = input.actions[TestInput::Act as usize].pressed;
+            input.update(&mut engine.event_queue);
+            action_test = input.actions[ExampleInput::Act as usize].pressed;
         }
 
         if action_test {
             engine
                 .audio_mixer
-                .play_clip(0, self.test_audio, true, engine.resource_db);
+                .play_clip(0, self.test_audio, true, &engine.resource_db);
             self.test_counter += 1;
         }
+
+        self.scene.run_system(|_, _| false);
 
         let test_sprite = engine.resource_db.get_sprite(self.test_sprite);
         let mut offset = 0.0;
@@ -129,14 +128,13 @@ impl Game<'_> for ExampleGame {
                 Rect::xywh(offset, 0.0, w, h),
                 0,
                 &mut draw_queue,
-                engine.resource_db,
-                engine.resource_loader,
+                &engine.resource_db,
+                &mut engine.resource_loader,
             );
             assert!(draw_success);
             offset += w + 20.0;
         }
 
-        draw_queue.dispatch_draw(engine.frame_arena, platform);
-        ControlFlow::Continue(())
+        draw_queue.dispatch_draw(&engine.frame_arena, platform);
     }
 }

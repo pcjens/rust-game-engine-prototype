@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use core::ops::ControlFlow;
-
 use arrayvec::ArrayVec;
 use platform::{
     thread_pool::ThreadPool, EngineCallbacks, Event, Instant, Platform, AUDIO_SAMPLE_RATE,
@@ -32,12 +30,6 @@ pub struct EngineLimits {
     ///
     /// Defaults to 8 MiB (`8 * 1024 * 1024`).
     pub frame_arena_size: usize,
-    /// The size of the game initialization allocator passed into
-    /// [`Game::init`], which is allocated from the same arena as passed into
-    /// [`Engine::new`], but not used for the [`Engine`].
-    ///
-    /// Defaults to 8MiB (`8 * 1024 * 1024`).
-    pub init_arena_size: usize,
     /// The maximum amount of concurrently loaded resource chunks. This count,
     /// multiplied by [`CHUNK_SIZE`](crate::resources::CHUNK_SIZE), is the
     /// amount of bytes allocated for non-VRAM based asset memory, like audio
@@ -113,7 +105,6 @@ impl EngineLimits {
     /// The default configuration for the engine used in its unit tests.
     pub const DEFAULT: EngineLimits = EngineLimits {
         frame_arena_size: 8 * 1024 * 1024,
-        init_arena_size: 8 * 1024 * 1024,
         resource_database_loaded_chunks_count: 128,
         resource_database_loaded_sprite_chunks_count: 512,
         resource_database_read_queue_capacity: 128,
@@ -130,72 +121,29 @@ impl Default for EngineLimits {
     }
 }
 
-/// Interface to game code from the engine and platform.
-pub trait Game<'a> {
-    /// The parameters which determine the state the game will initialize into
-    /// when calling [`Game::init`].
-    type InitParams;
-
-    /// Creates a new instance of the [`Game`] type, using memory from `arena`.
-    fn init(
-        params: Self::InitParams,
-        arena: &'a LinearAllocator,
-        resources: &ResourceDatabase,
-    ) -> Self;
-
-    /// Runs one frame's worth of game, possibly breaking out of the game loop
-    /// to reinitialize the game, or to quit.
-    ///
-    /// The return value is interpreted as:
-    /// - [`ControlFlow::Continue`]: nothing out of the ordinary, continue the
-    ///   game loop.
-    /// - [`ControlFlow::Break`]`(Some(InitParams))`: break out of the game loop
-    ///   to reinitialize the game with [`Game::init`], using the returned
-    ///   parameters, then restart the game loop.
-    /// - [`ControlFlow::Break`]`(None)`: break out of the game loop and let the
-    ///   process exit.
-    fn run_frame(
-        &mut self,
-        timestamp: Instant,
-        engine: EngineRef,
-        platform: &dyn Platform,
-    ) -> ControlFlow<Option<Self::InitParams>>;
-}
-
-/// Access to engine systems in [`Game::run_frame`].
-pub struct EngineRef<'a, 'b> {
+/// The top-level structure of the game engine which owns all the runtime state
+/// of the game engine and has methods for running the engine.
+pub struct Engine<'a> {
     /// Database of the non-code parts of the game, e.g. sprites.
-    pub resource_db: &'a mut ResourceDatabase,
+    pub resource_db: ResourceDatabase,
     /// Queue of loading tasks which insert loaded chunks into the `resource_db`
     /// occasionally.
-    pub resource_loader: &'a mut ResourceLoader,
+    pub resource_loader: ResourceLoader,
     /// Linear allocator for any frame-internal dynamic allocation needs. Reset
     /// at the start of each frame.
-    pub frame_arena: &'a mut LinearAllocator<'b>,
+    pub frame_arena: LinearAllocator<'a>,
     /// Thread pool for splitting compute-heavy workloads to multiple threads.
-    pub thread_pool: &'a mut ThreadPool,
+    pub thread_pool: ThreadPool,
     /// Mixer for playing back audio.
-    pub audio_mixer: &'a mut Mixer,
+    pub audio_mixer: Mixer,
     /// Queued up events from the platform layer. Discarded after
     /// being used by the game to trigger an action via
     /// [`InputDeviceState`](crate::input::InputDeviceState), or after
     /// a timeout if not.
-    pub event_queue: &'a mut EventQueue,
+    pub event_queue: EventQueue,
 }
 
-/// The top-level structure of the game engine which owns all the runtime state
-/// of the game engine and has methods for running the engine.
-pub struct Engine<'a, G: Game<'a>> {
-    resource_db: ResourceDatabase,
-    resource_loader: ResourceLoader,
-    frame_arena: LinearAllocator<'a>,
-    thread_pool: ThreadPool,
-    audio_mixer: Mixer,
-    event_queue: EventQueue,
-    game: Option<G>,
-}
-
-impl<'a, G: Game<'a>> Engine<'a, G> {
+impl Engine<'_> {
     /// Creates a new instance of the engine.
     ///
     /// - `platform`: the platform implementation to be used for this instance
@@ -263,23 +211,17 @@ impl<'a, G: Game<'a>> Engine<'a, G> {
             audio_mixer,
             thread_pool,
             event_queue: ArrayVec::new(),
-            game: None,
         }
     }
 }
 
-impl<'a, G: Game<'a>> EngineCallbacks for Engine<'a, G> {
-    type InitParams = G::InitParams;
-    type Arena = LinearAllocator<'a>;
-
-    fn init(&mut self, _params: Self::InitParams, arena: &mut Self::Arena) {
-        arena.reset();
-        // TODO: init the game
-    }
-
-    fn run_frame(&mut self, platform: &dyn Platform) -> ControlFlow<Option<Self::InitParams>> {
+impl EngineCallbacks for Engine<'_> {
+    fn run_frame(
+        &mut self,
+        platform: &dyn Platform,
+        run_game_frame: &mut dyn FnMut(Instant, &dyn Platform, &mut Self),
+    ) {
         profiling::function_scope!();
-        let mut frame_result = ControlFlow::Continue(());
 
         let timestamp = platform.now();
         self.frame_arena.reset();
@@ -289,22 +231,7 @@ impl<'a, G: Game<'a>> EngineCallbacks for Engine<'a, G> {
         self.resource_db.sprite_chunks.increment_ages();
         self.audio_mixer.update_audio_sync(timestamp, platform);
 
-        if let Some(game) = &mut self.game {
-            if let ControlFlow::Break(init_params) = game.run_frame(
-                timestamp,
-                EngineRef {
-                    resource_db: &mut self.resource_db,
-                    resource_loader: &mut self.resource_loader,
-                    frame_arena: &mut self.frame_arena,
-                    thread_pool: &mut self.thread_pool,
-                    audio_mixer: &mut self.audio_mixer,
-                    event_queue: &mut self.event_queue,
-                },
-                platform,
-            ) {
-                frame_result = ControlFlow::Break(init_params);
-            }
-        }
+        run_game_frame(timestamp, platform, self);
 
         self.audio_mixer.render_audio(
             &mut self.thread_pool,
@@ -317,7 +244,6 @@ impl<'a, G: Game<'a>> EngineCallbacks for Engine<'a, G> {
             .retain(|queued| !queued.timed_out(timestamp));
 
         profiling::finish_frame!();
-        frame_result
     }
 
     fn event(&mut self, event: Event, timestamp: Instant) {
@@ -328,8 +254,6 @@ impl<'a, G: Game<'a>> EngineCallbacks for Engine<'a, G> {
 
 #[cfg(test)]
 mod tests {
-    use core::ops::ControlFlow;
-
     use platform::{
         ActionCategory, Button, EngineCallbacks, Event, InputDevice, Instant, Platform,
     };
@@ -344,7 +268,7 @@ mod tests {
         test_platform::TestPlatform,
     };
 
-    use super::{Engine, EngineLimits, EngineRef, Game};
+    use super::{Engine, EngineLimits};
 
     #[repr(usize)]
     enum TestInput {
@@ -359,14 +283,8 @@ mod tests {
         test_counter: u32,
     }
 
-    impl Game<'_> for SmokeTestGame {
-        type InitParams = (InputDevice, Option<Button>);
-
-        fn init(
-            (device, button): Self::InitParams,
-            _: &LinearAllocator,
-            resources: &ResourceDatabase,
-        ) -> Self {
+    impl SmokeTestGame {
+        fn new(device: InputDevice, button: Button, resources: &ResourceDatabase) -> Self {
             let test_sprite = resources.find_sprite("testing sprite").unwrap();
             let test_audio = resources.find_audio_clip("test audio clip").unwrap();
             let test_input = InputDeviceState {
@@ -375,7 +293,7 @@ mod tests {
                     // TestInput::Act
                     ActionState {
                         kind: ActionKind::Instant,
-                        mapping: button,
+                        mapping: Some(button),
                         disabled: false,
                         pressed: false,
                     },
@@ -389,22 +307,18 @@ mod tests {
             }
         }
 
-        fn run_frame(
-            &mut self,
-            _timestamp: Instant,
-            engine: EngineRef,
-            platform: &dyn Platform,
-        ) -> ControlFlow<Option<Self::InitParams>> {
+        fn run_frame(&mut self, _: Instant, platform: &dyn Platform, engine: &mut Engine) {
             let scale_factor = platform.draw_scale_factor();
-            let mut draw_queue = DrawQueue::new(engine.frame_arena, 100_000, scale_factor).unwrap();
+            let mut draw_queue =
+                DrawQueue::new(&engine.frame_arena, 100_000, scale_factor).unwrap();
 
-            self.test_input.update(engine.event_queue);
+            self.test_input.update(&mut engine.event_queue);
             let action_test = self.test_input.actions[TestInput::Act as usize].pressed;
 
             if action_test {
                 engine
                     .audio_mixer
-                    .play_clip(0, self.test_audio, true, engine.resource_db);
+                    .play_clip(0, self.test_audio, true, &engine.resource_db);
                 self.test_counter += 1;
             }
 
@@ -421,15 +335,14 @@ mod tests {
                     Rect::xywh(offset, 0.0, w, h),
                     0,
                     &mut draw_queue,
-                    engine.resource_db,
-                    engine.resource_loader,
+                    &engine.resource_db,
+                    &mut engine.resource_loader,
                 );
                 assert!(draw_success);
                 offset += w + 20.0;
             }
 
-            draw_queue.dispatch_draw(engine.frame_arena, platform);
-            ControlFlow::Continue(())
+            draw_queue.dispatch_draw(&engine.frame_arena, platform);
         }
     }
 
@@ -441,7 +354,7 @@ mod tests {
             .default_button_for_action(ActionCategory::ActPrimary, device)
             .unwrap();
 
-        let mut engine = Engine::<SmokeTestGame>::new(
+        let mut engine = Engine::new(
             platform,
             persistent_arena,
             EngineLimits {
@@ -449,6 +362,11 @@ mod tests {
                 ..EngineLimits::DEFAULT
             },
         );
+
+        let mut game = SmokeTestGame::new(device, button, &engine.resource_db);
+        let mut run_frame = |timestamp: Instant, platform: &dyn Platform, engine: &mut Engine| {
+            game.run_frame(timestamp, platform, engine);
+        };
 
         let fps = 10;
         for current_frame in 0..(4 * fps) {
@@ -468,7 +386,7 @@ mod tests {
                 }
             }
 
-            engine.run_frame(platform);
+            engine.run_frame(platform, &mut run_frame);
         }
     }
 
