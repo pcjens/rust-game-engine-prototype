@@ -242,7 +242,7 @@ impl Iterator for GameObjectHandleIterator {
 ///
 /// // Run a "physics simulation" system for all game objects which
 /// // have a Position and Velocity component:
-/// scene.run_system(define_system!(|_| |pos: &mut [Position], vel: &[Velocity]| {
+/// scene.run_system(define_system!(|_, pos: &mut [Position], vel: &[Velocity]| {
 ///     // This closure gets called once for each game object type with a Position
 ///     // and a Velocity, passing in that type's components, which can be zipped
 ///     // and iterated through to operate on a single game object's data at a
@@ -257,7 +257,7 @@ impl Iterator for GameObjectHandleIterator {
 ///
 /// // Just assert that we ended up where we intended to end up.
 /// let mut positions_in_scene = 0;
-/// scene.run_system(define_system!(|_| |pos: &[Position]| {
+/// scene.run_system(define_system!(|_, pos: &[Position]| {
 ///     for pos in pos {
 ///         assert_eq!(120, pos.x);
 ///         assert_eq!(90, pos.y);
@@ -269,7 +269,7 @@ impl Iterator for GameObjectHandleIterator {
 /// // Game objects can be deleted by collecting and deleting them in batches:
 /// use engine::collections::FixedVec;
 /// let mut handles_to_delete = FixedVec::new(temp_arena, 1).unwrap();
-/// scene.run_system(define_system!(|handles| |pos: &[Position]| {
+/// scene.run_system(define_system!(|handles, pos: &[Position]| {
 ///     for (handle, pos) in handles.zip(pos) {
 ///         if pos.x == 120 {
 ///             handles_to_delete.push(handle).unwrap();
@@ -281,8 +281,6 @@ impl Iterator for GameObjectHandleIterator {
 /// // handles_to_delete would need to be re-acquired from a run_system call.
 /// scene.delete(&mut handles_to_delete).unwrap();
 /// ```
-// TODO: figure out how games should approach Scenes' lifetimes
-// (and update the above example accordingly)
 pub struct Scene<'a> {
     /// A unique identifier for distinguishing between [`GameObjectHandle`]s
     /// acquired from different scenes.
@@ -333,15 +331,15 @@ impl Scene<'_> {
     /// using [`define_system`], this happens when the scene doesn't contain any
     /// game object types with the set of components requested.
     ///
+    /// The [`GameObjectHandleIterator`] returns handles to the game objects
+    /// associated with the components in a particular iteration, if iterated
+    /// through at the same pace as the component columns.
+    ///
     /// Each [`ComponentColumn`] contains tightly packed data for a specific
     /// component type, and the columns can be zipped together to iterate
     /// through sets of components belonging to a single game object, as
     /// component A at index N belongs to the same game object as component B at
     /// index N.
-    ///
-    /// The [`GameObjectHandleIterator`] returns handles to the game objects
-    /// associated with the components in a particular iteration, if iterated
-    /// through at the same pace as the component columns.
     ///
     /// This is intended to be used with [`define_system`], which can extract
     /// the relevant components from the component columns. See the [`Scene`]
@@ -432,23 +430,16 @@ pub fn extract_component_column<'a, C: Pod + Any>(
 /// Gutputs a closure that can be passed into [`Scene::run_system`], handling
 /// extracting properly typed component columns based on the parameter list.
 ///
-/// This macro only outputs a single closure with no inner closures, the pattern
-/// simply follows the syntax of closures to make the formatter happy and the
-/// code easy to read.
+/// The [`GameObjectHandleIterator`] parameter from [`Scene::run_system`] is
+/// always assigned to first parameter of the closure.
 ///
 /// The generated closure extracts the relevant component slices from the
 /// anonymous [`ComponentColumn`]s, and makes them available to the closure body
 /// as variables, using the names from the parameter list.
 ///
-/// Similarly, the [`GameObjectHandleIterator`] parameter from
-/// [`Scene::run_system`] is assigned to the pattern given as the parameter in
-/// the outer closure. Usually the pattern is either a variable name, or an
-/// underscore if the handles aren't needed.
-///
-/// For simplicity, the inner closure passed into this macro can only take
-/// mutable slices as parameters, but note that [`Scene::run_system`] takes a
-/// [`FnMut`], so the closure can borrow and even mutate their captured
-/// environment.
+/// For simplicity, the parameters after the first one can only be mutable
+/// slices, but note that [`Scene::run_system`] takes a [`FnMut`], so the
+/// closure can borrow and even mutate their captured environment.
 ///
 /// ### Example
 /// ```
@@ -466,7 +457,7 @@ pub fn extract_component_column<'a, C: Pod + Any>(
 /// # unsafe impl bytemuck::Pod for Velocity {}
 /// # let mut scene = Scene::builder().build(ARENA, ARENA).unwrap();
 /// let mut game_object_handle = None;
-/// scene.run_system(define_system!(|handles| |pos: &mut [Position], vel: &[Velocity]| {
+/// scene.run_system(define_system!(|handles, pos: &mut [Position], vel: &[Velocity]| {
 ///     for ((handle, pos), vel) in handles.zip(pos).zip(vel) {
 ///         pos.x += vel.x;
 ///         pos.y += vel.y;
@@ -493,7 +484,7 @@ macro_rules! define_system {
         } / |$($rest_names: $rest_types),+|)
     };
 
-    (|$handle_name:pat_param| |$($param_name:ident: $param_type:ty),+| $func_body:block) => {
+    (|$handle_name:pat_param, $($param_name:ident: $param_type:ty),+| $func_body:block) => {
         |#[allow(unused_variables)] handle_iter: $crate::game_objects::GameObjectHandleIterator,
          mut table: $crate::game_objects::ComponentVec<&mut $crate::game_objects::ComponentColumn>| {
             $crate::profiling::scope!("system_func", concat!(file!(), ":", line!()));
@@ -598,7 +589,7 @@ mod tests {
 
         // Assert that there aren't any ComponentA's with positive values:
         let mut processed_count = 0;
-        scene.run_system(define_system!(|_| |a: &[ComponentA]| {
+        scene.run_system(define_system!(|_, a: &[ComponentA]| {
             for a in a {
                 assert!(a.value <= 0);
                 processed_count += 1;
@@ -607,7 +598,7 @@ mod tests {
         assert!(processed_count > 0);
 
         // Apply some changes to GameObjectY's:
-        let system = define_system!(|_| |a: &mut [ComponentA], b: &[ComponentB]| {
+        let system = define_system!(|_, a: &mut [ComponentA], b: &[ComponentB]| {
             for (a, b) in a.iter_mut().zip(b) {
                 a.value += b.value as i64;
             }
@@ -617,7 +608,7 @@ mod tests {
         // Assert that there *are* positive values now, and delete them:
         let mut processed_count = 0;
         let mut handles_to_delete: ArrayVec<GameObjectHandle, 15> = ArrayVec::new();
-        scene.run_system(define_system!(|handles| |a: &[ComponentA]| {
+        scene.run_system(define_system!(|handles, a: &[ComponentA]| {
             for (handle, a) in handles.zip(a) {
                 if a.value > 0 {
                     handles_to_delete.push(handle);
@@ -631,7 +622,7 @@ mod tests {
         // Assert that there aren't any positive values anymore, now that they
         // were deleted:
         let mut processed_count = 0;
-        scene.run_system(define_system!(|_| |a: &[ComponentA]| {
+        scene.run_system(define_system!(|_, a: &[ComponentA]| {
             for a in a {
                 assert!(a.value <= 0);
                 processed_count += 1;

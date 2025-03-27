@@ -19,4 +19,14 @@ impl Rect {
     pub const fn xywh(x: f32, y: f32, w: f32, h: f32) -> Rect {
         Rect { x, y, w, h }
     }
+
+    /// Creates a new [`Rect`] from a given center coordinate and dimensions.
+    pub const fn around(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect {
+            x: x - w / 2.0,
+            y: y - h / 2.0,
+            w,
+            h,
+        }
+    }
 }

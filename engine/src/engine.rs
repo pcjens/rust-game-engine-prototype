@@ -285,8 +285,8 @@ mod tests {
 
     impl SmokeTestGame {
         fn new(device: InputDevice, button: Button, resources: &ResourceDatabase) -> Self {
-            let test_sprite = resources.find_sprite("testing sprite").unwrap();
-            let test_audio = resources.find_audio_clip("test audio clip").unwrap();
+            let test_sprite = resources.find_sprite("player").unwrap();
+            let test_audio = resources.find_audio_clip("whack").unwrap();
             let test_input = InputDeviceState {
                 device,
                 actions: [

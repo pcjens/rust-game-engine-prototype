@@ -3,13 +3,13 @@
   "imports": [
     {
       "command": "add_sprite",
-      "name": "testing sprite",
-      "file": "resources/kellot.jpeg"
+      "name": "player",
+      "file": "resources/orange-cube.png"
     },
     {
       "command": "add_audio_clip",
-      "name": "test audio clip",
-      "file": "resources/tone.flac",
+      "name": "whack",
+      "file": "resources/whack.wav",
       "track": null
     }
   ]

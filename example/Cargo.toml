@@ -10,6 +10,7 @@ authors = ["Jens Pitkänen <jens.pitkanen@helsinki.fi>"]
 license = "GPL-3.0-or-later"
 
 [dependencies]
+bytemuck = { version = "1.22.0" }
 engine = { version = "0.1.0", path = "../engine" }
 platform = { version = "0.1.0", path = "../platform" }
 platform-sdl2 = { version = "0.1.0", path = "../platform-sdl2", optional = true }
