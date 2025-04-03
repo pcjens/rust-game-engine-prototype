@@ -50,6 +50,14 @@ pub struct RingBuffer<'a, T> {
     buffer_identifier: usize,
 }
 
+// Safety: if the allocations themselves are Sync, the the whole ring buffer is
+// sync, since the only non-Sync part of this struct is buffer_ptr, and there's
+// no additional thread safety concerns related to it. This is even more
+// straightforward than LinearAllocator's case (which otherwise similar),
+// because allocating from this in general requires a mutable borrow, which
+// means that any shared borrows between threads are all just reads.
+unsafe impl<T: Sync> Sync for RingBuffer<'_, T> {}
+
 fn make_buffer_id() -> usize {
     static BUFFER_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
     let prev_id = BUFFER_ID_COUNTER.fetch_add(1, Ordering::Relaxed);

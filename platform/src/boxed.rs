@@ -102,6 +102,10 @@ impl<T: ?Sized + Display> Display for Box<T> {
     }
 }
 
+// Safety: if the inner value is Sync, the box is Sync as well, there's no
+// additional thread safety semantics here.
+unsafe impl<T: ?Sized + Sync> Sync for Box<T> {}
+
 #[cfg(test)]
 mod tests {
     use core::sync::atomic::{AtomicBool, Ordering};
