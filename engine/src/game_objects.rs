@@ -413,6 +413,13 @@ impl Scene<'_> {
             Err(invalid_handles)
         }
     }
+
+    /// Deletes all game objects in this scene.
+    pub fn reset(&mut self) {
+        for table in self.game_object_tables.iter_mut() {
+            table.truncate(0);
+        }
+    }
 }
 
 /// Searches the columns for one containing components of type `C`, and returns

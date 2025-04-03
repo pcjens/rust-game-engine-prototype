@@ -5,13 +5,14 @@
 use bytemuck::{Pod, Zeroable};
 use engine::{
     allocators::LinearAllocator,
+    collections::FixedVec,
     define_system,
     game_objects::Scene,
     geom::Rect,
     impl_game_object,
     input::{ActionKind, ActionState, InputDeviceState},
     renderer::DrawQueue,
-    resources::sprite::SpriteHandle,
+    resources::{audio_clip::AudioClipHandle, sprite::SpriteHandle},
     Engine,
 };
 use platform::{ActionCategory, Event, Instant, Platform};
@@ -42,13 +43,7 @@ fn main() {
     compile_error!("at least one of the following platform features is required: 'sdl2'");
 }
 
-#[repr(usize)]
-enum Input {
-    MoveUp,
-    MoveDown,
-    #[doc(hidden)]
-    _Count,
-}
+// Components
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -59,15 +54,44 @@ struct PlayerMeta {
 unsafe impl Zeroable for PlayerMeta {}
 unsafe impl Pod for PlayerMeta {}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
 struct Position {
+    x: i32,
     y: i32,
-    side: i32,
 }
 
 unsafe impl Zeroable for Position {}
 unsafe impl Pod for Position {}
+impl Position {
+    fn offset(mut self, x: i32, y: i32) -> Self {
+        self.x += x;
+        self.y += y;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+struct Collider {
+    width: i32,
+    height: i32,
+}
+
+unsafe impl Zeroable for Collider {}
+unsafe impl Pod for Collider {}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+struct Velocity {
+    x: i32,
+    y: i32,
+    acc_x_delta_ms: i32,
+    acc_y_delta_ms: i32,
+}
+
+unsafe impl Zeroable for Velocity {}
+unsafe impl Pod for Velocity {}
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
@@ -76,11 +100,14 @@ struct Sprite(usize);
 unsafe impl Zeroable for Sprite {}
 unsafe impl Pod for Sprite {}
 
+// Game objects
+
 #[derive(Debug)]
 struct Player {
     tag: PlayerMeta,
     pos: Position,
     sprite: Sprite,
+    collider: Collider,
 }
 
 impl_game_object! {
@@ -88,18 +115,47 @@ impl_game_object! {
         tag: PlayerMeta,
         pos: Position,
         sprite: Sprite,
+        collider: Collider,
     }
+}
+
+#[derive(Debug)]
+struct Ball {
+    pos: Position,
+    sprite: Sprite,
+    collider: Collider,
+    velocity: Velocity,
+}
+
+impl_game_object! {
+    impl GameObject for Ball using components {
+        pos: Position,
+        sprite: Sprite,
+        collider: Collider,
+        velocity: Velocity,
+    }
+}
+
+// The rest of the game
+
+#[repr(usize)]
+enum Input {
+    MoveUp,
+    MoveDown,
+    Reset,
+    #[doc(hidden)]
+    _Count,
 }
 
 #[repr(usize)]
 enum SpriteIndex {
-    Player = 0,
+    Square = 0,
 }
 
 struct Game<'a> {
     player_inputs: Vec<InputDeviceState<{ Input::_Count as usize }>>,
     sprites: Vec<SpriteHandle>,
-    next_spawn_side: i32,
+    whack_sound: AudioClipHandle,
     prev_frame: platform::Instant,
     scene: Scene<'a>,
 }
@@ -107,17 +163,18 @@ struct Game<'a> {
 impl<'a> Game<'a> {
     fn new(arena: &'a LinearAllocator, engine: &Engine) -> Self {
         let player_sprite = engine.resource_db.find_sprite("player").unwrap();
-        let _whack_sound = engine.resource_db.find_audio_clip("whack").unwrap();
+        let whack_sound = engine.resource_db.find_audio_clip("whack").unwrap();
 
         Self {
             player_inputs: Vec::new(),
             sprites: vec![player_sprite],
+            whack_sound,
             scene: Scene::builder()
                 .with_game_object_type::<Player>(16)
+                .with_game_object_type::<Ball>(1)
                 .build(arena, &engine.frame_arena)
                 .expect("should have enough memory for the test scene"),
             prev_frame: Instant::reference(),
-            next_spawn_side: 1,
         }
     }
 }
@@ -135,6 +192,7 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
     let scale_factor = platform.draw_scale_factor();
     let mut draw_queue = DrawQueue::new(&engine.frame_arena, 100, scale_factor).unwrap();
 
+    let mut reset_game_requested = false;
     for event in &*engine.event_queue {
         match event.event {
             Event::DigitalInputPressed(device, _) | Event::DigitalInputReleased(device, _) => {
@@ -147,24 +205,11 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
                         continue;
                     }
 
-                    game.scene
-                        .spawn(Player {
-                            tag: PlayerMeta {
-                                device: device.inner(),
-                            },
-                            pos: Position {
-                                y: 100,
-                                side: game.next_spawn_side,
-                            },
-                            sprite: Sprite(SpriteIndex::Player as usize),
-                        })
-                        .unwrap();
-                    game.next_spawn_side *= -1;
-
+                    reset_game_requested = true;
                     game.player_inputs.push(InputDeviceState {
                         device,
                         actions: [
-                            // ExampleInput::MoveUp
+                            // Input::MoveUp
                             ActionState {
                                 kind: ActionKind::Held,
                                 mapping: platform
@@ -172,11 +217,19 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
                                 disabled: false,
                                 pressed: false,
                             },
-                            // ExampleInput::MoveDown
+                            // Input::MoveDown
                             ActionState {
                                 kind: ActionKind::Held,
                                 mapping: platform
                                     .default_button_for_action(ActionCategory::Down, device),
+                                disabled: false,
+                                pressed: false,
+                            },
+                            // Input::Reset
+                            ActionState {
+                                kind: ActionKind::Instant,
+                                mapping: platform
+                                    .default_button_for_action(ActionCategory::Jump, device),
                                 disabled: false,
                                 pressed: false,
                             },
@@ -191,46 +244,161 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
         input.update(&mut engine.event_queue);
     }
 
-    let move_by_input = |players: &mut [PlayerMeta], positions: &mut [Position]| {
-        for (player, pos) in players.iter().zip(positions) {
-            let Some(input) = game
-                .player_inputs
-                .iter()
-                .find(|i| i.device.inner() == player.device)
-            else {
-                continue;
-            };
-
-            let dy = input.actions[Input::MoveDown as usize].pressed as i32
-                - input.actions[Input::MoveUp as usize].pressed as i32;
-            pos.y += dy * delta_millis / 2;
-            pos.y = pos.y.clamp(0, screen_height as i32);
+    for input in &game.player_inputs {
+        if input.actions[Input::Reset as usize].pressed {
+            reset_game_requested = true;
+            break;
         }
-    };
+    }
 
+    if reset_game_requested {
+        game.scene.reset();
+
+        let mut next_spawn_side = -1;
+        for input in &game.player_inputs {
+            game.scene
+                .spawn(Player {
+                    tag: PlayerMeta {
+                        device: input.device.inner(),
+                    },
+                    pos: Position {
+                        x: screen_width as i32 * (1 + next_spawn_side) / 2,
+                        y: screen_height as i32 / 2,
+                    },
+                    sprite: Sprite(SpriteIndex::Square as usize),
+                    collider: Collider {
+                        width: 64,
+                        height: 128,
+                    },
+                })
+                .unwrap();
+            next_spawn_side *= -1;
+        }
+
+        game.scene
+            .spawn(Ball {
+                pos: Position {
+                    x: screen_width as i32 / 2,
+                    y: screen_height as i32 / 2,
+                },
+                sprite: Sprite(SpriteIndex::Square as usize),
+                collider: Collider {
+                    width: 32,
+                    height: 32,
+                },
+                velocity: Velocity {
+                    x: 400,
+                    y: 400,
+                    acc_x_delta_ms: 0,
+                    acc_y_delta_ms: 0,
+                },
+            })
+            .unwrap();
+    }
+
+    // Player movement
     game.scene.run_system(define_system!(
         |_, players: &mut [PlayerMeta], positions: &mut [Position]| {
-            move_by_input(players, positions);
+            for (player, pos) in players.iter().zip(positions) {
+                let Some(input) = game
+                    .player_inputs
+                    .iter()
+                    .find(|i| i.device.inner() == player.device)
+                else {
+                    continue;
+                };
+
+                let dy = input.actions[Input::MoveDown as usize].pressed as i32
+                    - input.actions[Input::MoveUp as usize].pressed as i32;
+                pos.y += dy * delta_millis / 2;
+                pos.y = pos.y.clamp(0, screen_height as i32);
+            }
         }
     ));
 
-    let mut render_sprites = |sprites: &[Sprite], positions: &[Position]| {
-        for (sprite, pos) in sprites.iter().zip(positions) {
-            let sprite = engine.resource_db.get_sprite(game.sprites[sprite.0]);
-            let x = screen_width * (0.5 + -0.4 * pos.side as f32);
-            debug_assert!(sprite.draw(
-                Rect::around(x, pos.y as f32, 32., 128.),
-                0,
-                &mut draw_queue,
-                &engine.resource_db,
-                &mut engine.resource_loader,
-            ));
+    // Collect collider states
+    let mut current_colliders = FixedVec::new(&engine.frame_arena, 20).unwrap();
+    game.scene.run_system(define_system!(
+        |_, positions: &[Position], colliders: &[Collider]| {
+            for (pos, collider) in positions.iter().copied().zip(colliders.iter().copied()) {
+                current_colliders.push((pos, collider)).unwrap();
+            }
         }
+    ));
+    let did_hit = |collider: Collider, pos: Position, ignore_pos: Position| -> bool {
+        if pos.x - collider.width / 2 < 0
+            || pos.x + collider.width / 2 >= screen_width as i32
+            || pos.y - collider.height / 2 < 0
+            || pos.y + collider.height / 2 >= screen_height as i32
+        {
+            return true;
+        }
+        for (other_pos, other_collider) in current_colliders.iter() {
+            if *other_pos == ignore_pos {
+                continue;
+            }
+            let no_x_overlap =
+                (other_pos.x - pos.x).abs() >= other_collider.width / 2 + collider.width / 2;
+            let no_y_overlap =
+                (other_pos.y - pos.y).abs() >= other_collider.height / 2 + collider.height / 2;
+            if !no_x_overlap && !no_y_overlap {
+                return true;
+            }
+        }
+        false
     };
 
+    // Move the ball (and bounce off the colliders collected)
     game.scene.run_system(define_system!(
-        |_, sprites: &[Sprite], positions: &[Position]| {
-            render_sprites(sprites, positions);
+        |_, colliders: &[Collider], positions: &mut [Position], velocities: &mut [Velocity]| {
+            for ((collider, pos), vel) in colliders.iter().zip(positions).zip(velocities) {
+                vel.acc_x_delta_ms += delta_millis;
+                vel.acc_y_delta_ms += delta_millis;
+                let dx = vel.x * vel.acc_x_delta_ms / 1000;
+                let dy = vel.y * vel.acc_y_delta_ms / 1000;
+                vel.acc_x_delta_ms -= dx * 1000 / vel.x;
+                vel.acc_y_delta_ms -= dy * 1000 / vel.y;
+
+                if did_hit(*collider, pos.offset(dx, dy), *pos) {
+                    if !did_hit(*collider, pos.offset(dx, 0), *pos) {
+                        vel.y *= -1;
+                        pos.x += dx;
+                    } else if !did_hit(*collider, pos.offset(0, dy), *pos) {
+                        vel.x *= -1;
+                        pos.y += dy;
+                    } else {
+                        vel.x *= -1;
+                        vel.y *= -1;
+                    }
+                    engine
+                        .audio_mixer
+                        .play_clip(0, game.whack_sound, true, &engine.resource_db);
+                } else {
+                    pos.x += dx;
+                    pos.y += dy;
+                }
+            }
+        }
+    ));
+
+    // Rendering
+    game.scene.run_system(define_system!(
+        |_, sprites: &[Sprite], positions: &[Position], colliders: &[Collider]| {
+            for ((sprite, pos), collider) in sprites.iter().zip(positions).zip(colliders) {
+                let sprite = engine.resource_db.get_sprite(game.sprites[sprite.0]);
+                debug_assert!(sprite.draw(
+                    Rect::around(
+                        pos.x as f32,
+                        pos.y as f32,
+                        collider.width as f32,
+                        collider.height as f32,
+                    ),
+                    0,
+                    &mut draw_queue,
+                    &engine.resource_db,
+                    &mut engine.resource_loader,
+                ));
+            }
         }
     ));
 
