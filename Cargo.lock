@@ -137,7 +137,9 @@ dependencies = [
  "engine",
  "platform",
  "platform-sdl2",
+ "platform-sdl3",
  "profiling",
+ "sdl3-main",
 ]
 
 [[package]]
@@ -340,6 +342,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-sdl3"
+version = "0.1.0"
+dependencies = [
+ "platform",
+ "sdl3-main",
+ "sdl3-sys",
+]
+
+[[package]]
 name = "png"
 version = "0.17.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -489,6 +500,28 @@ dependencies = [
  "libc",
  "version-compare",
 ]
+
+[[package]]
+name = "sdl3-main"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95399b641b404f61559455d1aa29e5587fde6d7dadae3d785a27ab2695673f36"
+dependencies = [
+ "sdl3-main-macros",
+ "sdl3-sys",
+]
+
+[[package]]
+name = "sdl3-main-macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae58599dd01dd58b4cafa3a52d3a80cd2fb3599764defb5ee534de8f340f2010"
+
+[[package]]
+name = "sdl3-sys"
+version = "0.4.7+SDL3-3.2.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d16a8a3623a4cb39a3661c81d9d4c5fd77ada27fc056e320b3651bf7bde1b1"
 
 [[package]]
 name = "serde"

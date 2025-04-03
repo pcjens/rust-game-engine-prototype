@@ -33,12 +33,30 @@ fn main() {
     let mut engine = Engine::new(&platform, PERSISTENT_ARENA, EngineLimits::DEFAULT);
     let game_arena = LinearAllocator::new(PERSISTENT_ARENA, 8 * 1024 * 1024).unwrap();
     let mut game = Game::new(&game_arena, &engine);
-    platform.run_game_loop(&mut engine, |_, platform, engine| {
-        run_frame(&mut game, platform, engine);
+    platform.run_game_loop(&mut engine, |timestamp, platform, engine| {
+        run_frame(timestamp, &mut game, platform, engine);
     });
 }
 
-#[cfg(not(any(feature = "sdl2")))]
+#[cfg(feature = "sdl3")]
+fn init() -> (Engine<'static>, Game<'static>) {
+    todo!()
+}
+
+#[cfg(feature = "sdl3")]
+fn iterate(
+    timestamp: Instant,
+    engine: &mut Engine,
+    game: &mut Game,
+    platform: &platform_sdl3::Sdl3Platform<Engine, Game>,
+) {
+    run_frame(timestamp, game, platform, engine);
+}
+
+#[cfg(feature = "sdl3")]
+platform_sdl3::define_sdl3_main!(Engine<'static>, Game<'static>, init, interate);
+
+#[cfg(not(any(feature = "sdl2", feature = "sdl3")))]
 fn main() {
     compile_error!("at least one of the following platform features is required: 'sdl2'");
 }
@@ -153,8 +171,8 @@ enum SpriteIndex {
 }
 
 struct Game<'a> {
-    player_inputs: Vec<InputDeviceState<{ Input::_Count as usize }>>,
-    sprites: Vec<SpriteHandle>,
+    player_inputs: FixedVec<'a, InputDeviceState<{ Input::_Count as usize }>>,
+    sprites: FixedVec<'a, SpriteHandle>,
     whack_sound: AudioClipHandle,
     prev_frame: platform::Instant,
     scene: Scene<'a>,
@@ -165,9 +183,12 @@ impl<'a> Game<'a> {
         let player_sprite = engine.resource_db.find_sprite("player").unwrap();
         let whack_sound = engine.resource_db.find_audio_clip("whack").unwrap();
 
+        let mut sprites = FixedVec::new(arena, 1).unwrap();
+        sprites.push(player_sprite).unwrap();
+
         Self {
-            player_inputs: Vec::new(),
-            sprites: vec![player_sprite],
+            player_inputs: FixedVec::new(arena, 16).unwrap(),
+            sprites,
             whack_sound,
             scene: Scene::builder()
                 .with_game_object_type::<Player>(16)
@@ -179,14 +200,13 @@ impl<'a> Game<'a> {
     }
 }
 
-fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
-    let now = platform.now();
-    let delta_millis = now
+fn run_frame(timestamp: Instant, game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
+    let delta_millis = timestamp
         .duration_since(game.prev_frame)
         .unwrap()
         .as_millis()
         .min(50) as i32;
-    game.prev_frame = now;
+    game.prev_frame = timestamp;
 
     let (screen_width, screen_height) = platform.draw_area();
     let scale_factor = platform.draw_scale_factor();
@@ -206,7 +226,7 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
                     }
 
                     reset_game_requested = true;
-                    game.player_inputs.push(InputDeviceState {
+                    let _ = game.player_inputs.push(InputDeviceState {
                         device,
                         actions: [
                             // Input::MoveUp
@@ -240,11 +260,11 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
         }
     }
 
-    for input in &mut game.player_inputs {
+    for input in game.player_inputs.iter_mut() {
         input.update(&mut engine.event_queue);
     }
 
-    for input in &game.player_inputs {
+    for input in &*game.player_inputs {
         if input.actions[Input::Reset as usize].pressed {
             reset_game_requested = true;
             break;
@@ -255,7 +275,7 @@ fn run_frame(game: &mut Game, platform: &dyn Platform, engine: &mut Engine) {
         game.scene.reset();
 
         let mut next_spawn_side = -1;
-        for input in &game.player_inputs {
+        for input in &*game.player_inputs {
             game.scene
                 .spawn(Player {
                     tag: PlayerMeta {

@@ -14,9 +14,12 @@ bytemuck = { version = "1.22.0" }
 engine = { version = "0.1.0", path = "../engine" }
 platform = { version = "0.1.0", path = "../platform" }
 platform-sdl2 = { version = "0.1.0", path = "../platform-sdl2", optional = true }
+platform-sdl3 = { version = "0.1.0", path = "../platform-sdl3", optional = true }
 profiling = { version = "1.0.16", default-features = false, optional = true }
+sdl3-main = { version = "0.4.1", optional = true }
 
 [features]
-default = ["sdl2"]
+default = ["sdl3"]
 sdl2 = ["dep:platform-sdl2"]
+sdl3 = ["dep:platform-sdl3", "dep:sdl3-main"]
 profile = ["dep:profiling", "profiling/profile-with-tracy"]

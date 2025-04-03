@@ -8,6 +8,7 @@ members = [
     "engine",
     "import-asset",
     "platform-sdl2",
+    "platform-sdl3",
     "example",
 ]
 resolver = "2"

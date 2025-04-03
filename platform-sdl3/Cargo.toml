@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2025 Jens Pitkanen <jens.pitkanen@helsinki.fi>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "platform-sdl3"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+platform = { version = "0.1.0", path = "../platform" }
+sdl3-main = { version = "0.4.1" }
+sdl3-sys = "0.4.7"
