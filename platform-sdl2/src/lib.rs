@@ -664,7 +664,9 @@ impl Platform for Sdl2Platform {
         // played by the engine don't start too early (which would pop)
         let latency_offset = {
             let canvas = self.canvas.borrow();
-            let fps = (canvas.window().display_mode().map(|dm| dm.refresh_rate)).unwrap_or(60);
+            let fps = (canvas.window().display_mode().map(|dm| dm.refresh_rate))
+                .unwrap_or(60)
+                .max(60);
             AUDIO_SAMPLE_RATE as u64 / fps as u64
         };
 
