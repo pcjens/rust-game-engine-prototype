@@ -13,17 +13,16 @@
 //!
 //! Generic core systems and types are provided by:
 //! - [`allocators`]: Memory allocators used by other parts of the engine,
-//!       mostly collections, for allocating dynamic amounts of data. Allocators
-//!       can be allocated from other allocators, and as such, the engine takes
-//!       one main allocator in [`Engine::new`] which is used directly or
-//!       indirectly for all allocations made by the engine.
+//!   mostly collections, for allocating dynamic amounts of data. Allocators can
+//!   be allocated from other allocators, and as such, the engine takes one main
+//!   allocator in [`Engine::new`] which is used directly or indirectly for all
+//!   allocations made by the engine.
 //! - [`collections`]: Simple collection types oriented around up-front
-//!       allocation. There are no Vec-style reallocating collections, to make
-//!       using linear allocators feasible, which in turn is desirable for
-//!       performance.
+//!   allocation. There are no Vec-style reallocating collections, to make using
+//!   linear allocators feasible, which in turn is desirable for performance.
 //! - [`geom`]: Geometry types and related math operations.
 //! - [`multithreading`]: Utilities for spreading work between multiple CPU
-//!       cores.
+//!   cores.
 //!
 //! Specific game engine systems can be found in:
 //! - [`resources`]: Resource/game asset types and their loading systems.
@@ -31,7 +30,7 @@
 //! - [`input`]: Input handling.
 //! - [`mixer`]: Audio playback.
 //! - [`game_objects`]: A scene/game object/component system to build gameplay
-//!       systems on.
+//!   systems on.
 
 #![no_std]
 #![warn(missing_docs)]
