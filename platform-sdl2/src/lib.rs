@@ -598,10 +598,16 @@ impl Platform for Sdl2Platform {
         unsafe { platform::Semaphore::new(semaphore, None) }
     }
 
+    #[cfg(not(target_os = "emscripten"))]
     fn available_parallelism(&self) -> usize {
         thread::available_parallelism()
             .map(|u| u.get())
             .unwrap_or(1)
+    }
+
+    #[cfg(target_os = "emscripten")]
+    fn available_parallelism(&self) -> usize {
+        1
     }
 
     fn spawn_pool_thread(&self, channels: [platform::TaskChannel; 2]) -> platform::ThreadState {

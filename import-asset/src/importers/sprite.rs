@@ -31,6 +31,11 @@ const CHUNK_STRIDE: usize = CHUNK_WIDTH * BPP;
 const CHUNK_BYTES: usize = CHUNK_STRIDE * CHUNK_HEIGHT;
 
 pub fn import(image_path: &Path, db: &mut RelatedChunkData) -> anyhow::Result<SpriteAsset> {
+    // TODO: find out why this sometimes results in an unloadable database (i.e.
+    // when adding a sprite into an existing db, that db becomes unreadable
+    // because there's sprite chunk references outside the actual existing
+    // sprite chunks, but removing the db file and recreating it entirely with
+    // reimport fixes it).
     let image_bytes = fs::read(image_path).context("Failed to open sprite file for importing")?;
     let image = load_from_memory(&image_bytes)
         .context("Failed to read image file as an image (unsupported format?)")?;
