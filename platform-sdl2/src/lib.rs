@@ -108,9 +108,10 @@ impl Sdl2Platform {
         let video = sdl_context
             .video()
             .expect("SDL video subsystem should be able to init");
-        let window = video
-            .window(title, 960, 540)
-            .allow_highdpi()
+        let mut window = video.window(title, 960, 540);
+        #[cfg(not(target_os = "emscripten"))]
+        let window = window.allow_highdpi(); // seems broken on emscripten
+        let window = window
             .position_centered()
             .resizable()
             .build()
