@@ -176,7 +176,13 @@ impl<T: Zeroable> RingBuffer<'_, T> {
         );
         let allocated_offset_with_padding =
             (self.allocated_offset + slice.metadata.padding) % self.buffer_len;
-        if slice.metadata.offset == allocated_offset_with_padding {
+        if slice.metadata.padding == 0 && slice.len() * size_of::<T>() == 0 {
+            // No memory was reserved, nothing needs to be done. This case
+            // exists because the offset might not match in this case, as a
+            // previous free might have reset the offset due to the actual
+            // allocated length being 0.
+            Ok(())
+        } else if slice.metadata.offset == allocated_offset_with_padding {
             let freed_len = slice.len();
             self.allocated_offset = (self.allocated_offset + freed_len) % self.buffer_len;
             self.allocated_len -= freed_len + slice.metadata.padding;
@@ -237,7 +243,13 @@ impl<T> RingBuffer<'_, T> {
         );
         let allocated_offset_with_padding =
             (self.allocated_offset + boxed.metadata.padding) % self.buffer_len;
-        if boxed.metadata.offset == allocated_offset_with_padding {
+        if boxed.metadata.padding == 0 && size_of::<T>() == 0 {
+            // No memory was reserved, nothing needs to be done. This case
+            // exists because the offset might not match in this case, as a
+            // previous free might have reset the offset due to the actual
+            // allocated length being 0.
+            Ok(())
+        } else if boxed.metadata.offset == allocated_offset_with_padding {
             self.allocated_offset = (self.allocated_offset + 1) % self.buffer_len;
             self.allocated_len -= 1 + boxed.metadata.padding;
             if self.allocated_len == 0 {
