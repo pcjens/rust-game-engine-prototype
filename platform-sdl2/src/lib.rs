@@ -14,7 +14,7 @@ use std::{
     ptr::{addr_of, null_mut},
     str::FromStr,
     sync::{Arc, Condvar, Mutex},
-    thread::{self, JoinHandle},
+    thread,
     time::Duration,
 };
 
@@ -50,7 +50,7 @@ enum Hid {
     },
 }
 
-type FileReadHandle = JoinHandle<Result<Vec<u8>, io::Error>>;
+type FileReadHandle = Result<Vec<u8>, io::Error>;
 
 struct FileHolder {
     path: PathBuf,
@@ -207,17 +207,7 @@ impl Sdl2Platform {
         while !self.exit_requested.get() {
             for event in event_pump.poll_iter() {
                 match event {
-                    Event::Quit { .. } => {
-                        self.exit_requested.set(true);
-                        thread::spawn(|| {
-                            // Force-exit the process after 1s, cleanup is pretty optional anyway.
-                            thread::sleep(Duration::from_secs(1));
-                            eprintln!(
-                                "Resource cleanup is taking too long, exiting non-gracefully."
-                            );
-                            std::process::exit(1);
-                        });
-                    }
+                    Event::Quit { .. } => std::process::exit(0),
                     Event::KeyDown {
                         keycode: Some(Keycode::Q),
                         keymod,
@@ -509,15 +499,13 @@ impl Platform for Sdl2Platform {
             file.task_id_counter += 1;
             let path = file.path.clone();
             let mut buffer_on_thread = vec![0; buffer.len()];
-            file.tasks.push((
-                id,
-                std::thread::spawn(move || {
-                    let mut file = File::open(path)?;
-                    file.seek(SeekFrom::Start(first_byte))?;
-                    file.read_exact(&mut buffer_on_thread)?;
-                    Ok(buffer_on_thread)
-                }),
-            ));
+            let read_file = || {
+                let mut file = File::open(path)?;
+                file.seek(SeekFrom::Start(first_byte))?;
+                file.read_exact(&mut buffer_on_thread)?;
+                Ok(buffer_on_thread)
+            };
+            file.tasks.push((id, read_file()));
             id
         };
         FileReadTask::new(file, id, buffer)
@@ -528,10 +516,10 @@ impl Platform for Sdl2Platform {
         let file = files
             .get(task.file().inner() as usize)
             .expect("invalid FileHandle");
-        let Some(idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
+        let Some(_idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
             panic!("tried to poll a read task with an invalid task id?");
         };
-        file.tasks[idx].1.is_finished()
+        true
     }
 
     fn finish_file_read(
@@ -547,12 +535,12 @@ impl Platform for Sdl2Platform {
                 panic!("tried to finish a read task with an invalid task id?");
             };
 
-            let (_, join_handle) = file.tasks.swap_remove(idx);
+            let (_, file_read) = file.tasks.swap_remove(idx);
 
             // Safety: this implementation does not share the borrow in the first place.
             let mut buffer = unsafe { task.into_inner() };
 
-            match join_handle.join().unwrap() {
+            match file_read {
                 Ok(read_bytes) => {
                     buffer.copy_from_slice(&read_bytes);
                     buffer
