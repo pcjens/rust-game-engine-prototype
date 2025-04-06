@@ -205,7 +205,7 @@ impl Mixer {
                             let first_sample_idx =
                                 (already_played.max(chunk_start) - chunk_start) as usize;
                             let last_sample_idx =
-                                (asset.samples.min(chunk_end) - chunk_start) as usize;
+                                (asset.samples.min(chunk_end).saturating_sub(chunk_start)) as usize;
                             if first_sample_idx < last_sample_idx {
                                 render_audio_chunk(
                                     &chunk_samples[first_sample_idx..last_sample_idx],
