@@ -32,6 +32,7 @@ impl Asset for AudioClipAsset {
 
     fn offset_chunks(&mut self, offset: i32) {
         self.chunks.start = (self.chunks.start as i32 + offset) as u32;
+        self.chunks.end = (self.chunks.end as i32 + offset) as u32;
     }
 
     fn get_sprite_chunks(&self) -> Option<Range<u32>> {

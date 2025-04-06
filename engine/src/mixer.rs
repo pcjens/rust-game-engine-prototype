@@ -196,8 +196,10 @@ impl Mixer {
                             break;
                         }
 
-                        let chunk_start = chunk_index * AUDIO_SAMPLES_PER_CHUNK as u32;
-                        let chunk_end = (chunk_index + 1) * AUDIO_SAMPLES_PER_CHUNK as u32;
+                        let chunk_start =
+                            (chunk_index - asset.chunks.start) * AUDIO_SAMPLES_PER_CHUNK as u32;
+                        let chunk_end =
+                            (chunk_index - asset.chunks.start + 1) * AUDIO_SAMPLES_PER_CHUNK as u32;
 
                         if let Some(chunk) = &resources.chunks.get(chunk_index) {
                             let chunk_samples =
