@@ -28,15 +28,19 @@ impl PlayingClip {
     }
 }
 
+/// Audio modulation settings that affect all sounds played on a specific
+/// channel.
 #[derive(Debug)]
-struct ChannelSettings {
-    volume: u8,
+pub struct ChannelSettings {
+    /// The volume of the audio, from 0 (muted) to 255 (played raw).
+    pub volume: u8,
 }
 
 /// Holds currently playing audio tracks and their playback parameters.
 pub struct Mixer {
     playing_clips: FixedVec<'static, PlayingClip>,
-    channels: FixedVec<'static, ChannelSettings>,
+    /// Configurable settings for the channels where audio clips are played.
+    pub channels: FixedVec<'static, ChannelSettings>,
     playback_buffer: FixedVec<'static, [i16; AUDIO_CHANNELS]>,
     /// The audio position where new sounds should start playing, updated at the
     /// start of each frame with [`Mixer::update_audio_sync`].
