@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /// A floating-point axis-aligned 2D rectangle.
+#[derive(Debug, Clone, Copy)]
 pub struct Rect {
     /// The horizontal coordinate of the top-left corner of the rectangle.
     pub x: f32,
