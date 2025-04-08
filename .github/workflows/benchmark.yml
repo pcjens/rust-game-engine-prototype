@@ -27,7 +27,7 @@ jobs:
     steps:
     - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - run: cargo build --release --package=example --timings
       env:
         CARGO_INCREMENTAL: 0

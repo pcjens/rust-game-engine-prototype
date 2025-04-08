@@ -19,7 +19,7 @@ jobs:
     steps:
     - run: sudo apt-get install -y libsdl2-dev
     - uses: dtolnay/rust-toolchain@stable
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - run: cargo build
     - run: cargo test
     - run: cargo test --package=engine
@@ -27,14 +27,17 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: dtolnay/rust-toolchain@stable
-    - uses: actions/checkout@v3
-    - run: cargo build --features="sdl2/bundled sdl2/static-link"
-    - run: cargo test --features="sdl2/bundled sdl2/static-link"
+    - uses: actions/checkout@v4
+    - run: |
+        cargo install cargo-vcpkg
+        cargo vcpkg build --manifest-path=example/Cargo.toml
+    - run: cargo build --features="sdl2/use-vcpkg sdl2/static-link"
+    - run: cargo test --features="sdl2/use-vcpkg sdl2/static-link"
   test-macos:
     runs-on: macos-latest
     steps:
     - uses: dtolnay/rust-toolchain@stable
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - run: cargo build --features="sdl2/bundled sdl2/static-link"
     - run: cargo test --features="sdl2/bundled sdl2/static-link"
   test-web:
@@ -45,22 +48,22 @@ jobs:
         targets: wasm32-unknown-emscripten
     - uses: actions/setup-node@v4
     - uses: mymindstorm/setup-emsdk@v14
-    - uses: actions/checkout@v3
-    - run: cargo build --target=wasm32-unknown-emscripten --features="sdl2/bundled sdl2/static-link"
+    - uses: actions/checkout@v4
+    - run: cargo build --target=wasm32-unknown-emscripten --features=sdl2/static-link
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
-        RUSTFLAGS: -C link-arg=-sSTACK_SIZE=1000000
-    - run: cargo test --target=wasm32-unknown-emscripten --features="sdl2/bundled sdl2/static-link"
+        EMCC_CFLAGS: -sSTACK_SIZE=1000000 -sUSE_SDL=2 -sASYNCIFY
+    - run: cargo test --target=wasm32-unknown-emscripten --features=sdl2/static-link
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
-        RUSTFLAGS: -C link-arg=-sSTACK_SIZE=1000000
+        EMCC_CFLAGS: -sSTACK_SIZE=1000000 -sUSE_SDL=2 -sASYNCIFY
   test-miri:
     runs-on: ubuntu-latest
     steps:
     - uses: dtolnay/rust-toolchain@nightly
       with:
         components: miri
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - run: cargo miri test
       env:
         # Leaks are ignored because intentional Box::leak is reported as such.
