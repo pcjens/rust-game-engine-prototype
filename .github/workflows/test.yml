@@ -49,11 +49,11 @@ jobs:
     - uses: actions/setup-node@v4
     - uses: mymindstorm/setup-emsdk@v14
     - uses: actions/checkout@v4
-    - run: cargo build --target=wasm32-unknown-emscripten --features=sdl2/static-link
+    - run: cargo build --target=wasm32-unknown-emscripten
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
         EMCC_CFLAGS: -sSTACK_SIZE=1000000 -sUSE_SDL=2 -sASYNCIFY
-    - run: cargo test --target=wasm32-unknown-emscripten --features=sdl2/static-link
+    - run: cargo test --target=wasm32-unknown-emscripten
       env:
         CARGO_TARGET_WASM32_UNKNOWN_EMSCRIPTEN_RUNNER: node
         EMCC_CFLAGS: -sSTACK_SIZE=1000000 -sUSE_SDL=2 -sASYNCIFY
