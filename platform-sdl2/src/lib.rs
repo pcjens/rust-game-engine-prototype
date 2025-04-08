@@ -50,11 +50,19 @@ enum Hid {
     },
 }
 
-type FileReadHandle = JoinHandle<Result<Vec<u8>, io::Error>>;
+enum FileReadSource {
+    Path(PathBuf),
+    Embedded(&'static [u8]),
+}
+
+enum FileRead {
+    Threaded(JoinHandle<Result<Vec<u8>, io::Error>>),
+    Embedded(&'static [u8]),
+}
 
 struct FileHolder {
-    path: PathBuf,
-    tasks: Vec<(u64, FileReadHandle)>,
+    source: FileReadSource,
+    tasks: Vec<(u64, FileRead)>,
     task_id_counter: u64,
 }
 
@@ -84,6 +92,7 @@ pub struct Sdl2Platform {
     /// List of input devices. Devices are never removed, so the InputDevice ids
     /// used for this platform are indices to this list.
     hids: RefCell<Vec<Hid>>,
+    embedded_files: Vec<(&'static str, &'static [u8])>,
     files: RefCell<Vec<FileHolder>>,
     shared_audio_buffer: SharedAudioBuffer,
 }
@@ -166,6 +175,7 @@ impl Sdl2Platform {
             texture_creator,
             textures: RefCell::new(Vec::new()),
             hids: RefCell::new(vec![Hid::Keyboard]),
+            embedded_files: Vec::new(),
             files: RefCell::new(Vec::new()),
             shared_audio_buffer,
         }
@@ -186,6 +196,10 @@ impl Sdl2Platform {
             }
         }
         None
+    }
+
+    pub fn embed_file(&mut self, path: &'static str, bytes: &'static [u8]) {
+        self.embedded_files.push((path, bytes));
     }
 
     pub fn run_game_loop<E: EngineCallbacks>(
@@ -478,14 +492,23 @@ impl Platform for Sdl2Platform {
 
     fn open_file(&self, path: &str) -> Option<FileHandle> {
         let handle = {
-            let path = PathBuf::from_str(path).ok()?;
-            if !path.exists() {
-                return None;
-            }
             let mut files = self.files.borrow_mut();
             let i = files.len() as u64;
+
+            let source = if let Some((_, embedded_bytes)) =
+                self.embedded_files.iter().find(|(path_, _)| path == *path_)
+            {
+                FileReadSource::Embedded(embedded_bytes)
+            } else {
+                let path = PathBuf::from_str(path).ok()?;
+                if !path.exists() {
+                    return None;
+                }
+                FileReadSource::Path(path)
+            };
+
             files.push(FileHolder {
-                path,
+                source,
                 tasks: Vec::new(),
                 task_id_counter: 0,
             });
@@ -508,17 +531,22 @@ impl Platform for Sdl2Platform {
                 .expect("invalid FileHandle");
             let id = file.task_id_counter;
             file.task_id_counter += 1;
-            let path = file.path.clone();
-            let mut buffer_on_thread = vec![0; buffer.len()];
-            file.tasks.push((
-                id,
-                std::thread::spawn(move || {
-                    let mut file = File::open(path)?;
-                    file.seek(SeekFrom::Start(first_byte))?;
-                    file.read_exact(&mut buffer_on_thread)?;
-                    Ok(buffer_on_thread)
-                }),
-            ));
+            let read = match &file.source {
+                FileReadSource::Path(path) => {
+                    let path = path.clone();
+                    let mut buffer_on_thread = vec![0; buffer.len()];
+                    FileRead::Threaded(std::thread::spawn(move || {
+                        let mut file = File::open(path)?;
+                        file.seek(SeekFrom::Start(first_byte))?;
+                        file.read_exact(&mut buffer_on_thread)?;
+                        Ok(buffer_on_thread)
+                    }))
+                }
+                FileReadSource::Embedded(bytes) => FileRead::Embedded(
+                    &bytes[first_byte as usize..first_byte as usize + buffer.len()],
+                ),
+            };
+            file.tasks.push((id, read));
             id
         };
         FileReadTask::new(file, id, buffer)
@@ -532,7 +560,10 @@ impl Platform for Sdl2Platform {
         let Some(idx) = file.tasks.iter().position(|(id, _)| *id == task.task_id()) else {
             panic!("tried to poll a read task with an invalid task id?");
         };
-        file.tasks[idx].1.is_finished()
+        match &file.tasks[idx].1 {
+            FileRead::Threaded(join_handle) => join_handle.is_finished(),
+            FileRead::Embedded(_) => true,
+        }
     }
 
     fn finish_file_read(
@@ -548,19 +579,25 @@ impl Platform for Sdl2Platform {
                 panic!("tried to finish a read task with an invalid task id?");
             };
 
-            let (_, join_handle) = file.tasks.swap_remove(idx);
+            let (_, read) = file.tasks.swap_remove(idx);
 
             // Safety: this implementation does not share the borrow in the first place.
             let mut buffer = unsafe { task.into_inner() };
 
-            match join_handle.join().unwrap() {
-                Ok(read_bytes) => {
-                    buffer.copy_from_slice(&read_bytes);
+            match read {
+                FileRead::Threaded(join_handle) => match join_handle.join().unwrap() {
+                    Ok(read_bytes) => {
+                        buffer.copy_from_slice(&read_bytes);
+                        buffer
+                    }
+                    Err(err) => {
+                        println!("[Sdl2Platform::finish_file_read]: could not read file: {err}");
+                        return Err(buffer);
+                    }
+                },
+                FileRead::Embedded(bytes) => {
+                    buffer.copy_from_slice(bytes);
                     buffer
-                }
-                Err(err) => {
-                    println!("[Sdl2Platform::finish_file_read]: could not read file: {err}");
-                    return Err(buffer);
                 }
             }
         };

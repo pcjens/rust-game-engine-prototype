@@ -20,6 +20,7 @@ profiling = { version = "1.0.16", default-features = false, optional = true }
 default = ["sdl2"]
 sdl2 = ["dep:platform-sdl2"]
 profile = ["dep:profiling", "profiling/profile-with-tracy"]
+embed-resources-db = []
 
 [package.metadata.vcpkg]
 dependencies = ["sdl2"]

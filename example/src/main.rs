@@ -28,7 +28,16 @@ fn main() {
     #[cfg(feature = "profile")]
     profiling::tracy_client::Client::start();
 
+    #[cfg(not(feature = "embed-resources-db"))]
     let platform = Sdl2Platform::new("example game");
+
+    #[cfg(feature = "embed-resources-db")]
+    let platform = {
+        let mut platform = Sdl2Platform::new("example game");
+        platform.embed_file("resources.db", include_bytes!("../resources.db"));
+        platform
+    };
+
     static PERSISTENT_ARENA: &LinearAllocator = static_allocator!(64 * 1024 * 1024);
     let mut engine = Engine::new(&platform, PERSISTENT_ARENA, EngineLimits::DEFAULT);
     let game_arena = LinearAllocator::new(PERSISTENT_ARENA, 8 * 1024 * 1024).unwrap();
